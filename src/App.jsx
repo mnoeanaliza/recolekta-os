@@ -1,0 +1,219 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { getAuth, signInAnonymously } from 'firebase/auth';
+import { 
+  Bike, LayoutDashboard, ClipboardList, FileSearch, TrendingUp, Clock, MapPin, 
+  CheckCircle2, Database, Download, Camera, User, Lock, Calendar, Trash2, Activity, ExternalLink, ShieldCheck, BarChart3, Filter, RefreshCw
+} from 'lucide-react';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
+  LineChart, Line, AreaChart, Area, LabelList
+} from 'recharts';
+import Papa from 'papaparse';
+import { jsPDF } from "jspdf";
+import autoTable from 'jspdf-autotable';
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+const cn = (...inputs) => twMerge(clsx(inputs));
+
+// --- 1. CONFIGURACIÓN ---
+const ADMIN_PASSWORD = "1234"; 
+const firebaseConfig = {
+  apiKey: "AIzaSyDwb_iRqVAPh7PI7TLVaThvBX6VPXgHbLM",
+  authDomain: "recolekta-app.firebaseapp.com",
+  projectId: "recolekta-app",
+  storageBucket: "recolekta-app.firebasestorage.app",
+  messagingSenderId: "367430492614",
+  appId: "1:367430492614:web:de8a74da7db328114dd2c7",
+  measurementId: "G-KB7BXRZ1QX"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+// --- 2. CATÁLOGOS PLANOS ---
+const CATALOGOS = {
+  transportistas: ["ANTONIO RIVAS", "BRAYAN REYES", "CARLOS SOSA", "DAVID ALVARADO", "EDWIN FLORES", "FELIX VASQUEZ", "FLOR CARDOZA", "GIOVANNI CALLEJAS", "HILDEBRANDO MENJIVAR", "JAIRO GIL", "JASON BARRERA", "ROGELIO MAZARIEGO", "TEODORO PÉREZ", "WALTER RIVAS"],
+  sucursales: ["Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", "Cojutepeque", "Zacatecoluca", "Santa Ana", "Merliot", "Escalón", "Médica", "Santa Tecla", "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares", "Metapán", "Marsella", "Opico", "N/A (EN RUTA)"],
+  areas: ["LABORATORIO / PROCESAMIENTO", "TUVET", "Imágenes Escalón", "Centro de Distribución", "LAB. Externo", "Contabilidad", "RRHH", "Contac Center", "Empresas", "Fisioterapia", "Cuentas por cobrar", "Mercadeo", "Fidelizacion", "IT", "LOGÍSTICA / RUTA"],
+  diligencias: ["Recolección de muestras", "Entrega de Muestras", "Traslado de toallas", "Traslado de reactivo", "Traslado de insumos", "Traslado de cortes", "Traslado de documentos", "Pago de aseguradora", "Pago o tramite bancario", "Tramite o diligencia extraordinaria", "INCIDENCIA EN RUTA"]
+};
+
+const RECOLECCION_STRINGS = ["recolección", "entrega", "muestras", "recepción", "recoleccion"];
+
+export default function App() {
+  const [appMode, setAppMode] = useState('user'); 
+  const [adminTab, setAdminTab] = useState('general'); 
+  const [dataSource, setDataSource] = useState('live'); 
+  const [liveData, setLiveData] = useState([]);
+  const [csvData, setCsvData] = useState([]);
+  const [filterMonth, setFilterMonth] = useState('all');
+  const [filterUser, setFilterUser] = useState('all');
+
+  const [form, setForm] = useState({ recolector: '', sucursal: '', area: '', tipo: '', hLlegada: '08', mLlegada: '00', pLlegada: 'AM', hSalida: '08', mSalida: '05', pSalida: 'AM', observaciones: '' });
+  const [suggestions, setSuggestions] = useState({ transportistas: [], sucursales: [] });
+  const [activeInput, setActiveInput] = useState(null);
+
+  useEffect(() => {
+    signInAnonymously(auth);
+    const q = query(collection(db, "registros_final_produccion"), orderBy("createdAt", "desc"), limit(1000));
+    const unsubscribe = onSnapshot(q, (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return () => unsubscribe();
+  }, []);
+
+  // --- 3. MOTOR DE DATOS (PROTEGIDO) ---
+  const metrics = useMemo(() => {
+    const data = dataSource === 'live' ? liveData : csvData;
+    const fallback = { eficiencia: 0, promRec: 0, promDil: 0, recsCount: 0, dilsCount: 0, total: 0, monthlyData: [], topSucursales: [], filteredRows: [] };
+    
+    if (!data || data.length === 0) return fallback;
+
+    try {
+      let filtered = [...data];
+      if (filterMonth !== 'all') filtered = filtered.filter(d => (d.month === parseInt(filterMonth)) || (new Date(d.createdAt).getMonth() + 1 === parseInt(filterMonth)));
+      if (filterUser !== 'all') filtered = filtered.filter(d => d.recolector === filterUser);
+
+      const recs = filtered.filter(d => d.categoria === 'Recolección' || RECOLECCION_STRINGS.some(s => d.tipo?.toLowerCase().includes(s)));
+      const dils = filtered.filter(d => d.categoria === 'Diligencia' || !RECOLECCION_STRINGS.some(s => d.tipo?.toLowerCase().includes(s)));
+      
+      const efCount = recs.filter(d => (d.tiempo || 0) <= 5).length;
+      const eficiencia = recs.length > 0 ? ((efCount / recs.length) * 100).toFixed(1) : 0;
+      const promRec = recs.length > 0 ? (recs.reduce((a,b)=>a+(b.tiempo||0),0)/recs.length).toFixed(1) : 0;
+      const promDil = dils.length > 0 ? (dils.reduce((a,b)=>a+(b.tiempo||0),0)/dils.length).toFixed(1) : 0;
+
+      const labels = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      const monthlyData = labels.map((m, i) => {
+        let mDocs = data.filter(d => (d.month === i+1) || (new Date(d.createdAt).getMonth() === i));
+        if (filterUser !== 'all') mDocs = mDocs.filter(d => d.recolector === filterUser);
+        const mRecs = mDocs.filter(d => d.categoria === 'Recolección' || RECOLECCION_STRINGS.some(s => d.tipo?.toLowerCase().includes(s)));
+        const mEf = mRecs.length > 0 ? (mRecs.filter(d => (d.tiempo || 0) <= 5).length / mRecs.length) * 100 : 0;
+        return { name: m, ef: parseFloat(mEf.toFixed(1)), count: mDocs.length };
+      }).filter(d => d.count > 0);
+
+      const topSucursales = Object.entries(filtered.reduce((acc, curr) => {
+        if(!curr.sucursal || curr.sucursal === 'N/A') return acc;
+        acc[curr.sucursal] = acc[curr.sucursal] || {t:0, c:0}; acc[curr.sucursal].t += (curr.tiempo||0); acc[curr.sucursal].c++; return acc;
+      }, {})).map(([name, d]) => ({ name, time: parseFloat((d.t/d.c).toFixed(1)) })).sort((a,b)=>b.time-a.time).slice(0, 8);
+
+      return { ...fallback, total: filtered.length, recsCount: recs.length, dilsCount: dils.length, eficiencia, promRec, promDil, monthlyData, topSucursales, filteredRows: filtered };
+    } catch (e) { return fallback; }
+  }, [liveData, csvData, filterMonth, filterUser, dataSource]);
+
+  // --- 4. REPORTE PDF (FORMATO SOLICITADO) ---
+  const downloadReport = () => {
+    if (!metrics || metrics.total === 0) return alert("Cargue datos primero.");
+    const doc = new jsPDF();
+    doc.setFillColor(15, 23, 42); doc.rect(0,0,210,45,'F');
+    doc.setTextColor(255); doc.setFontSize(22); doc.text("RECOLEKTA OS", 45, 25);
+    doc.setDrawColor(34, 197, 94); doc.circle(25,25,8,'S'); doc.text("R", 22.5, 27);
+    doc.setTextColor(40); doc.setFontSize(14); doc.text(filterUser==='all'?"REPORTE CONSOLIDADO":"FICHA INDIVIDUAL: "+filterUser, 20, 60);
+
+    const rows = metrics.monthlyData.map(m => {
+      const idx = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].indexOf(m.name);
+      const mDocs = metrics.filteredRows.filter(d => (d.month === idx+1) || (new Date(d.createdAt).getMonth() === idx));
+      const mRecs = mDocs.filter(d => d.categoria === 'Recolección' || RECOLECCION_STRINGS.some(s => d.tipo?.toLowerCase().includes(s)));
+      const mDils = mDocs.filter(d => d.categoria === 'Diligencia' || !RECOLECCION_STRINGS.some(s => d.tipo?.toLowerCase().includes(s)));
+      const mEf = mRecs.length > 0 ? ((mRecs.filter(d => (d.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0;
+      const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0;
+      const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0;
+      return [m.name, mRecs.length, `${mAvgR}m`, mDils.length, `${mAvgD}m`, `${mEf}%` ];
+    });
+
+    autoTable(doc, { startY: 75, head: [['Periodo', 'N° Recs', 'Prom. Rec', 'N° Dils', 'Prom. Dil', 'Eficiencia %']], body: rows, headStyles: { fillColor: [15, 23, 42] }});
+    doc.save(`Recolekta_Reporte_${filterUser}.pdf`);
+  };
+
+  // --- 5. UI HANDLERS ---
+  const handleModeSwitch = (mode) => {
+    if (mode === 'admin') {
+      const p = prompt("Acceso Administrativo. Ingrese Clave:"); if (p === ADMIN_PASSWORD) { setAppMode('admin'); setDataSource('live'); }
+    } else setAppMode('user');
+  };
+
+  const handleAutocomplete = (field, val) => {
+    setForm(prev => ({ ...prev, [field]: val.toUpperCase() }));
+    if (val.length > 0) {
+      const cat = field === 'recolector' ? 'transportistas' : 'sucursales';
+      setSuggestions({ ...suggestions, [cat]: CATALOGOS[cat].filter(i => i.toUpperCase().includes(val.toUpperCase())).slice(0, 6) });
+      setActiveInput(field);
+    } else setActiveInput(null);
+  };
+
+  const timeToMins = (h, m, p) => { let hh = parseInt(h); if (p === 'PM' && hh < 12) hh += 12; if (p === 'AM' && hh === 12) hh = 0; return hh * 60 + parseInt(m); };
+  const getWait = () => { const s = timeToMins(form.hLlegada, form.mLlegada, form.pLlegada), e = timeToMins(form.hSalida, form.mSalida, form.pSalida); return (e-s)>=0?e-s:0; };
+
+  const KPICard = ({ title, value, subtitle, icon: Icon, color }) => (
+    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-start justify-between relative overflow-hidden transition-all hover:shadow-md">
+      <div className="relative z-10"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{title}</p><h3 className="text-2xl font-black text-slate-800 tracking-tight">{value}</h3><p className="text-[10px] text-slate-500 font-medium">{subtitle}</p></div>
+      <div className={cn("p-3 rounded-2xl", color)}><Icon className="text-white" size={20} /></div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-[#F4F7FE] text-slate-800 font-sans pb-10">
+      {/* HEADER */}
+      <nav className="bg-white border-b border-slate-200 px-8 py-4 sticky top-0 z-50 flex justify-between items-center shadow-sm">
+        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-lg rotate-3"><Bike size={22}/></div><h1 className="text-xl font-black uppercase tracking-tighter">Recolekta <span className="text-green-600">OS</span></h1></div>
+        <div className="flex bg-slate-100 p-1 rounded-xl border"><button onClick={() => handleModeSwitch('user')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", appMode === 'user' ? "bg-white text-slate-900 shadow-md" : "text-slate-400")}>Usuario</button><button onClick={() => handleModeSwitch('admin')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", appMode === 'admin' ? "bg-white text-slate-900 shadow-md" : "text-slate-400")}>Administrador</button></div>
+      </nav>
+
+      <main className="max-w-7xl mx-auto p-6">
+        {appMode === 'user' ? (
+          /* REGISTRO USUARIO */
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-500">
+            <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] shadow-xl border-t-[10px] border-green-500">
+              <h2 className="text-2xl font-black mb-8 uppercase flex items-center gap-3"><ClipboardList className="text-green-500"/> Registro de Diligencia</h2>
+              <form onSubmit={async (e) => { e.preventDefault(); try { const isR = RECOLECCION_STRINGS.some(s=>form.tipo.toLowerCase().includes(s)); await addDoc(collection(db, "registros_v16"), { ...form, tiempo: getWait(), createdAt: new Date().toISOString(), categoria: isR ? "Recolección" : "Diligencia" }); alert("¡Sincronizado!"); setForm({...form, sucursal: '', observaciones: ''}); } catch(e) {alert("Error de red");} }} className="space-y-6">
+                <div className="relative"><label className="text-[10px] font-bold text-slate-400 ml-4 mb-1 block uppercase">Transportista</label><input type="text" placeholder="BUSCAR NOMBRE..." className="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl font-bold uppercase focus:border-green-500 outline-none transition-all" value={form.recolector} onChange={e => handleAutocomplete('recolector', e.target.value)} required />{activeInput === 'recolector' && suggestions.transportistas.length > 0 && (<div className="absolute z-30 w-full mt-1 bg-white shadow-xl rounded-xl border">{suggestions.transportistas.map(s => <div key={s} onClick={() => { setForm({...form, recolector: s}); setActiveInput(null); }} className="p-3 hover:bg-green-50 cursor-pointer text-xs font-bold border-b">{s}</div>)}</div>)}</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><select className="p-4 bg-slate-50 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-blue-500" value={form.tipo} onChange={e => setForm({...form, tipo: e.target.value})} required><option value="">-- TAREA --</option>{CATALOGOS.diligencias.map(d => <option key={d} value={d}>{d}</option>)}</select><select className="p-4 bg-slate-50 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-indigo-500" value={form.area} onChange={e => setForm({...form, area: e.target.value})} required={form.audTrans === "Sin incidencia"}><option value="">-- ÁREA DESTINO --</option>{CATALOGOS.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+                <div className="relative"><input type="text" placeholder="SUCURSAL..." className="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl font-bold uppercase focus:border-blue-500 outline-none transition-all" value={form.sucursal} onChange={e => handleAutocomplete('sucursal', e.target.value)} required />{activeInput === 'sucursal' && suggestions.sucursales.length > 0 && (<div className="absolute z-30 w-full mt-1 bg-white shadow-xl rounded-xl border">{suggestions.sucursales.map(s => <div key={s} onClick={() => { setForm({...form, sucursal: s}); setActiveInput(null); }} className="p-3 hover:bg-blue-50 cursor-pointer text-xs font-bold border-b">{s}</div>)}</div>)}</div>
+                <div className="bg-slate-900 p-8 rounded-3xl text-white flex justify-around items-center"><div className="flex gap-6"><div><p className="text-[10px] font-bold text-green-400 mb-2 uppercase">Entrada</p><div className="flex gap-1"><select className="bg-slate-800 p-2 rounded-lg font-black" value={form.hLlegada} onChange={e=>setForm({...form, hLlegada:e.target.value})}>{Array.from({length: 12},(_,i)=>String(i+1).padStart(2,'0')).map(h=><option key={h}>{h}</option>)}</select><select className="bg-green-600 p-2 rounded-lg text-[10px]" value={form.pLlegada} onChange={e=>setForm({...form, pLlegada:e.target.value})}><option>AM</option><option>PM</option></select></div></div><div><p className="text-[10px] font-bold text-orange-400 mb-2 uppercase">Salida</p><div className="flex gap-1"><select className="bg-slate-800 p-2 rounded-lg font-black" value={form.hSalida} onChange={e=>setForm({...form, hSalida:e.target.value})}>{Array.from({length: 12},(_,i)=>String(i+1).padStart(2,'0')).map(h=><option key={h}>{h}</option>)}</select><select className="bg-orange-600 p-2 rounded-lg text-[10px]" value={form.pSalida} onChange={e=>setForm({...form, pSalida:e.target.value})}><option>AM</option><option>PM</option></select></div></div></div><div className="text-right border-l border-slate-700 pl-8"><p className="text-[10px] text-slate-500 uppercase font-bold">Tiempo</p><h4 className={cn("text-4xl font-black", getWait() > 5 ? "text-orange-400" : "text-green-400")}>{getWait()}m</h4></div></div>
+                <label className="w-full p-8 bg-slate-50 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-white transition-all text-slate-400 font-bold uppercase text-[10px]"><Camera size={28}/><p>Envio de Foto Obligatoria</p><input type="file" className="hidden" accept="image/*" required /></label>
+                <button type="submit" className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black text-xl shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-4 uppercase">Sincronizar <CheckCircle2 size={24} className="text-green-500"/></button>
+              </form>
+            </div>
+            {/* KPI USUARIO */}
+            <div className="space-y-6"><div className="bg-slate-900 p-10 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden group"><p className="text-[10px] font-black text-slate-500 uppercase mb-6 tracking-widest">Mi Eficiencia Hoy</p><h4 className="text-7xl font-black text-green-500 mb-2">{(liveData.filter(d => d.recolector === form.recolector && (d.tiempo||0) <= 5).length / (liveData.filter(d => d.recolector === form.recolector && d.categoria === 'Recolección').length || 1) * 100).toFixed(0)}%</h4><TrendingUp className="absolute -right-10 -bottom-10 text-white opacity-5" size={200}/></div><button onClick={() => { setFilterUser(form.recolector); downloadReport(); }} className="w-full bg-white p-6 rounded-2xl border-2 text-slate-600 font-black text-[11px] uppercase flex items-center justify-center gap-3 shadow-md hover:bg-slate-50 transition-all"><Download size={20}/> Descargar mi Ficha</button></div>
+          </div>
+        ) : (
+          /* MODO ADMINISTRADOR (DASHBOARD) */
+          <div className="space-y-10 animate-in fade-in duration-500">
+             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100">
+                <div><h2 className="text-4xl font-black uppercase tracking-tighter text-slate-900">Central de Datos</h2><div className="flex gap-4 mt-6 bg-slate-100 p-1 rounded-2xl w-fit border"><button onClick={()=>setAdminTab('general')} className={cn("px-8 py-2 rounded-xl text-[11px] font-black uppercase transition-all", adminTab==='general'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Panorama</button><button onClick={()=>setAdminTab('individual')} className={cn("px-8 py-2 rounded-xl text-[11px] font-black uppercase transition-all", adminTab==='individual'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Ficha Ind.</button></div></div>
+                <div className="flex flex-wrap gap-4">
+                   <button onClick={downloadReport} className="bg-green-600 text-white px-8 py-4 rounded-2xl font-black text-[11px] flex items-center gap-3 shadow-lg uppercase hover:bg-green-700 transition-all active:scale-95"><Download size={20}/> Reporte PDF</button>
+                   <div className="flex bg-slate-50 p-2 rounded-2xl border-2 gap-4 items-center"><select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-black text-[11px] uppercase outline-none px-2"><option value="all">Año 2025</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m}>Mes {m}</option>)}</select>{adminTab === 'individual' && <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-black text-[11px] uppercase outline-none px-2 max-w-[150px]"><option value="all">Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u}>{u}</option>)}</select>}</div>
+                   <button onClick={() => setDataSource(dataSource === 'live' ? 'csv' : 'live')} className={cn("px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-md flex items-center gap-3", dataSource==='live'?"bg-blue-600 text-white":"bg-green-600 text-white")}><RefreshCw size={16}/> {dataSource==='live'?'Ver Historial (CSV)':'Ver En Vivo (Firebase)'}</button>
+                   <label className="cursor-pointer bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-[11px] flex items-center gap-3 shadow-lg uppercase hover:bg-slate-800 transition-all"><FileSearch size={20}/> Importar CSV <input type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files[0]; if(!f) return; Papa.parse(f, { header: true, complete: (res) => { const mapped = res.data.map(row => ({ recolector: String(row['Nombre de Transportista']||'').toUpperCase().trim(), tiempo: parseFloat(row['Minutos de espera'])||0, sucursal: row['Sucursal ']||'N/A', tipo: String(row['Diligencia realizada:']||'').toLowerCase().includes("recolección")?"Recolección":"Diligencia", month: parseInt(String(row['Marca temporal']||'').split(/[\s\/]+/)[1])||1 })); setCsvData(mapped); setDataSource('csv'); }}); }} /></label>
+                </div>
+             </div>
+
+             {metrics?.total > 0 ? (
+               <div className="space-y-12">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+                   <KPICard title="Eficiencia" value={`${metrics.eficiencia}%`} subtitle="Meta Corporativa 95%" icon={TrendingUp} color="bg-green-600" />
+                   <KPICard title="Promedio Rec." value={`${metrics.promRec}m`} subtitle="Solo Muestras" icon={Clock} color="bg-blue-600" />
+                   <KPICard title="Diligencias" value={metrics.dilsCount} subtitle="Volumen Periodo" icon={BarChart3} color="bg-orange-500" />
+                   <KPICard title="Total Registros" value={metrics.total} subtitle={dataSource === 'live' ? 'Datos Firebase' : 'Archivo Local'} icon={Database} color="bg-slate-800" />
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                   <div className="bg-white p-12 rounded-[4rem] shadow-sm border h-[550px] flex flex-col"><h4 className="font-black text-slate-800 uppercase tracking-widest text-sm mb-12 flex items-center gap-4"><TrendingUp className="text-indigo-500" size={24}/> Tendencia de Eficiencia</h4><ResponsiveContainer width="100%" height="100%"><AreaChart data={metrics.monthlyData}><defs><linearGradient id="colorEf" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/><stop offset="95%" stopColor="#6366f1" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" tick={{fontSize: 12, fontWeight: 'black', fill: '#94a3b8'}} axisLine={false} tickLine={false} /><YAxis domain={[0, 100]} hide /><Tooltip contentStyle={{borderRadius: '25px', border: 'none'}} /><Area type="monotone" dataKey="ef" stroke="#6366f1" strokeWidth={8} fillOpacity={1} fill="url(#colorEf)" /></AreaChart></ResponsiveContainer></div>
+                   <div className="bg-white p-12 rounded-[4rem] shadow-sm border h-[550px] flex flex-col"><h4 className="font-black text-slate-800 uppercase tracking-widest text-sm mb-12 flex items-center gap-4"><MapPin className="text-red-500" size={24}/> Puntos Críticos (Espera)</h4><ResponsiveContainer width="100%" height="100%"><BarChart data={metrics.topSucursales} layout="vertical" margin={{right: 50}}><XAxis type="number" hide /><YAxis dataKey="name" type="category" width={110} tick={{fontSize: 11, fontWeight: 'black', fill: '#475569'}} axisLine={false} tickLine={false} /><Tooltip cursor={{fill: '#f8fafc'}} /><Bar dataKey="time" fill="#ef4444" radius={[0, 10, 10, 0]} barSize={35}><LabelList dataKey="time" position="right" style={{fontSize:'13px',fontWeight:'black',fill:'#ef4444'}} formatter={(v)=>`${v}m`}/></Bar></BarChart></ResponsiveContainer></div>
+                </div>
+                <div className="bg-white rounded-[4rem] shadow-xl border overflow-hidden">
+                   <div className="p-12 border-b bg-slate-50/50 flex justify-between items-center"><div className="flex items-center gap-6"><ShieldCheck className="text-green-500" size={32}/><h4 className="font-black text-slate-800 uppercase tracking-widest text-sm">Cuadro de Cumplimiento Logístico</h4></div><button onClick={()=>{setCsvData([]); setDataSource('live');}} className="p-4 bg-red-50 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all"><Trash2 size={24}/></button></div>
+                   <div className="overflow-x-auto"><table className="w-full text-left border-collapse"><thead className="bg-slate-50 text-[12px] font-black uppercase text-slate-400"><tr><th className="px-12 py-8 tracking-widest">Periodo</th><th className="text-center">Recolecciones</th><th className="text-center font-black text-green-600">Eficiencia %</th><th className="text-center">Dils Adic.</th><th className="text-right px-12">Calificación</th></tr></thead><tbody className="divide-y">{metrics.monthlyData.map((r, i) => (<tr key={i} className="hover:bg-slate-50/80 transition-all group"><td className="px-12 py-8 font-black text-slate-800 text-sm tracking-tight">{r.name}</td><td className="text-center font-black text-slate-400">{metrics.filteredRows.filter(d=> (d.month === i+1 || new Date(d.createdAt).getMonth() === i) && (d.categoria==='Recolección' || RECOLECCION_STRINGS.some(s=>d.tipo?.toLowerCase().includes(s)))).length}</td><td className="text-center font-black text-green-600 text-2xl">{r.ef}%</td><td className="text-center font-black text-orange-600">{metrics.filteredRows.filter(d=> (d.month === i+1 || new Date(d.createdAt).getMonth() === i) && (d.categoria==='Diligencia' || !RECOLECCION_STRINGS.some(s=>d.tipo?.toLowerCase().includes(s)))).length}</td><td className="text-right px-12"><span className={cn("px-6 py-2 rounded-full text-[10px] font-black uppercase shadow-lg border-2", r.ef >= 95 ? "bg-green-500 text-white border-green-400" : "bg-white text-orange-600 border-orange-100")}>{r.ef >= 95 ? 'TARGET OK' : 'BELOW TARGET'}</span></td></tr>))}</tbody></table></div>
+                </div>
+               </div>
+             ) : (
+                <div className="bg-white p-60 rounded-[8rem] border-[10px] border-dashed border-slate-50 text-center flex flex-col items-center gap-12 animate-pulse"><div className="w-40 h-40 bg-slate-50 rounded-full flex items-center justify-center text-slate-200 shadow-inner"><RefreshCw size={100} className="animate-spin-slow"/></div><div><h3 className="text-5xl font-black uppercase text-slate-300 tracking-[0.4em]">System Standby</h3><p className="text-slate-400 mt-6 font-black uppercase text-sm tracking-[0.6em]">Carga Datos o Importa el CSV 2025</p></div></div>
+             )}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
