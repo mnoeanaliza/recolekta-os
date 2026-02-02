@@ -34,7 +34,6 @@ const storage = getStorage(app);
 
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/mnoeanaliza/recolekta-os/refs/heads/main/Datos.csv";
 
-// --- CATALOGOS OFICIALES BLINDADOS (Según CSVs) ---
 const CATALOGOS = {
   transportistas: [
     "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", 
@@ -75,7 +74,7 @@ export default function App() {
 
   useEffect(() => {
     signInAnonymously(auth).catch(() => {});
-    if (!localStorage.getItem('recolekta_tutorial_v42')) setShowWelcome(true);
+    if (!localStorage.getItem('recolekta_tutorial_v44')) setShowWelcome(true);
 
     Papa.parse(GITHUB_CSV_URL, {
         download: true, header: true,
@@ -98,7 +97,9 @@ export default function App() {
                     fotoData: row['Fotografía de bitácora:'] || null, 
                     observaciones: row['Observaciones'] || '',
                     month: parseInt(String(row['Marca temporal']||'').split(/[\s\/]+/)[1])||1,
-                    createdAt: row['Marca temporal'] 
+                    createdAt: row['Marca temporal'],
+                    hLlegada: '--', mLlegada: '--', pLlegada: '',
+                    hSalida: '--', mSalida: '--', pSalida: ''
                 };
             }).filter(r => r.recolector !== '');
             setCsvData(mapped);
@@ -200,12 +201,9 @@ export default function App() {
     return diff;
   };
 
-  // MANEJO INTELIGENTE DE INPUTS (Mayusculas para Nombres, Normal para Sucursales)
   const handleInput = (field, value) => {
     let val = value;
-    if (field === 'recolector') val = value.toUpperCase(); // Nombres siempre MAYUS
-    // Sucursales se quedan como el usuario escribe para permitir coincidencia exacta con CSV (Title Case)
-    
+    if (field === 'recolector') val = value.toUpperCase();
     setForm(prev => ({ ...prev, [field]: val }));
     setActiveInput(field);
   };
@@ -220,8 +218,40 @@ export default function App() {
     }
   };
 
-  const downloadReport = () => {
-    if (!metrics || metrics.total === 0) return alert("Sin datos para generar reporte.");
+  // --- REPORTE CONSOLIDADO CORREGIDO ---
+  const downloadReport = (specificUser = null) => {
+    // 1. Determinar el usuario objetivo (Si viene del botón de usuario o del filtro admin)
+    const targetUser = specificUser || (filterUser !== 'all' ? filterUser : null);
+    
+    // Si estoy en modo usuario y no hay nombre válido, detengo
+    if (appMode === 'user' && !CATALOGOS.transportistas.includes(form.recolector)) {
+        return alert("Por favor seleccione un nombre válido de la lista para descargar su ficha.");
+    }
+
+    const data = dataSource === 'live' ? liveData : csvData;
+    if (!data || data.length === 0) return alert("Sin datos.");
+
+    // 2. Filtrar los datos RAW para recalcular métricas específicas
+    let reportData = [...data];
+    if (targetUser) {
+        reportData = reportData.filter(d => d.recolector === targetUser);
+    }
+
+    // 3. Recalcular Métricas para el Encabezado (Basado en reportData filtrado)
+    const isPrincipal = (d) => {
+        if (d.categoria === "Principal") return true;
+        const txt = (d.tipo || d.originalTipo || '').toLowerCase();
+        return PRINCIPAL_KEYWORDS.some(k => txt.includes(k));
+    };
+
+    const pItems = reportData.filter(d => isPrincipal(d));
+    const sItems = reportData.filter(d => !isPrincipal(d));
+
+    const efP = pItems.length > 0 ? ((pItems.filter(x => (x.tiempo||0) <= 5).length / pItems.length) * 100).toFixed(1) : 0;
+    const avgP = pItems.length > 0 ? (pItems.reduce((a,b)=>a+(b.tiempo||0),0)/pItems.length).toFixed(1) : 0;
+    const avgS = sItems.length > 0 ? (sItems.reduce((a,b)=>a+(b.tiempo||0),0)/sItems.length).toFixed(1) : 0;
+
+    // 4. Generar PDF
     const doc = new jsPDF();
     const slate900 = [15, 23, 42];
     const green500 = [34, 197, 94];
@@ -230,34 +260,56 @@ export default function App() {
     doc.setFillColor(...green500); doc.circle(20, 22, 10, 'F');
     doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 24);
     doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 22);
-    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA OPERATIVA", 35, 29);
+    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA Y TRANSPORTE", 35, 29);
     
     doc.setTextColor(40); doc.setFontSize(14); doc.setFont("helvetica", "bold");
-    const reportTitle = filterUser === 'all' ? "REPORTE CONSOLIDADO DE FLOTA" : `FICHA HISTÓRICA: ${filterUser}`;
+    const reportTitle = targetUser ? `FICHA HISTÓRICA: ${targetUser}` : "REPORTE CONSOLIDADO DE FLOTA";
     doc.text(reportTitle, 20, 60);
 
     doc.setFontSize(10); doc.setTextColor(80);
     doc.text(`Periodo: ${filterMonth === 'all' ? 'ANUAL' : 'MES ' + filterMonth} | Fuente: ${dataSource.toUpperCase()}`, 20, 66);
     
     doc.setTextColor(0);
-    doc.text(`Eficiencia Recolección: ${metrics.efP}% (Meta: 95%)`, 20, 75);
-    doc.text(`Promedio Espera (Muestras): ${metrics.avgP} min`, 20, 81);
-    doc.text(`Total Diligencias Adic.: ${metrics.countS}`, 120, 75);
-    doc.text(`Promedio Espera (Diligencias): ${metrics.avgS} min`, 120, 81);
+    doc.text(`Eficiencia Recolección: ${efP}% (Meta: 95%)`, 20, 75);
+    doc.text(`Promedio Espera (Muestras): ${avgP} min`, 20, 81);
+    doc.text(`Total Diligencias Adic.: ${sItems.length}`, 120, 75);
+    doc.text(`Promedio Espera (Diligencias): ${avgS} min`, 120, 81);
 
-    const rows = metrics.monthlyData.filter(m => m.count > 0).map(m => [
-        m.name, m.recs, `${m.ef}%`, `${m.avgR}m`, m.dils, `${m.avgD}m`
-    ]);
+    // 5. Generar Tabla Mensual con datos filtrados
+    const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => {
+        const mDocs = reportData.filter(d => {
+             const date = new Date(d.createdAt);
+             const mon = isNaN(date.getMonth()) ? d.month : date.getMonth() + 1;
+             return mon === i + 1;
+        });
+        
+        const mRecs = mDocs.filter(d => isPrincipal(d));
+        const mDils = mDocs.filter(d => !isPrincipal(d));
+        const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0;
+        const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0;
+        const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0;
+
+        return [m, mRecs.length, `${mEf}%`, `${mAvgR}m`, mDils.length, `${mAvgD}m`];
+    });
+
+    const rows = monthlyData.filter(r => r[1] > 0 || r[4] > 0); // Solo meses con datos
 
     autoTable(doc, {
         startY: 90,
         head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']],
         body: rows,
         headStyles: { fillColor: slate900, fontSize: 9, halign: 'center' },
-        columnStyles: { 0: { fontStyle: 'bold' }, 2: { halign: 'center', fontStyle: 'bold', textColor: green500 } },
+        columnStyles: { 
+            0: { fontStyle: 'bold', halign: 'left' }, 
+            1: { halign: 'center' },
+            2: { halign: 'center', fontStyle: 'bold', textColor: green500 },
+            3: { halign: 'center' },
+            4: { halign: 'center' },
+            5: { halign: 'center' }
+        },
         theme: 'striped'
     });
-    doc.save(`Recolekta_Reporte_${filterUser}.pdf`);
+    doc.save(`Recolekta_Reporte_${targetUser || 'Global'}.pdf`);
   };
 
   return (
@@ -277,7 +329,7 @@ export default function App() {
             <div className="w-16 h-16 bg-green-500 rounded-2xl flex items-center justify-center text-white mx-auto mb-6 shadow-lg shadow-green-500/20"><Bike size={32}/></div>
             <h2 className="text-2xl font-black uppercase mb-4 tracking-tighter text-white">Recolekta OS</h2>
             <p className="text-slate-400 text-sm mb-10 leading-relaxed">Gestión Logística Operativa. <br/><b>Modo Ejecutivo Activo.</b></p>
-            <button onClick={() => { setShowWelcome(false); localStorage.setItem('recolekta_tutorial_v42', 'true'); }} className="w-full bg-white text-[#0B1120] py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-200 transition-colors">Iniciar Sesión</button>
+            <button onClick={() => { setShowWelcome(false); localStorage.setItem('recolekta_tutorial_v44', 'true'); }} className="w-full bg-white text-[#0B1120] py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-200 transition-colors">Iniciar Sesión</button>
           </div>
         </div>
       )}
@@ -300,7 +352,6 @@ export default function App() {
                   if(!imageFile) return alert("FOTO REQUERIDA"); 
                   if(getWait() === 0 && form.mLlegada !== form.mSalida) return alert("ERROR EN HORAS: Verifica AM/PM");
                   
-                  // --- VALIDACIÓN DE LISTA BLANCA (NUEVO BLINDAJE) ---
                   if (!CATALOGOS.transportistas.includes(form.recolector)) return alert("TRANSPORTISTA NO VÁLIDO. Seleccione de la lista.");
                   if (!CATALOGOS.sucursales.includes(form.sucursal)) return alert("SUCURSAL NO VÁLIDA. Seleccione de la lista.");
                   
@@ -405,7 +456,7 @@ export default function App() {
                         {isUploading ? 'Subiendo...' : 'Sincronizar'}
                     </button>
                 </div>
-                <button type="button" onClick={downloadReport} className="w-full bg-slate-800 border border-slate-700 py-3 rounded-xl font-bold text-xs text-slate-300 uppercase flex items-center justify-center gap-2 hover:bg-slate-700 transition-all"><Download size={14}/> Descargar Mi Ficha</button>
+                <button type="button" onClick={() => downloadReport(form.recolector)} className="w-full bg-slate-800 border border-slate-700 py-3 rounded-xl font-bold text-xs text-slate-300 uppercase flex items-center justify-center gap-2 hover:bg-slate-700 transition-all"><Download size={14}/> Descargar Mi Ficha</button>
               </form>
             </div>
             
@@ -428,7 +479,7 @@ export default function App() {
                 <div><h2 className="text-3xl font-black uppercase tracking-tighter text-white">Central y Analisis de Datos</h2><div className="flex gap-2 mt-4 bg-[#0B1120] p-1 rounded-xl w-fit border border-slate-800"><button onClick={()=>setAdminTab('general')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='general'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Panorama</button><button onClick={()=>setAdminTab('individual')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='individual'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Individual</button></div></div>
                 <div className="flex flex-wrap gap-3">
                   <div className="flex bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center"><Filter size={16} className="text-slate-500"/><select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m==='all'?'Año Completo':'Mes '+m}</option>)}</select>{adminTab === 'individual' && <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300"><option value="all" className="bg-slate-900">Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>}</div>
-                  <button onClick={downloadReport} className="bg-white text-black px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-slate-200 transition-all"><Download size={14}/> PDF</button>
+                  <button onClick={() => downloadReport(null)} className="bg-white text-black px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-slate-200 transition-all"><Download size={14}/> PDF</button>
                   <button onClick={() => setDataSource(dataSource === 'live' ? 'csv' : 'live')} className={cn("px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2", dataSource==='live'?"bg-blue-600 text-white":"bg-green-600 text-white")}><Layers size={14}/> {dataSource==='live'?'Historial':'En Vivo'}</button>
                 </div>
              </div>
@@ -458,12 +509,15 @@ export default function App() {
                 <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-6 flex items-center gap-2"><ShieldCheck className="text-green-500" size={18}/> Bitácora de Operación Reciente</h4>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Foto</th><th className="px-4 py-3 rounded-r-lg">Tipo</th></tr></thead>
+                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Foto</th><th className="px-4 py-3 rounded-r-lg">Tipo</th></tr></thead>
                     <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
                       {metrics.rows.slice(0, 20).map((r, i) => (
                         <tr key={i} className="hover:bg-slate-800/50 transition-colors">
                           <td className="px-4 py-3 text-white">{r.recolector}</td>
                           <td className="px-4 py-3">{r.sucursal}</td>
+                          {/* Nuevas Columnas de Hora */}
+                          <td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
+                          <td className="px-4 py-3 text-slate-500">{r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida || ''}` : '--'}</td>
                           <td className={cn("px-4 py-3", r.tiempo > 5 ? "text-orange-400" : "text-green-400")}>{r.tiempo}m</td>
                           <td className="px-4 py-3 text-center">
                             {r.fotoData && r.fotoData.startsWith('http') ? 
