@@ -207,7 +207,7 @@ export default function App() {
     doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 24);
     // Títulos
     doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 22);
-    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA BIOMÉDICA", 35, 29);
+    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA Y TRANSPORTE", 35, 29);
     
     // Info del Reporte
     doc.setTextColor(40); doc.setFontSize(14); doc.setFont("helvetica", "bold");
@@ -356,7 +356,7 @@ export default function App() {
           /* MONITOR ADMIN */
           <div className="space-y-8 animate-in fade-in">
              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6">
-                <div><h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Monitor HUB</h2><div className="flex gap-2 mt-4 bg-slate-50 p-1 rounded-xl w-fit"><button onClick={()=>setAdminTab('general')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='general'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Panorama</button><button onClick={()=>setAdminTab('individual')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='individual'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Individual</button></div></div>
+                <div><h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Contro de Datos</h2><div className="flex gap-2 mt-4 bg-slate-50 p-1 rounded-xl w-fit"><button onClick={()=>setAdminTab('general')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='general'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Panorama</button><button onClick={()=>setAdminTab('individual')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='individual'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Individual</button></div></div>
                 <div className="flex flex-wrap gap-3">
                   <div className="flex bg-slate-50 p-2 rounded-xl border items-center"><Filter size={16} className="text-slate-400"/><select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m}>{m==='all'?'Año':'Mes '+m}</option>)}</select>{adminTab === 'individual' && <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px]"><option value="all">Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u}>{u}</option>)}</select>}</div>
                   <button onClick={downloadReport} className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2"><Download size={14}/> PDF</button>
@@ -366,7 +366,7 @@ export default function App() {
 
              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
-                    <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mb-2">Vital (Muestras)</p>
+                    <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mb-2">Prioridad (Muestras)</p>
                     <div className="flex items-baseline gap-2"><h3 className="text-4xl font-black text-slate-800">{metrics.efP}%</h3><span className="text-xs font-bold text-slate-400">Eficiencia</span></div>
                     <div className="mt-4 flex gap-2"><span className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full">Espera: {metrics.avgP}m</span><span className="text-[10px] font-bold bg-slate-50 text-slate-500 px-3 py-1 rounded-full">Vol: {metrics.countP}</span></div>
                 </div>
