@@ -230,7 +230,7 @@ export default function App() {
     doc.setFillColor(...green500); doc.circle(20, 22, 10, 'F');
     doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 24);
     doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 22);
-    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA BIOMÉDICA", 35, 29);
+    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA OPERATIVA", 35, 29);
     
     doc.setTextColor(40); doc.setFontSize(14); doc.setFont("helvetica", "bold");
     const reportTitle = filterUser === 'all' ? "REPORTE CONSOLIDADO DE FLOTA" : `FICHA HISTÓRICA: ${filterUser}`;
