@@ -3,7 +3,7 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { 
-  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, Layers, ShieldCheck, Eye, ExternalLink, AlertTriangle
+  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, Layers, ShieldCheck, Eye, ExternalLink, AlertTriangle, Filter
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import Papa from 'papaparse';
@@ -59,18 +59,14 @@ export default function App() {
 
   useEffect(() => {
     signInAnonymously(auth).catch(() => {});
-    if (!localStorage.getItem('recolekta_tutorial_v36')) setShowWelcome(true);
+    if (!localStorage.getItem('recolekta_tutorial_v37')) setShowWelcome(true);
 
-    // 1. CARGA Y LIMPIEZA DE CSV (HISTORIAL)
     Papa.parse(GITHUB_CSV_URL, {
         download: true, header: true,
         complete: (res) => {
             const mapped = (res.data || []).map(row => {
                 const tipoRaw = String(row['Diligencia realizada:']||'');
-                const tipoClean = tipoRaw.toLowerCase();
-                const isP = PRINCIPAL_KEYWORDS.some(k => tipoClean.includes(k));
-                
-                // Limpieza de tiempo: "3 min" -> 3
+                const isP = PRINCIPAL_KEYWORDS.some(k => tipoRaw.toLowerCase().includes(k));
                 let tiempoClean = 0;
                 const tiempoRaw = String(row['Minutos de espera'] || '0');
                 const matches = tiempoRaw.match(/\d+/);
@@ -80,14 +76,12 @@ export default function App() {
                     recolector: String(row['Nombre de Transportista']||'').toUpperCase().trim(),
                     tiempo: tiempoClean,
                     sucursal: row['Sucursal '] || 'Ruta Externa',
-                    // Normalizar Categoría para que coincida con Live
                     tipo: tipoRaw, 
                     categoria: isP ? "Principal" : "Secundaria",
                     originalTipo: tipoRaw,
-                    // Detectar Foto de Drive
                     fotoData: row['Fotografía de bitácora:'] || null, 
                     month: parseInt(String(row['Marca temporal']||'').split(/[\s\/]+/)[1])||1,
-                    createdAt: row['Marca temporal'] // Fecha original para ordenar
+                    createdAt: row['Marca temporal'] 
                 };
             }).filter(r => r.recolector !== '');
             setCsvData(mapped);
@@ -106,10 +100,8 @@ export default function App() {
 
     try {
       let filtered = [...data];
-      // Filtros
       if (filterMonth !== 'all') {
          filtered = filtered.filter(d => {
-             // Compatibilidad: Live usa Date objects, CSV usa enteros 1-12
              const date = new Date(d.createdAt);
              const m = isNaN(date.getMonth()) ? d.month : date.getMonth() + 1;
              return m === parseInt(filterMonth);
@@ -117,7 +109,6 @@ export default function App() {
       }
       if (filterUser !== 'all') filtered = filtered.filter(d => d.recolector === filterUser);
 
-      // Clasificación Unificada (Live + CSV)
       const isPrincipal = (d) => {
           if (d.categoria === "Principal") return true;
           const txt = (d.tipo || d.originalTipo || '').toLowerCase();
@@ -130,28 +121,19 @@ export default function App() {
       const calcEf = (arr) => arr.length > 0 ? ((arr.filter(x => (x.tiempo||0) <= 5).length / arr.length) * 100).toFixed(1) : 0;
       const calcAvg = (arr) => arr.length > 0 ? (arr.reduce((a,b)=>a+(b.tiempo||0),0)/arr.length).toFixed(1) : 0;
 
-      // Generar datos mensuales
       const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => {
         const mDocs = data.filter(d => {
              const date = new Date(d.createdAt);
              const mon = isNaN(date.getMonth()) ? d.month : date.getMonth() + 1;
              return mon === i + 1;
         });
-        
-        // Filtro de usuario dentro del map mensual
         const finalDocs = filterUser === 'all' ? mDocs : mDocs.filter(d => d.recolector === filterUser);
-        
         const mRecs = finalDocs.filter(d => isPrincipal(d));
         const mDils = finalDocs.filter(d => !isPrincipal(d));
         
         return { 
-            name: m, 
-            count: finalDocs.length,
-            recs: mRecs.length,
-            dils: mDils.length,
-            ef: calcEf(mRecs),
-            avgR: calcAvg(mRecs),
-            avgD: calcAvg(mDils)
+            name: m, count: finalDocs.length, recs: mRecs.length, dils: mDils.length,
+            ef: calcEf(mRecs), avgR: calcAvg(mRecs), avgD: calcAvg(mDils)
         };
       });
 
@@ -164,11 +146,37 @@ export default function App() {
     } catch (e) { return fb; }
   }, [liveData, csvData, filterMonth, filterUser, dataSource]);
 
-  // --- LÓGICA DE TIEMPO ROBUSTA (Solución AM/PM y negativos) ---
+  // --- CALCULO PERSONALIZADO PARA LA TARJETA DEL USUARIO ---
+  const userMetrics = useMemo(() => {
+    const data = dataSource === 'live' ? liveData : csvData;
+    const targetUser = form.recolector;
+    
+    // Si no hay usuario escrito, mostrar global
+    let userDocs = data;
+    if (targetUser && targetUser.length > 2) {
+        userDocs = data.filter(d => d.recolector === targetUser);
+    }
+
+    const isPrincipal = (d) => {
+        if (d.categoria === "Principal") return true;
+        const txt = (d.tipo || d.originalTipo || '').toLowerCase();
+        return PRINCIPAL_KEYWORDS.some(k => txt.includes(k));
+    };
+
+    const recs = userDocs.filter(d => isPrincipal(d));
+    const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= 5).length / recs.length) * 100).toFixed(1) : 0;
+    
+    return { 
+        ef: ef, 
+        count: userDocs.length, 
+        label: targetUser && targetUser.length > 2 ? targetUser.split(' ')[0] : 'GLOBAL' 
+    };
+  }, [liveData, csvData, form.recolector, dataSource]);
+
   const convertToMinutes = (h, m, p) => {
     let hour = parseInt(h);
-    if (p === 'AM' && hour === 12) hour = 0; // 12 AM es 00:xx
-    if (p === 'PM' && hour !== 12) hour += 12; // 1 PM es 13:xx, pero 12 PM es 12:xx
+    if (p === 'AM' && hour === 12) hour = 0; 
+    if (p === 'PM' && hour !== 12) hour += 12; 
     return hour * 60 + parseInt(m);
   };
 
@@ -176,8 +184,6 @@ export default function App() {
     const startMins = convertToMinutes(form.hLlegada, form.mLlegada, form.pLlegada);
     const endMins = convertToMinutes(form.hSalida, form.mSalida, form.pSalida);
     let diff = endMins - startMins;
-    
-    // Si la diferencia es negativa, asumimos error de entrada (o turno de noche, pero en este caso bloqueamos)
     if (diff < 0) return 0; 
     return diff;
   };
@@ -187,33 +193,54 @@ export default function App() {
     setActiveInput(field);
   };
 
+  // --- REPORTE PDF PROFESIONAL ---
   const downloadReport = () => {
     if (!metrics || metrics.total === 0) return alert("Sin datos para generar reporte.");
     const doc = new jsPDF();
-    doc.setFillColor(15, 23, 42); doc.rect(0,0,210,45,'F');
-    doc.setTextColor(255); doc.setFontSize(22); doc.text("RECOLEKTA OS", 20, 25);
-    doc.setFontSize(10); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA", 20, 32);
+    const slate900 = [15, 23, 42];
+    const green500 = [34, 197, 94];
+
+    // Encabezado
+    doc.setFillColor(...slate900); doc.rect(0,0,210,45,'F');
+    // Logo
+    doc.setFillColor(...green500); doc.circle(20, 22, 10, 'F');
+    doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 24);
+    // Títulos
+    doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 22);
+    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA BIOMÉDICA", 35, 29);
     
-    doc.setTextColor(40); doc.setFontSize(14); 
-    doc.text(filterUser === 'all' ? "REPORTE GLOBAL DE FLOTA" : `FICHA INDIVIDUAL: ${filterUser}`, 20, 60);
+    // Info del Reporte
+    doc.setTextColor(40); doc.setFontSize(14); doc.setFont("helvetica", "bold");
+    const reportTitle = filterUser === 'all' ? "REPORTE CONSOLIDADO DE FLOTA" : `FICHA HISTÓRICA: ${filterUser}`;
+    doc.text(reportTitle, 20, 60);
+
+    // Resumen Ejecutivo
+    doc.setFontSize(10); doc.setTextColor(80);
+    doc.text(`Periodo: ${filterMonth === 'all' ? 'ANUAL' : 'MES ' + filterMonth} | Fuente: ${dataSource.toUpperCase()}`, 20, 66);
+    
+    doc.setTextColor(0);
+    doc.text(`Eficiencia Recolección: ${metrics.efP}% (Meta: 95%)`, 20, 75);
+    doc.text(`Promedio Espera (Muestras): ${metrics.avgP} min`, 20, 81);
+    doc.text(`Total Diligencias Adic.: ${metrics.countS}`, 120, 75);
+    doc.text(`Promedio Espera (Diligencias): ${metrics.avgS} min`, 120, 81);
 
     const rows = metrics.monthlyData.filter(m => m.count > 0).map(m => [
         m.name, m.recs, `${m.ef}%`, `${m.avgR}m`, m.dils, `${m.avgD}m`
     ]);
 
     autoTable(doc, {
-        startY: 70,
+        startY: 90,
         head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']],
         body: rows,
-        headStyles: { fillColor: [15, 23, 42] },
-        theme: 'grid'
+        headStyles: { fillColor: slate900, fontSize: 9, halign: 'center' },
+        columnStyles: { 0: { fontStyle: 'bold' }, 2: { halign: 'center', fontStyle: 'bold', textColor: green500 } },
+        theme: 'striped'
     });
-    doc.save(`Reporte_${filterUser}.pdf`);
+    doc.save(`Recolekta_Reporte_${filterUser}.pdf`);
   };
 
   return (
     <div className="min-h-screen bg-[#F4F7FE] text-slate-800 font-sans pb-10" onClick={() => setActiveInput(null)}>
-      {/* MODAL FOTO */}
       {viewingPhoto && (
         <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4" onClick={(e) => {e.stopPropagation(); setViewingPhoto(null);}}>
           <div className="relative max-w-4xl w-full flex flex-col items-center">
@@ -223,7 +250,6 @@ export default function App() {
         </div>
       )}
 
-      {/* NAVBAR */}
       <nav className="bg-white border-b border-slate-200 px-4 md:px-8 py-4 sticky top-0 z-50 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white"><Bike size={18}/></div><h1 className="text-lg font-black tracking-tighter">Recolekta <span className="text-green-600">OS</span></h1></div>
         <div className="flex bg-slate-100 p-1 rounded-xl border">
@@ -275,7 +301,6 @@ export default function App() {
                   )}
                 </div>
                 
-                {/* RELOJ RESPONSIVO (GRID para evitar desbordes) */}
                 <div className="bg-slate-900 p-6 rounded-[2rem] text-white grid grid-cols-1 sm:grid-cols-2 gap-6 items-center shadow-lg">
                     <div className="space-y-4">
                         <div className="flex flex-col items-center sm:items-start">
@@ -310,15 +335,19 @@ export default function App() {
                     <label className="col-span-1 p-4 bg-slate-50 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-white transition-all text-slate-400 font-bold uppercase text-[9px]"><Camera size={24}/><p>Foto</p><input type="file" className="hidden" accept="image/*" onChange={(e)=>{const f=e.target.files[0]; if(f){const r=new FileReader(); r.onloadend=()=>setImagePreview(r.result); r.readAsDataURL(f);}}} /></label>
                     <button type="submit" disabled={!imagePreview} className={cn("col-span-1 rounded-2xl font-black text-sm shadow-lg transition-all uppercase flex flex-col items-center justify-center gap-2", imagePreview ? "bg-slate-900 text-white active:scale-95" : "bg-slate-200 text-slate-400 cursor-not-allowed")}><CheckCircle2 size={24} className={imagePreview?"text-green-500":"text-slate-300"}/> Sincronizar</button>
                 </div>
-                <button type="button" onClick={downloadReport} className="w-full bg-white border border-slate-200 py-3 rounded-xl font-bold text-xs text-slate-500 uppercase flex items-center justify-center gap-2 hover:bg-slate-50"><Download size={14}/> Descargar Mi Ficha</button>
+                <button type="button" onClick={downloadReport} className="w-full bg-white border border-slate-200 py-3 rounded-xl font-bold text-xs text-slate-500 uppercase flex items-center justify-center gap-2 hover:bg-slate-50"><Download size={14}/> Descargar Ficha</button>
               </form>
             </div>
             
             <div className="space-y-6">
                  <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
-                    <p className="text-[10px] font-black text-slate-500 uppercase mb-4 tracking-widest">Efficiency Core</p>
-                    <h4 className="text-6xl font-black text-green-500 mb-2 leading-none">{metrics.efP}%</h4>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase italic">Basado en Muestras</p>
+                    <p className="text-[10px] font-black text-slate-500 uppercase mb-4 tracking-widest">
+                        {userMetrics.label === 'GLOBAL' ? 'EFICIENCIA GLOBAL' : `EFICIENCIA: ${userMetrics.label}`}
+                    </p>
+                    <h4 className="text-6xl font-black text-green-500 mb-2 leading-none">{userMetrics.ef}%</h4>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase italic">
+                        {userMetrics.count > 0 ? `Basado en ${userMetrics.count} Registros` : 'Sin datos recientes'}
+                    </p>
                     <TrendingUp className="absolute -right-6 -bottom-6 text-white opacity-5" size={180}/>
                  </div>
             </div>
@@ -327,9 +356,9 @@ export default function App() {
           /* MONITOR ADMIN */
           <div className="space-y-8 animate-in fade-in">
              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6">
-                <div><h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Centro de Monitoreo</h2><div className="flex gap-2 mt-4 bg-slate-50 p-1 rounded-xl w-fit"><button onClick={()=>setAdminTab('general')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='general'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Panorama</button><button onClick={()=>setAdminTab('individual')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='individual'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Individual</button></div></div>
+                <div><h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Monitor HUB</h2><div className="flex gap-2 mt-4 bg-slate-50 p-1 rounded-xl w-fit"><button onClick={()=>setAdminTab('general')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='general'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Panorama</button><button onClick={()=>setAdminTab('individual')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='individual'?"bg-white shadow-md text-slate-900":"text-slate-400")}>Individual</button></div></div>
                 <div className="flex flex-wrap gap-3">
-                  <div className="flex bg-slate-50 p-2 rounded-xl border items-center"><select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m}>{m==='all'?'Año':'Mes '+m}</option>)}</select>{adminTab === 'individual' && <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px]"><option value="all">Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u}>{u}</option>)}</select>}</div>
+                  <div className="flex bg-slate-50 p-2 rounded-xl border items-center"><Filter size={16} className="text-slate-400"/><select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m}>{m==='all'?'Año':'Mes '+m}</option>)}</select>{adminTab === 'individual' && <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px]"><option value="all">Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u}>{u}</option>)}</select>}</div>
                   <button onClick={downloadReport} className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2"><Download size={14}/> PDF</button>
                   <button onClick={() => setDataSource(dataSource === 'live' ? 'csv' : 'live')} className={cn("px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2", dataSource==='live'?"bg-blue-600 text-white":"bg-green-600 text-white")}><Layers size={14}/> {dataSource==='live'?'Historial':'En Vivo'}</button>
                 </div>
