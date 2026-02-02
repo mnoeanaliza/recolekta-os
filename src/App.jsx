@@ -4,7 +4,7 @@ import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, limit } f
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
-  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, ChevronRight, Layers, ShieldCheck, Eye, Filter, Moon, Sun, Loader2, ExternalLink, MessageSquare, AlertTriangle, BarChart3, Printer
+  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, ChevronRight, Layers, ShieldCheck, Eye, Filter, Moon, Sun, Loader2, ExternalLink, MessageSquare, AlertTriangle, BarChart3
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts';
 import Papa from 'papaparse';
@@ -74,7 +74,7 @@ export default function App() {
 
   useEffect(() => {
     signInAnonymously(auth).catch(() => {});
-    if (!localStorage.getItem('recolekta_tutorial_v45')) setShowWelcome(true);
+    if (!localStorage.getItem('recolekta_tutorial_v49')) setShowWelcome(true);
 
     Papa.parse(GITHUB_CSV_URL, {
         download: true, header: true,
@@ -106,7 +106,6 @@ export default function App() {
         }
     });
 
-    // --- CORRECCIÓN AQUÍ: AUMENTADO DE 100 A 2000 ---
     const q = query(collection(db, "registros_produccion"), orderBy("createdAt", "desc"), limit(2000)); 
     const unsubscribe = onSnapshot(q, (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     return () => unsubscribe();
@@ -222,7 +221,9 @@ export default function App() {
     if (file) {
       setImageFile(file); 
       const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result); 
+      reader.onloadend = () => {
+          setImagePreview(reader.result); // Aseguramos que se setea la preview
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -255,6 +256,7 @@ export default function App() {
     const doc = new jsPDF();
     const slate900 = [15, 23, 42];
     const green500 = [34, 197, 94];
+    const orange500 = [249, 115, 22];
 
     doc.setFillColor(...slate900); doc.rect(0,0,210,45,'F');
     doc.setFillColor(...green500); doc.circle(20, 22, 10, 'F');
@@ -275,7 +277,77 @@ export default function App() {
     doc.text(`Total Diligencias Adic.: ${sItems.length}`, 120, 75);
     doc.text(`Promedio Espera (Diligencias): ${avgS} min`, 120, 81);
 
-    const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => {
+    // --- LÓGICA DE GRÁFICOS (SOLO PARA ADMIN) ---
+    const showCharts = appMode === 'admin'; // Solo admin ve gráficos en PDF
+    let chartY = 95;
+
+    if (showCharts) {
+        // ... CÁLCULO DE DATOS PARA GRÁFICOS ...
+        const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => {
+            const mDocs = reportData.filter(d => {
+                 const date = new Date(d.createdAt);
+                 const mon = isNaN(date.getMonth()) ? d.month : date.getMonth() + 1;
+                 return mon === i + 1;
+            });
+            const mRecs = mDocs.filter(d => isPrincipal(d));
+            const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0;
+            return { name: m, ef: parseFloat(mEf) };
+        });
+
+        const sucursalStats = reportData.reduce((acc, curr) => {
+            if(!curr.sucursal || curr.sucursal === 'N/A' || curr.sucursal === 'Ruta Externa') return acc;
+            acc[curr.sucursal] = acc[curr.sucursal] || { totalTime: 0, count: 0 };
+            acc[curr.sucursal].totalTime += (curr.tiempo || 0);
+            acc[curr.sucursal].count += 1;
+            return acc;
+        }, {});
+        const topSucursales = Object.entries(sucursalStats)
+            .map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) }))
+            .sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
+
+        // 1. Trend Chart (Left)
+        doc.setFontSize(9); doc.setTextColor(100);
+        doc.text("EFICIENCIA MENSUAL (%)", 35, chartY - 5);
+        
+        doc.setDrawColor(200);
+        doc.line(20, chartY, 20, chartY + 40); 
+        doc.line(20, chartY + 40, 90, chartY + 40); 
+
+        if(monthlyData.some(m => m.ef > 0)) {
+            const barWidth = 50 / 12;
+            monthlyData.forEach((m, i) => {
+                const h = (m.ef / 100) * 35; 
+                if(h > 0) {
+                    doc.setFillColor(...green500);
+                    doc.rect(22 + (i * barWidth * 1.2), (chartY + 40) - h, barWidth, h, 'F');
+                    doc.setFontSize(6); doc.text(m.name, 23 + (i * barWidth * 1.2), chartY + 44);
+                }
+            });
+        }
+
+        // 2. Top Sucursales (Right)
+        doc.setFontSize(9); doc.setTextColor(100);
+        doc.text("TOP DEMORAS (MIN)", 130, chartY - 5);
+        
+        doc.setDrawColor(200);
+        doc.line(110, chartY, 110, chartY + 40); 
+        doc.line(110, chartY + 40, 190, chartY + 40); 
+
+        if(topSucursales.length > 0) {
+            const maxTime = Math.max(...topSucursales.map(s => s.avgWait)) || 10;
+            topSucursales.forEach((s, i) => {
+                const w = (s.avgWait / maxTime) * 70; 
+                doc.setFillColor(...orange500);
+                doc.rect(111, chartY + 5 + (i * 7), w, 4, 'F');
+                doc.setFontSize(7); doc.setTextColor(50);
+                doc.text(`${s.name} (${s.avgWait}m)`, 112, chartY + 4 + (i * 7));
+            });
+        }
+    }
+
+    // --- TABLA ---
+    // Recalcular filas para la tabla (siempre presentes)
+    const monthlyTableRows = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => {
         const mDocs = reportData.filter(d => {
              const date = new Date(d.createdAt);
              const mon = isNaN(date.getMonth()) ? d.month : date.getMonth() + 1;
@@ -287,14 +359,12 @@ export default function App() {
         const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0;
         const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0;
         return [m, mRecs.length, `${mEf}%`, `${mAvgR}m`, mDils.length, `${mAvgD}m`];
-    });
-
-    const rows = monthlyData.filter(r => r[1] > 0 || r[4] > 0); 
+    }).filter(r => r[1] > 0 || r[4] > 0);
 
     autoTable(doc, {
-        startY: 90,
+        startY: showCharts ? 150 : 95, // Si es admin baja más la tabla, si es user sube
         head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']],
-        body: rows,
+        body: monthlyTableRows,
         headStyles: { fillColor: slate900, fontSize: 9, halign: 'center' },
         columnStyles: { 0: { fontStyle: 'bold', halign: 'left' }, 1: { halign: 'center' }, 2: { halign: 'center', fontStyle: 'bold', textColor: green500 }, 3: { halign: 'center' }, 4: { halign: 'center' }, 5: { halign: 'center' } },
         theme: 'striped'
@@ -303,9 +373,9 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-10 print:bg-white print:text-black" onClick={() => setActiveInput(null)}>
+    <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-10" onClick={() => setActiveInput(null)}>
       {viewingPhoto && (
-        <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 print:hidden" onClick={(e) => {e.stopPropagation(); setViewingPhoto(null);}}>
+        <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4" onClick={(e) => {e.stopPropagation(); setViewingPhoto(null);}}>
           <div className="relative max-w-4xl w-full flex flex-col items-center">
              <img src={viewingPhoto} className="max-h-[80vh] rounded-lg border border-white/20" alt="Evidencia" />
              <button className="mt-6 bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-xs" onClick={()=>setViewingPhoto(null)}>Cerrar Vista</button>
@@ -313,18 +383,7 @@ export default function App() {
         </div>
       )}
 
-      {showWelcome && (
-        <div className="fixed inset-0 z-[100] bg-[#0B1120]/95 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300 print:hidden">
-          <div className="bg-[#151F32] max-w-md w-full rounded-[3rem] p-10 text-center shadow-2xl border border-slate-800">
-            <div className="w-16 h-16 bg-green-500 rounded-2xl flex items-center justify-center text-white mx-auto mb-6 shadow-lg shadow-green-500/20"><Bike size={32}/></div>
-            <h2 className="text-2xl font-black uppercase mb-4 tracking-tighter text-white">Recolekta OS</h2>
-            <p className="text-slate-400 text-sm mb-10 leading-relaxed">Gestión Logística Operativa. <br/><b>Modo Ejecutivo Activo.</b></p>
-            <button onClick={() => { setShowWelcome(false); localStorage.setItem('recolekta_tutorial_v45', 'true'); }} className="w-full bg-white text-[#0B1120] py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-200 transition-colors">Iniciar Sesión</button>
-          </div>
-        </div>
-      )}
-
-      <nav className="bg-[#151F32] border-b border-slate-800 px-4 md:px-8 py-4 sticky top-0 z-50 flex justify-between items-center shadow-lg print:hidden">
+      <nav className="bg-[#151F32] border-b border-slate-800 px-4 md:px-8 py-4 sticky top-0 z-50 flex justify-between items-center shadow-lg">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white border border-slate-700"><Bike size={18}/></div><h1 className="text-lg font-black tracking-tighter text-white">Recolekta <span className="text-green-500">OS</span></h1></div>
         <div className="flex bg-[#0B1120] p-1 rounded-xl border border-slate-800">
             <button onClick={() => setAppMode('user')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all", appMode === 'user' ? "bg-slate-700 text-white shadow-md" : "text-slate-500 hover:text-slate-300")}>Usuario</button>
@@ -417,6 +476,10 @@ export default function App() {
                   <textarea placeholder="OBSERVACIONES (OPCIONAL)..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none transition-all text-white placeholder-slate-600 resize-none h-24" value={form.observaciones} onChange={e => setForm({...form, observaciones: e.target.value})} />
                 </div>
 
+                {imagePreview && (
+                  <div className="relative w-full h-40 rounded-xl overflow-hidden border-2 border-green-500 shadow-md mb-4"><img src={imagePreview} className="w-full h-full object-cover" alt="Preview"/><button onClick={()=>setImagePreview(null)} className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full"><X size={14}/></button></div>
+                )}
+                
                 <div className="grid grid-cols-2 gap-4">
                     <label className="col-span-1 p-4 bg-[#0B1120] border-2 border-dashed border-slate-700 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-800 transition-all text-slate-400 font-bold uppercase text-[9px]"><Camera size={24}/><p>Foto</p><input type="file" className="hidden" accept="image/*" onChange={handleFile} /></label>
                     <button type="submit" disabled={!imagePreview || isUploading} className={cn("col-span-1 rounded-2xl font-black text-sm shadow-lg transition-all uppercase flex flex-col items-center justify-center gap-2", imagePreview && !isUploading ? "bg-white text-black hover:bg-gray-200" : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700")}>
@@ -443,52 +506,39 @@ export default function App() {
           </div>
         ) : (
           <div className="space-y-8 animate-in fade-in">
-             <div className="bg-[#151F32] p-8 rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6 print:border-none print:shadow-none print:bg-white print:text-black">
-                <div className="print:hidden">
-                    <h2 className="text-3xl font-black uppercase tracking-tighter text-white">Central y Analisis de Datos</h2>
-                    <div className="flex gap-2 mt-4 bg-[#0B1120] p-1 rounded-xl w-fit border border-slate-800">
-                        <button onClick={()=>setAdminTab('general')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='general'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Panorama</button>
-                        <button onClick={()=>setAdminTab('individual')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='individual'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Individual</button>
-                    </div>
-                </div>
-                {/* ENCABEZADO SOLO PARA IMPRESIÓN */}
-                <div className="hidden print:block mb-8">
-                    <h1 className="text-3xl font-black uppercase mb-2">Reporte Visual de Operaciones</h1>
-                    <p className="text-sm text-gray-500">Generado el: {new Date().toLocaleDateString()}</p>
-                </div>
-
-                <div className="flex flex-wrap gap-3 print:hidden">
+             <div className="bg-[#151F32] p-8 rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
+                <div><h2 className="text-3xl font-black uppercase tracking-tighter text-white">Central y Analisis de Datos</h2><div className="flex gap-2 mt-4 bg-[#0B1120] p-1 rounded-xl w-fit border border-slate-800"><button onClick={()=>setAdminTab('general')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='general'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Panorama</button><button onClick={()=>setAdminTab('individual')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='individual'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Individual</button></div></div>
+                <div className="flex flex-wrap gap-3">
                   <div className="flex bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center"><Filter size={16} className="text-slate-500"/><select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m==='all'?'Año Completo':'Mes '+m}</option>)}</select>{adminTab === 'individual' && <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300"><option value="all" className="bg-slate-900">Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>}</div>
-                  <button onClick={() => window.print()} className="bg-white text-black px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-slate-200 transition-all"><Printer size={14}/> Imprimir Visual</button>
                   <button onClick={() => downloadReport(null)} className="bg-white text-black px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-slate-200 transition-all"><Download size={14}/> PDF Datos</button>
                   <button onClick={() => setDataSource(dataSource === 'live' ? 'csv' : 'live')} className={cn("px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2", dataSource==='live'?"bg-blue-600 text-white":"bg-green-600 text-white")}><Layers size={14}/> {dataSource==='live'?'Historial':'En Vivo'}</button>
                 </div>
              </div>
 
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:gap-4">
-                <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 relative overflow-hidden print:bg-white print:border-gray-200 print:text-black">
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-4 opacity-10"><TrendingUp size={100} className="text-indigo-500"/></div>
-                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 print:text-indigo-600">{filterUser === 'all' ? 'VITAL (GLOBAL FLOTA)' : `VITAL (${filterUser})`}</p>
-                    <div className="flex items-baseline gap-2"><h3 className="text-4xl font-black text-white print:text-black">{metrics.efP}%</h3><span className="text-xs font-bold text-slate-500">Eficiencia</span></div>
-                    <div className="mt-4 flex gap-2"><span className="text-[10px] font-bold bg-indigo-900/30 text-indigo-400 px-3 py-1 rounded-full border border-indigo-900 print:bg-indigo-50 print:text-indigo-600 print:border-indigo-100">Espera: {metrics.avgP}m</span><span className="text-[10px] font-bold bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700 print:bg-gray-100 print:text-gray-600 print:border-gray-200">Vol: {metrics.countP}</span></div>
+                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">{filterUser === 'all' ? 'VITAL (GLOBAL FLOTA)' : `VITAL (${filterUser})`}</p>
+                    <div className="flex items-baseline gap-2"><h3 className="text-4xl font-black text-white">{metrics.efP}%</h3><span className="text-xs font-bold text-slate-500">Eficiencia</span></div>
+                    <div className="mt-4 flex gap-2"><span className="text-[10px] font-bold bg-indigo-900/30 text-indigo-400 px-3 py-1 rounded-full border border-indigo-900">Espera: {metrics.avgP}m</span><span className="text-[10px] font-bold bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700">Vol: {metrics.countP}</span></div>
                 </div>
-                <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 relative overflow-hidden print:bg-white print:border-gray-200 print:text-black">
+                <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-4 opacity-10"><ClipboardList size={100} className="text-orange-500"/></div>
-                    <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2 print:text-orange-600">SECUNDARIO (ADMIN)</p>
-                    <div className="flex items-baseline gap-2"><h3 className="text-4xl font-black text-white print:text-black">{metrics.efS}%</h3><span className="text-xs font-bold text-slate-500">Eficiencia</span></div>
-                    <div className="mt-4 flex gap-2"><span className="text-[10px] font-bold bg-orange-900/30 text-orange-400 px-3 py-1 rounded-full border border-orange-900 print:bg-orange-50 print:text-orange-600 print:border-orange-100">Espera: {metrics.avgS}m</span><span className="text-[10px] font-bold bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700 print:bg-gray-100 print:text-gray-600 print:border-gray-200">Vol: {metrics.countS}</span></div>
+                    <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">SECUNDARIO (ADMIN)</p>
+                    <div className="flex items-baseline gap-2"><h3 className="text-4xl font-black text-white">{metrics.efS}%</h3><span className="text-xs font-bold text-slate-500">Eficiencia</span></div>
+                    <div className="mt-4 flex gap-2"><span className="text-[10px] font-bold bg-orange-900/30 text-orange-400 px-3 py-1 rounded-full border border-orange-900">Espera: {metrics.avgS}m</span><span className="text-[10px] font-bold bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700">Vol: {metrics.countS}</span></div>
                 </div>
-                <div className="bg-[#0B1120] p-6 rounded-[2rem] shadow-inner border border-slate-800 text-white flex flex-col justify-center relative overflow-hidden print:bg-white print:border-gray-200 print:text-black">
+                <div className="bg-[#0B1120] p-6 rounded-[2rem] shadow-inner border border-slate-800 text-white flex flex-col justify-center relative overflow-hidden">
                     <div className="absolute -bottom-4 -right-4 opacity-20"><Database size={100} className="text-slate-600"/></div>
-                    <p className="text-[10px] font-bold text-green-500 uppercase tracking-widest print:text-green-600">TOTAL REGISTROS</p>
-                    <h3 className="text-5xl font-black print:text-black">{metrics.total}</h3>
-                    <p className="text-[10px] font-bold text-slate-600 uppercase mt-auto print:text-gray-400">Fuente: {dataSource}</p>
+                    <p className="text-[10px] font-bold text-green-500 uppercase tracking-widest">TOTAL REGISTROS</p>
+                    <h3 className="text-5xl font-black">{metrics.total}</h3>
+                    <p className="text-[10px] font-bold text-slate-600 uppercase mt-auto">Fuente: {dataSource}</p>
                 </div>
              </div>
 
-             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:block print:space-y-6">
-                <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 print:bg-white print:border-gray-200 print:break-inside-avoid">
-                    <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2 print:text-black"><TrendingUp size={16} className="text-green-500"/> Evolución Anual de Eficiencia</h4>
+             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800">
+                    <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><TrendingUp size={16} className="text-green-500"/> Evolución Anual de Eficiencia</h4>
                     <div className="h-60 w-full">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={metrics.monthlyData}>
@@ -508,8 +558,8 @@ export default function App() {
                     </div>
                 </div>
 
-                <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 print:bg-white print:border-gray-200 print:break-inside-avoid">
-                    <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2 print:text-black"><BarChart3 size={16} className="text-orange-500"/> Top 5 Puntos con Mayor Demora</h4>
+                <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800">
+                    <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-orange-500"/> Top 5 Puntos con Mayor Demora</h4>
                     <div className="h-60 w-full">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart layout="vertical" data={metrics.topSucursales} margin={{ left: 0, right: 30 }}>
@@ -524,28 +574,28 @@ export default function App() {
                 </div>
              </div>
 
-             <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6 print:bg-white print:border-gray-200 print:text-black">
-                <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-6 flex items-center gap-2 print:text-black"><ShieldCheck className="text-green-500" size={18}/> Bitácora de Operación Reciente</h4>
+             <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6">
+                <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-6 flex items-center gap-2"><ShieldCheck className="text-green-500" size={18}/> Bitácora de Operación Reciente</h4>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg print:bg-gray-100 print:text-gray-600"><tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Foto</th><th className="px-4 py-3 rounded-r-lg">Tipo</th></tr></thead>
-                    <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800 print:divide-gray-200 print:text-black">
+                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Foto</th><th className="px-4 py-3 rounded-r-lg">Tipo</th></tr></thead>
+                    <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
                       {metrics.rows.slice(0, 20).map((r, i) => (
-                        <tr key={i} className="hover:bg-slate-800/50 transition-colors print:hover:bg-transparent">
-                          <td className="px-4 py-3 text-white print:text-black">{r.recolector}</td>
+                        <tr key={i} className="hover:bg-slate-800/50 transition-colors">
+                          <td className="px-4 py-3 text-white">{r.recolector}</td>
                           <td className="px-4 py-3">{r.sucursal}</td>
-                          <td className="px-4 py-3 text-slate-500 print:text-gray-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
-                          <td className="px-4 py-3 text-slate-500 print:text-gray-500">{r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida || ''}` : '--'}</td>
+                          <td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
+                          <td className="px-4 py-3 text-slate-500">{r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida || ''}` : '--'}</td>
                           <td className={cn("px-4 py-3", r.tiempo > 5 ? "text-orange-400" : "text-green-400")}>{r.tiempo}m</td>
                           <td className="px-4 py-3 text-center">
                             {r.fotoData && r.fotoData.startsWith('http') ? 
-                              <a href={r.fotoData} target="_blank" rel="noreferrer" className="inline-flex justify-center items-center bg-blue-900/30 text-blue-400 w-8 h-8 rounded-lg border border-blue-900 print:border-gray-300 print:text-blue-600"><ExternalLink size={14}/></a> :
-                              r.fotoData ? <img src={r.fotoData} className="w-8 h-8 rounded-lg object-cover cursor-pointer border border-slate-600 hover:border-white transition-all print:border-gray-300" onClick={()=>setViewingPhoto(r.fotoData)} alt="evidencia"/> : <span className="text-slate-700 print:text-gray-300">-</span>
+                              <a href={r.fotoData} target="_blank" rel="noreferrer" className="inline-flex justify-center items-center bg-blue-900/30 text-blue-400 w-8 h-8 rounded-lg border border-blue-900"><ExternalLink size={14}/></a> :
+                              r.fotoData ? <img src={r.fotoData} className="w-8 h-8 rounded-lg object-cover cursor-pointer border border-slate-600 hover:border-white transition-all" onClick={()=>setViewingPhoto(r.fotoData)} alt="evidencia"/> : <span className="text-slate-700">-</span>
                             }
                           </td>
                           <td className="px-4 py-3 flex items-center gap-2">
-                            <span className={cn("px-2 py-0.5 rounded-md text-[9px] border", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300 print:bg-indigo-50 print:text-indigo-700 print:border-indigo-200":"bg-orange-900/30 border-orange-900 text-orange-300 print:bg-orange-50 print:text-orange-700 print:border-orange-200")}>{r.categoria}</span>
-                            {r.observaciones && <div title={r.observaciones} className="text-slate-500 cursor-help hover:text-white print:text-gray-500"><MessageSquare size={14}/></div>}
+                            <span className={cn("px-2 py-0.5 rounded-md text-[9px] border", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300":"bg-orange-900/30 border-orange-900 text-orange-300")}>{r.categoria}</span>
+                            {r.observaciones && <div title={r.observaciones} className="text-slate-500 cursor-help hover:text-white"><MessageSquare size={14}/></div>}
                           </td>
                         </tr>
                       ))}
