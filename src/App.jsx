@@ -4,7 +4,7 @@ import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, limit } f
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
-  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, ChevronRight, Layers, ShieldCheck, Eye, Filter, Moon, Sun, Loader2, ExternalLink, MessageSquare
+  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, ChevronRight, Layers, ShieldCheck, Eye, Filter, Moon, Sun, Loader2, ExternalLink, MessageSquare, AlertTriangle
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import Papa from 'papaparse';
@@ -34,9 +34,20 @@ const storage = getStorage(app);
 
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/mnoeanaliza/recolekta-os/refs/heads/main/Datos.csv";
 
+// --- CATALOGOS OFICIALES BLINDADOS (Según CSVs) ---
 const CATALOGOS = {
-  transportistas: ["ANTONIO RIVAS", "BRAYAN REYES", "CARLOS SOSA", "DAVID ALVARADO", "EDWIN FLORES", "FELIX VASQUEZ", "FLOR CARDOZA", "GIOVANNI CALLEJAS", "HILDEBRANDO MENJIVAR", "JAIRO GIL", "JASON BARRERA", "ROGELIO MAZARIEGO", "TEODORO PÉREZ", "WALTER RIVAS"],
-  sucursales: ["Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", "Cojutepeque", "Zacatecoluca", "Santa Ana", "Merliot", "Escalón", "Médica", "Santa Tecla", "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares", "Metapán", "Marsella", "Opico", "N/A (EN RUTA)"],
+  transportistas: [
+    "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", 
+    "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", 
+    "FLOR CARDOZA", "HILDEBRANDO MENJIVAR"
+  ],
+  sucursales: [
+    "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", 
+    "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", 
+    "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", 
+    "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", 
+    "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares"
+  ],
   areas: ["LABORATORIO / PROCESAMIENTO", "TUVET", "Imágenes Escalón", "Centro de Distribución", "LAB. Externo", "Contabilidad", "RRHH", "Contac Center", "Empresas", "Fisioterapia", "Cuentas por cobrar", "Mercadeo", "Fidelizacion", "IT", "LOGÍSTICA / RUTA"],
   diligencias: ["Recolección de muestras", "Entrega de Muestras", "Traslado de toallas", "Traslado de reactivo", "Traslado de insumos", "Traslado de cortes", "Traslado de documentos", "Pago de aseguradora", "Pago o tramite bancario", "Tramite o diligencia extraordinaria", "INCIDENCIA EN RUTA"]
 };
@@ -59,13 +70,12 @@ export default function App() {
   
   const [viewingPhoto, setViewingPhoto] = useState(null);
 
-  // AHORA INCLUYE OBSERVACIONES
   const [form, setForm] = useState({ recolector: '', sucursal: '', area: '', tipo: '', hLlegada: '08', mLlegada: '00', pLlegada: 'AM', hSalida: '08', mSalida: '05', pSalida: 'AM', observaciones: '' });
   const [activeInput, setActiveInput] = useState(null);
 
   useEffect(() => {
     signInAnonymously(auth).catch(() => {});
-    if (!localStorage.getItem('recolekta_tutorial_v41')) setShowWelcome(true);
+    if (!localStorage.getItem('recolekta_tutorial_v42')) setShowWelcome(true);
 
     Papa.parse(GITHUB_CSV_URL, {
         download: true, header: true,
@@ -86,7 +96,7 @@ export default function App() {
                     categoria: isP ? "Principal" : "Secundaria",
                     originalTipo: tipoRaw,
                     fotoData: row['Fotografía de bitácora:'] || null, 
-                    observaciones: row['Observaciones'] || '', // Mapeo si existiera en CSV
+                    observaciones: row['Observaciones'] || '',
                     month: parseInt(String(row['Marca temporal']||'').split(/[\s\/]+/)[1])||1,
                     createdAt: row['Marca temporal'] 
                 };
@@ -190,8 +200,13 @@ export default function App() {
     return diff;
   };
 
+  // MANEJO INTELIGENTE DE INPUTS (Mayusculas para Nombres, Normal para Sucursales)
   const handleInput = (field, value) => {
-    setForm(prev => ({ ...prev, [field]: value.toUpperCase() }));
+    let val = value;
+    if (field === 'recolector') val = value.toUpperCase(); // Nombres siempre MAYUS
+    // Sucursales se quedan como el usuario escribe para permitir coincidencia exacta con CSV (Title Case)
+    
+    setForm(prev => ({ ...prev, [field]: val }));
     setActiveInput(field);
   };
 
@@ -262,7 +277,7 @@ export default function App() {
             <div className="w-16 h-16 bg-green-500 rounded-2xl flex items-center justify-center text-white mx-auto mb-6 shadow-lg shadow-green-500/20"><Bike size={32}/></div>
             <h2 className="text-2xl font-black uppercase mb-4 tracking-tighter text-white">Recolekta OS</h2>
             <p className="text-slate-400 text-sm mb-10 leading-relaxed">Gestión Logística Operativa. <br/><b>Modo Ejecutivo Activo.</b></p>
-            <button onClick={() => { setShowWelcome(false); localStorage.setItem('recolekta_tutorial_v41', 'true'); }} className="w-full bg-white text-[#0B1120] py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-200 transition-colors">Iniciar Sesión</button>
+            <button onClick={() => { setShowWelcome(false); localStorage.setItem('recolekta_tutorial_v42', 'true'); }} className="w-full bg-white text-[#0B1120] py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-200 transition-colors">Iniciar Sesión</button>
           </div>
         </div>
       )}
@@ -285,6 +300,10 @@ export default function App() {
                   if(!imageFile) return alert("FOTO REQUERIDA"); 
                   if(getWait() === 0 && form.mLlegada !== form.mSalida) return alert("ERROR EN HORAS: Verifica AM/PM");
                   
+                  // --- VALIDACIÓN DE LISTA BLANCA (NUEVO BLINDAJE) ---
+                  if (!CATALOGOS.transportistas.includes(form.recolector)) return alert("TRANSPORTISTA NO VÁLIDO. Seleccione de la lista.");
+                  if (!CATALOGOS.sucursales.includes(form.sucursal)) return alert("SUCURSAL NO VÁLIDA. Seleccione de la lista.");
+                  
                   setIsUploading(true); 
                   
                   try { 
@@ -301,7 +320,7 @@ export default function App() {
                     }); 
                     
                     alert("¡Registrado Exitosamente!"); 
-                    setForm({...form, sucursal: '', observaciones: ''}); // Limpiamos observación también
+                    setForm({...form, sucursal: '', observaciones: ''}); 
                     setImagePreview(null);
                     setImageFile(null);
                   } catch(e) {
@@ -333,14 +352,13 @@ export default function App() {
                   <input type="text" placeholder="SUCURSAL..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none text-white placeholder-slate-600" value={form.sucursal} onChange={e => handleInput('sucursal', e.target.value)} onFocus={() => setActiveInput('sucursal')} required />
                   {activeInput === 'sucursal' && form.sucursal.length > 0 && (
                     <div className="absolute z-30 w-full mt-2 bg-[#1F2937] shadow-xl rounded-xl border border-slate-700 max-h-40 overflow-y-auto">
-                      {CATALOGOS.sucursales.filter(t=>t.toUpperCase().includes(form.sucursal)).map(s => (
+                      {CATALOGOS.sucursales.filter(t=>t.toUpperCase().includes(form.sucursal.toUpperCase())).map(s => (
                         <div key={s} onClick={() => { setForm({...form, sucursal: s}); setActiveInput(null); }} className="p-3 hover:bg-slate-700 cursor-pointer text-xs font-bold border-b border-slate-800 text-slate-300">{s}</div>
                       ))}
                     </div>
                   )}
                 </div>
                 
-                {/* RELOJ DARK */}
                 <div className="bg-[#0B1120] p-6 rounded-[2rem] text-white grid grid-cols-1 sm:grid-cols-2 gap-6 items-center shadow-inner border border-slate-800">
                     <div className="space-y-4">
                         <div className="flex flex-col items-center sm:items-start">
@@ -367,7 +385,6 @@ export default function App() {
                     </div>
                 </div>
 
-                {/* CAMPO DE OBSERVACIONES */}
                 <div className="relative">
                   <textarea 
                     placeholder="OBSERVACIONES (OPCIONAL)..." 
