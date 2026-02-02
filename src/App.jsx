@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { getAuth, signInAnonymously } from 'firebase/auth';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
-  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, ChevronRight, Layers, ShieldCheck, Eye, Filter, Moon, Sun
+  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, ChevronRight, Layers, ShieldCheck, Eye, Filter, Moon, Sun, Loader2, ExternalLink, MessageSquare
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import Papa from 'papaparse';
@@ -29,6 +30,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+const storage = getStorage(app);
 
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/mnoeanaliza/recolekta-os/refs/heads/main/Datos.csv";
 
@@ -50,16 +52,20 @@ export default function App() {
   const [csvData, setCsvData] = useState([]);
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterUser, setFilterUser] = useState('all');
-  const [imagePreview, setImagePreview] = useState(null);
+  
+  const [imagePreview, setImagePreview] = useState(null); 
+  const [imageFile, setImageFile] = useState(null); 
+  const [isUploading, setIsUploading] = useState(false); 
+  
   const [viewingPhoto, setViewingPhoto] = useState(null);
 
-  // ESTADO DEL FORMULARIO
-  const [form, setForm] = useState({ recolector: '', sucursal: '', area: '', tipo: '', hLlegada: '08', mLlegada: '00', pLlegada: 'AM', hSalida: '08', mSalida: '05', pSalida: 'AM' });
+  // AHORA INCLUYE OBSERVACIONES
+  const [form, setForm] = useState({ recolector: '', sucursal: '', area: '', tipo: '', hLlegada: '08', mLlegada: '00', pLlegada: 'AM', hSalida: '08', mSalida: '05', pSalida: 'AM', observaciones: '' });
   const [activeInput, setActiveInput] = useState(null);
 
   useEffect(() => {
     signInAnonymously(auth).catch(() => {});
-    if (!localStorage.getItem('recolekta_tutorial_v38')) setShowWelcome(true);
+    if (!localStorage.getItem('recolekta_tutorial_v41')) setShowWelcome(true);
 
     Papa.parse(GITHUB_CSV_URL, {
         download: true, header: true,
@@ -80,6 +86,7 @@ export default function App() {
                     categoria: isP ? "Principal" : "Secundaria",
                     originalTipo: tipoRaw,
                     fotoData: row['Fotografía de bitácora:'] || null, 
+                    observaciones: row['Observaciones'] || '', // Mapeo si existiera en CSV
                     month: parseInt(String(row['Marca temporal']||'').split(/[\s\/]+/)[1])||1,
                     createdAt: row['Marca temporal'] 
                 };
@@ -88,7 +95,7 @@ export default function App() {
         }
     });
 
-    const q = query(collection(db, "registros_produccion"), orderBy("createdAt", "desc"), limit(500));
+    const q = query(collection(db, "registros_produccion"), orderBy("createdAt", "desc"), limit(100)); 
     const unsubscribe = onSnapshot(q, (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     return () => unsubscribe();
   }, []);
@@ -146,18 +153,13 @@ export default function App() {
     } catch (e) { return fb; }
   }, [liveData, csvData, filterMonth, filterUser, dataSource]);
 
-  // --- KPI DIARIO PERSONALIZADO ---
   const userMetrics = useMemo(() => {
     const data = dataSource === 'live' ? liveData : csvData;
     const targetUser = form.recolector;
-    
-    // 1. Filtrar por Usuario
     let userDocs = data;
     if (targetUser && targetUser.length > 2) {
         userDocs = data.filter(d => d.recolector === targetUser);
     }
-
-    // 2. Filtrar por HOY (Reinicio diario)
     const today = new Date().toLocaleDateString();
     userDocs = userDocs.filter(d => new Date(d.createdAt).toLocaleDateString() === today);
 
@@ -170,11 +172,7 @@ export default function App() {
     const recs = userDocs.filter(d => isPrincipal(d));
     const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= 5).length / recs.length) * 100).toFixed(1) : 0;
     
-    return { 
-        ef: ef, 
-        count: userDocs.length, 
-        label: targetUser && targetUser.length > 2 ? targetUser.split(' ')[0] : 'HOY (GLOBAL)' 
-    };
+    return { ef: ef, count: userDocs.length, label: targetUser && targetUser.length > 2 ? targetUser.split(' ')[0] : 'HOY (GLOBAL)' };
   }, [liveData, csvData, form.recolector, dataSource]);
 
   const convertToMinutes = (h, m, p) => {
@@ -197,6 +195,16 @@ export default function App() {
     setActiveInput(field);
   };
 
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImageFile(file); 
+      const reader = new FileReader();
+      reader.onloadend = () => setImagePreview(reader.result); 
+      reader.readAsDataURL(file);
+    }
+  };
+
   const downloadReport = () => {
     if (!metrics || metrics.total === 0) return alert("Sin datos para generar reporte.");
     const doc = new jsPDF();
@@ -207,7 +215,7 @@ export default function App() {
     doc.setFillColor(...green500); doc.circle(20, 22, 10, 'F');
     doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 24);
     doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 22);
-    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA Y TRANSPORTE", 35, 29);
+    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA BIOMÉDICA", 35, 29);
     
     doc.setTextColor(40); doc.setFontSize(14); doc.setFont("helvetica", "bold");
     const reportTitle = filterUser === 'all' ? "REPORTE CONSOLIDADO DE FLOTA" : `FICHA HISTÓRICA: ${filterUser}`;
@@ -239,7 +247,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-10" onClick={() => setActiveInput(null)}>
-      {/* MODAL FOTO */}
       {viewingPhoto && (
         <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4" onClick={(e) => {e.stopPropagation(); setViewingPhoto(null);}}>
           <div className="relative max-w-4xl w-full flex flex-col items-center">
@@ -249,19 +256,17 @@ export default function App() {
         </div>
       )}
 
-      {/* BIENVENIDA DARK */}
       {showWelcome && (
         <div className="fixed inset-0 z-[100] bg-[#0B1120]/95 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300">
           <div className="bg-[#151F32] max-w-md w-full rounded-[3rem] p-10 text-center shadow-2xl border border-slate-800">
             <div className="w-16 h-16 bg-green-500 rounded-2xl flex items-center justify-center text-white mx-auto mb-6 shadow-lg shadow-green-500/20"><Bike size={32}/></div>
             <h2 className="text-2xl font-black uppercase mb-4 tracking-tighter text-white">Recolekta OS</h2>
             <p className="text-slate-400 text-sm mb-10 leading-relaxed">Gestión Logística Operativa. <br/><b>Modo Ejecutivo Activo.</b></p>
-            <button onClick={() => { setShowWelcome(false); localStorage.setItem('recolekta_tutorial_v38', 'true'); }} className="w-full bg-white text-[#0B1120] py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-200 transition-colors">Iniciar Sesión</button>
+            <button onClick={() => { setShowWelcome(false); localStorage.setItem('recolekta_tutorial_v41', 'true'); }} className="w-full bg-white text-[#0B1120] py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-200 transition-colors">Iniciar Sesión</button>
           </div>
         </div>
       )}
 
-      {/* NAVBAR DARK */}
       <nav className="bg-[#151F32] border-b border-slate-800 px-4 md:px-8 py-4 sticky top-0 z-50 flex justify-between items-center shadow-lg">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white border border-slate-700"><Bike size={18}/></div><h1 className="text-lg font-black tracking-tighter text-white">Recolekta <span className="text-green-500">OS</span></h1></div>
         <div className="flex bg-[#0B1120] p-1 rounded-xl border border-slate-800">
@@ -273,21 +278,38 @@ export default function App() {
       <main className="max-w-7xl mx-auto p-4 md:p-6">
         {appMode === 'user' ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
-            {/* FORMULARIO DARK */}
             <div className="lg:col-span-2 bg-[#151F32] p-6 md:p-10 rounded-[2rem] shadow-xl border border-slate-800 relative overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-500 to-emerald-400"></div>
               <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-white"><ClipboardList className="text-green-500"/> Registro de Ruta</h2>
               <form onSubmit={async (e) => { e.preventDefault(); 
-                  if(!imagePreview) return alert("FOTO REQUERIDA");
+                  if(!imageFile) return alert("FOTO REQUERIDA"); 
                   if(getWait() === 0 && form.mLlegada !== form.mSalida) return alert("ERROR EN HORAS: Verifica AM/PM");
+                  
+                  setIsUploading(true); 
+                  
                   try { 
+                    const storageRef = ref(storage, `evidencias/${Date.now()}_${form.recolector.replace(/\s+/g, '_')}`);
+                    await uploadBytes(storageRef, imageFile);
+                    const photoURL = await getDownloadURL(storageRef); 
+
                     const isP = PRINCIPAL_KEYWORDS.some(k=>form.tipo.toLowerCase().includes(k));
                     await addDoc(collection(db, "registros_produccion"), { 
                       ...form, tiempo: getWait(), createdAt: new Date().toISOString(), 
-                      categoria: isP ? "Prioridad" : "Secundaria", fotoData: imagePreview, month: new Date().getMonth() + 1 
+                      categoria: isP ? "Principal" : "Secundaria", 
+                      fotoData: photoURL, 
+                      month: new Date().getMonth() + 1 
                     }); 
-                    alert("¡Registrado!"); setForm({...form, sucursal: ''}); setImagePreview(null);
-                  } catch(e) {alert("Error de Red");} 
+                    
+                    alert("¡Registrado Exitosamente!"); 
+                    setForm({...form, sucursal: '', observaciones: ''}); // Limpiamos observación también
+                    setImagePreview(null);
+                    setImageFile(null);
+                  } catch(e) {
+                    console.error(e);
+                    alert("Error al subir: Verifica tu conexión");
+                  } finally {
+                    setIsUploading(false);
+                  }
                 }} className="space-y-5">
                 
                 <div className="relative" onClick={e => e.stopPropagation()}>
@@ -345,19 +367,31 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* CAMPO DE OBSERVACIONES */}
+                <div className="relative">
+                  <textarea 
+                    placeholder="OBSERVACIONES (OPCIONAL)..." 
+                    className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none transition-all text-white placeholder-slate-600 resize-none h-24"
+                    value={form.observaciones}
+                    onChange={e => setForm({...form, observaciones: e.target.value})}
+                  />
+                </div>
+
                 {imagePreview && (
                   <div className="relative w-full h-40 rounded-xl overflow-hidden border-2 border-green-500 shadow-md"><img src={imagePreview} className="w-full h-full object-cover" alt="Preview"/><button onClick={()=>setImagePreview(null)} className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full"><X size={14}/></button></div>
                 )}
                 
                 <div className="grid grid-cols-2 gap-4">
-                    <label className="col-span-1 p-4 bg-[#0B1120] border-2 border-dashed border-slate-700 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-800 transition-all text-slate-400 font-bold uppercase text-[9px]"><Camera size={24}/><p>Foto</p><input type="file" className="hidden" accept="image/*" onChange={(e)=>{const f=e.target.files[0]; if(f){const r=new FileReader(); r.onloadend=()=>setImagePreview(r.result); r.readAsDataURL(f);}}} /></label>
-                    <button type="submit" disabled={!imagePreview} className={cn("col-span-1 rounded-2xl font-black text-sm shadow-lg transition-all uppercase flex flex-col items-center justify-center gap-2", imagePreview ? "bg-white text-black hover:bg-gray-200" : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700")}><CheckCircle2 size={24} className={imagePreview?"text-green-600":"text-slate-600"}/> Sincronizar</button>
+                    <label className="col-span-1 p-4 bg-[#0B1120] border-2 border-dashed border-slate-700 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-800 transition-all text-slate-400 font-bold uppercase text-[9px]"><Camera size={24}/><p>Foto</p><input type="file" className="hidden" accept="image/*" onChange={handleFile} /></label>
+                    <button type="submit" disabled={!imagePreview || isUploading} className={cn("col-span-1 rounded-2xl font-black text-sm shadow-lg transition-all uppercase flex flex-col items-center justify-center gap-2", imagePreview && !isUploading ? "bg-white text-black hover:bg-gray-200" : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700")}>
+                        {isUploading ? <Loader2 className="animate-spin" size={24}/> : <CheckCircle2 size={24} className={imagePreview?"text-green-600":"text-slate-600"}/>} 
+                        {isUploading ? 'Subiendo...' : 'Sincronizar'}
+                    </button>
                 </div>
-                <button type="button" onClick={downloadReport} className="w-full bg-slate-800 border border-slate-700 py-3 rounded-xl font-bold text-xs text-slate-300 uppercase flex items-center justify-center gap-2 hover:bg-slate-700 transition-all"><Download size={14}/> Descargar Reporte</button>
+                <button type="button" onClick={downloadReport} className="w-full bg-slate-800 border border-slate-700 py-3 rounded-xl font-bold text-xs text-slate-300 uppercase flex items-center justify-center gap-2 hover:bg-slate-700 transition-all"><Download size={14}/> Descargar Mi Ficha</button>
               </form>
             </div>
             
-            {/* TARJETA KPI USUARIO DARK */}
             <div className="space-y-6">
                  <div className="bg-[#151F32] p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden border border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">
@@ -372,7 +406,6 @@ export default function App() {
             </div>
           </div>
         ) : (
-          /* MONITOR ADMIN DARK */
           <div className="space-y-8 animate-in fade-in">
              <div className="bg-[#151F32] p-8 rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
                 <div><h2 className="text-3xl font-black uppercase tracking-tighter text-white">Central y Analisis de Datos</h2><div className="flex gap-2 mt-4 bg-[#0B1120] p-1 rounded-xl w-fit border border-slate-800"><button onClick={()=>setAdminTab('general')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='general'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Panorama</button><button onClick={()=>setAdminTab('individual')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='individual'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Individual</button></div></div>
@@ -421,7 +454,10 @@ export default function App() {
                               r.fotoData ? <img src={r.fotoData} className="w-8 h-8 rounded-lg object-cover cursor-pointer border border-slate-600 hover:border-white transition-all" onClick={()=>setViewingPhoto(r.fotoData)} alt="evidencia"/> : <span className="text-slate-700">-</span>
                             }
                           </td>
-                          <td className="px-4 py-3"><span className={cn("px-2 py-0.5 rounded-md text-[9px] border", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300":"bg-orange-900/30 border-orange-900 text-orange-300")}>{r.categoria}</span></td>
+                          <td className="px-4 py-3 flex items-center gap-2">
+                            <span className={cn("px-2 py-0.5 rounded-md text-[9px] border", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300":"bg-orange-900/30 border-orange-900 text-orange-300")}>{r.categoria}</span>
+                            {r.observaciones && <div title={r.observaciones} className="text-slate-500 cursor-help hover:text-white"><MessageSquare size={14}/></div>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
