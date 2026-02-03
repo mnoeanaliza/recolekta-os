@@ -4,7 +4,7 @@ import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, limit } f
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
-  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, ChevronRight, Layers, ShieldCheck, Eye, Filter, Moon, Sun, Loader2, ExternalLink, MessageSquare, AlertTriangle, BarChart3
+  Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, Image as ImageIcon, RefreshCw, X, ChevronRight, Layers, ShieldCheck, Eye, Filter, Moon, Sun, Loader2, ExternalLink, MessageSquare, AlertTriangle, BarChart3, FileSpreadsheet
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts';
 import Papa from 'papaparse';
@@ -65,7 +65,8 @@ export default function App() {
   
   const [imagePreview, setImagePreview] = useState(null); 
   const [imageFile, setImageFile] = useState(null); 
-  const [isUploading, setIsUploading] = useState(false); 
+  const [isUploading, setIsUploading] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false); // Estado para feedback de compresión
   
   const [viewingPhoto, setViewingPhoto] = useState(null);
 
@@ -74,7 +75,7 @@ export default function App() {
 
   useEffect(() => {
     signInAnonymously(auth).catch(() => {});
-    if (!localStorage.getItem('recolekta_tutorial_v49')) setShowWelcome(true);
+    if (!localStorage.getItem('recolekta_tutorial_v51')) setShowWelcome(true);
 
     Papa.parse(GITHUB_CSV_URL, {
         download: true, header: true,
@@ -216,16 +217,80 @@ export default function App() {
     setActiveInput(field);
   };
 
-  const handleFile = (e) => {
+  // --- MOTOR DE COMPRESIÓN DE IMAGEN ---
+  const compressImage = (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800; // Reducir ancho máximo a 800px
+          const scaleSize = MAX_WIDTH / img.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          
+          canvas.toBlob((blob) => {
+            // Reemplazamos el archivo original por el comprimido
+            resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+          }, 'image/jpeg', 0.7); // Calidad al 70%
+        };
+      };
+    });
+  };
+
+  const handleFile = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      setImageFile(file); 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-          setImagePreview(reader.result); // Aseguramos que se setea la preview
-      };
-      reader.readAsDataURL(file);
+      setIsCompressing(true); // Mostrar estado de "Procesando..."
+      try {
+        const compressedFile = await compressImage(file);
+        setImageFile(compressedFile);
+        
+        // Vista previa
+        const reader = new FileReader();
+        reader.onloadend = () => setImagePreview(reader.result);
+        reader.readAsDataURL(compressedFile);
+      } catch (error) {
+        alert("Error al procesar la imagen");
+      } finally {
+        setIsCompressing(false);
+      }
     }
+  };
+
+  const exportToCSV = () => {
+    const data = dataSource === 'live' ? liveData : csvData;
+    if (!data || data.length === 0) return alert("No hay datos para exportar.");
+
+    const csvRows = data.map(r => ({
+        Fecha: new Date(r.createdAt).toLocaleString(),
+        Mes: r.month,
+        Transportista: r.recolector,
+        Sucursal: r.sucursal,
+        Diligencia: r.tipo,
+        Area: r.area || 'N/A',
+        Categoria: r.categoria,
+        Entrada: r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}` : '',
+        Salida: r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida}` : '',
+        Espera_Minutos: r.tiempo,
+        Observaciones: r.observaciones || '',
+        Foto_URL: r.fotoData || ''
+    }));
+
+    const csv = Papa.unparse(csvRows);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Respaldo_Recolekta_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const downloadReport = (specificUser = null) => {
@@ -277,12 +342,10 @@ export default function App() {
     doc.text(`Total Diligencias Adic.: ${sItems.length}`, 120, 75);
     doc.text(`Promedio Espera (Diligencias): ${avgS} min`, 120, 81);
 
-    // --- LÓGICA DE GRÁFICOS (SOLO PARA ADMIN) ---
-    const showCharts = appMode === 'admin'; // Solo admin ve gráficos en PDF
+    const showCharts = appMode === 'admin'; 
     let chartY = 95;
 
     if (showCharts) {
-        // ... CÁLCULO DE DATOS PARA GRÁFICOS ...
         const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => {
             const mDocs = reportData.filter(d => {
                  const date = new Date(d.createdAt);
@@ -305,13 +368,9 @@ export default function App() {
             .map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) }))
             .sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
 
-        // 1. Trend Chart (Left)
         doc.setFontSize(9); doc.setTextColor(100);
         doc.text("EFICIENCIA MENSUAL (%)", 35, chartY - 5);
-        
-        doc.setDrawColor(200);
-        doc.line(20, chartY, 20, chartY + 40); 
-        doc.line(20, chartY + 40, 90, chartY + 40); 
+        doc.setDrawColor(200); doc.line(20, chartY, 20, chartY + 40); doc.line(20, chartY + 40, 90, chartY + 40); 
 
         if(monthlyData.some(m => m.ef > 0)) {
             const barWidth = 50 / 12;
@@ -325,13 +384,9 @@ export default function App() {
             });
         }
 
-        // 2. Top Sucursales (Right)
         doc.setFontSize(9); doc.setTextColor(100);
         doc.text("TOP DEMORAS (MIN)", 130, chartY - 5);
-        
-        doc.setDrawColor(200);
-        doc.line(110, chartY, 110, chartY + 40); 
-        doc.line(110, chartY + 40, 190, chartY + 40); 
+        doc.setDrawColor(200); doc.line(110, chartY, 110, chartY + 40); doc.line(110, chartY + 40, 190, chartY + 40); 
 
         if(topSucursales.length > 0) {
             const maxTime = Math.max(...topSucursales.map(s => s.avgWait)) || 10;
@@ -345,8 +400,6 @@ export default function App() {
         }
     }
 
-    // --- TABLA ---
-    // Recalcular filas para la tabla (siempre presentes)
     const monthlyTableRows = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => {
         const mDocs = reportData.filter(d => {
              const date = new Date(d.createdAt);
@@ -362,7 +415,7 @@ export default function App() {
     }).filter(r => r[1] > 0 || r[4] > 0);
 
     autoTable(doc, {
-        startY: showCharts ? 150 : 95, // Si es admin baja más la tabla, si es user sube
+        startY: showCharts ? 150 : 95, 
         head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']],
         body: monthlyTableRows,
         headStyles: { fillColor: slate900, fontSize: 9, halign: 'center' },
@@ -400,22 +453,35 @@ export default function App() {
               <form onSubmit={async (e) => { e.preventDefault(); 
                   if(!imageFile) return alert("FOTO REQUERIDA"); 
                   if(getWait() === 0 && form.mLlegada !== form.mSalida) return alert("ERROR EN HORAS: Verifica AM/PM");
+                  
                   if (!CATALOGOS.transportistas.includes(form.recolector)) return alert("TRANSPORTISTA NO VÁLIDO. Seleccione de la lista.");
                   if (!CATALOGOS.sucursales.includes(form.sucursal)) return alert("SUCURSAL NO VÁLIDA. Seleccione de la lista.");
+                  
                   setIsUploading(true); 
+                  
                   try { 
                     const storageRef = ref(storage, `evidencias/${Date.now()}_${form.recolector.replace(/\s+/g, '_')}`);
                     await uploadBytes(storageRef, imageFile);
                     const photoURL = await getDownloadURL(storageRef); 
+
                     const isP = PRINCIPAL_KEYWORDS.some(k=>form.tipo.toLowerCase().includes(k));
                     await addDoc(collection(db, "registros_produccion"), { 
                       ...form, tiempo: getWait(), createdAt: new Date().toISOString(), 
-                      categoria: isP ? "Principal" : "Secundaria", fotoData: photoURL, month: new Date().getMonth() + 1 
+                      categoria: isP ? "Principal" : "Secundaria", 
+                      fotoData: photoURL, 
+                      month: new Date().getMonth() + 1 
                     }); 
+                    
                     alert("¡Registrado Exitosamente!"); 
                     setForm({...form, sucursal: '', observaciones: ''}); 
-                    setImagePreview(null); setImageFile(null);
-                  } catch(e) { console.error(e); alert("Error al subir: Verifica tu conexión"); } finally { setIsUploading(false); }
+                    setImagePreview(null);
+                    setImageFile(null);
+                  } catch(e) {
+                    console.error(e);
+                    alert("Error al subir: Verifica tu conexión");
+                  } finally {
+                    setIsUploading(false);
+                  }
                 }} className="space-y-5">
                 
                 <div className="relative" onClick={e => e.stopPropagation()}>
@@ -476,15 +542,11 @@ export default function App() {
                   <textarea placeholder="OBSERVACIONES (OPCIONAL)..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none transition-all text-white placeholder-slate-600 resize-none h-24" value={form.observaciones} onChange={e => setForm({...form, observaciones: e.target.value})} />
                 </div>
 
-                {imagePreview && (
-                  <div className="relative w-full h-40 rounded-xl overflow-hidden border-2 border-green-500 shadow-md mb-4"><img src={imagePreview} className="w-full h-full object-cover" alt="Preview"/><button onClick={()=>setImagePreview(null)} className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full"><X size={14}/></button></div>
-                )}
-                
                 <div className="grid grid-cols-2 gap-4">
                     <label className="col-span-1 p-4 bg-[#0B1120] border-2 border-dashed border-slate-700 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-800 transition-all text-slate-400 font-bold uppercase text-[9px]"><Camera size={24}/><p>Foto</p><input type="file" className="hidden" accept="image/*" onChange={handleFile} /></label>
-                    <button type="submit" disabled={!imagePreview || isUploading} className={cn("col-span-1 rounded-2xl font-black text-sm shadow-lg transition-all uppercase flex flex-col items-center justify-center gap-2", imagePreview && !isUploading ? "bg-white text-black hover:bg-gray-200" : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700")}>
-                        {isUploading ? <Loader2 className="animate-spin" size={24}/> : <CheckCircle2 size={24} className={imagePreview?"text-green-600":"text-slate-600"}/>} 
-                        {isUploading ? 'Subiendo...' : 'Sincronizar'}
+                    <button type="submit" disabled={!imagePreview || isUploading || isCompressing} className={cn("col-span-1 rounded-2xl font-black text-sm shadow-lg transition-all uppercase flex flex-col items-center justify-center gap-2", imagePreview && !isUploading && !isCompressing ? "bg-white text-black hover:bg-gray-200" : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700")}>
+                        {isCompressing ? <Loader2 className="animate-spin" size={24}/> : (isUploading ? <Loader2 className="animate-spin" size={24}/> : <CheckCircle2 size={24} className={imagePreview?"text-green-600":"text-slate-600"}/>)}
+                        {isCompressing ? 'Procesando...' : (isUploading ? 'Subiendo...' : 'Sincronizar')}
                     </button>
                 </div>
                 <button type="button" onClick={() => downloadReport(form.recolector)} className="w-full bg-slate-800 border border-slate-700 py-3 rounded-xl font-bold text-xs text-slate-300 uppercase flex items-center justify-center gap-2 hover:bg-slate-700 transition-all"><Download size={14}/> Descargar Mi Ficha</button>
@@ -510,6 +572,7 @@ export default function App() {
                 <div><h2 className="text-3xl font-black uppercase tracking-tighter text-white">Central y Analisis de Datos</h2><div className="flex gap-2 mt-4 bg-[#0B1120] p-1 rounded-xl w-fit border border-slate-800"><button onClick={()=>setAdminTab('general')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='general'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Panorama</button><button onClick={()=>setAdminTab('individual')} className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase transition-all", adminTab==='individual'?"bg-slate-700 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Individual</button></div></div>
                 <div className="flex flex-wrap gap-3">
                   <div className="flex bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center"><Filter size={16} className="text-slate-500"/><select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m==='all'?'Año Completo':'Mes '+m}</option>)}</select>{adminTab === 'individual' && <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300"><option value="all" className="bg-slate-900">Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>}</div>
+                  <button onClick={exportToCSV} className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-green-700 transition-all"><FileSpreadsheet size={14}/> Excel Total</button>
                   <button onClick={() => downloadReport(null)} className="bg-white text-black px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-slate-200 transition-all"><Download size={14}/> PDF Datos</button>
                   <button onClick={() => setDataSource(dataSource === 'live' ? 'csv' : 'live')} className={cn("px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2", dataSource==='live'?"bg-blue-600 text-white":"bg-green-600 text-white")}><Layers size={14}/> {dataSource==='live'?'Historial':'En Vivo'}</button>
                 </div>
