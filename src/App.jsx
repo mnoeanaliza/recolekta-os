@@ -38,7 +38,7 @@ const CATALOGOS = {
   transportistas: [
     "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", 
     "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", 
-    "FLOR CARDOZA", "HILDEBRANDO MENJIVAR"
+    "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "RAMON LARIN"
   ],
   sucursales: [
     "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", 
