@@ -64,7 +64,7 @@ const CATALOGOS = {
     "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", 
     "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", 
     "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", 
-    "Metapán", "Escalón 2", "Marsella", "Médica 1", "Opico", "Médica 2", "Médica 3", "Médica 4", "Santa Tecla", 
+    "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", 
     "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares"
   ],
   areas: ["LABORATORIO / PROCESAMIENTO", "TUVET", "Imágenes Escalón", "Centro de Distribución", "LAB. Externo", "Contabilidad", "RRHH", "Contac Center", "Empresas", "Fisioterapia", "Cuentas por cobrar", "Mercadeo", "Fidelizacion", "IT", "LOGÍSTICA / RUTA"],
@@ -495,7 +495,7 @@ function Dashboard() {
       {showAvisoModal && (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
-                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white flex items-center gap-2"><Send size={20} className="text-blue-500"/> Enviar Aviso a Flota</h3><button onClick={() => setShowAvisoModal(false)}><XCircle className="text-slate-500 hover:text-white" size={24}/></button></div>
+                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white flex items-center gap-2"><Send size={20} className="text-blue-500"/> Enviar Aviso a Equipo</h3><button onClick={() => setShowAvisoModal(false)}><XCircle className="text-slate-500 hover:text-white" size={24}/></button></div>
                 <div className="space-y-4">
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Tipo de Aviso</label><select value={avisoForm.tipo} onChange={e=>setAvisoForm({...avisoForm, tipo: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="info">ℹ️ Informativo (Solo lectura)</option><option value="confirm">✅ Requiere Confirmación</option></select></div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Destinatario</label><select value={avisoForm.para} onChange={e=>setAvisoForm({...avisoForm, para: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="Todos">Toda la Flota (Global)</option>{CATALOGOS.transportistas.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
@@ -600,12 +600,12 @@ function Dashboard() {
           <div className="space-y-8 animate-in fade-in">
              <div className="bg-[#151F32] p-8 rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
                 <div>
-                    <h2 className="text-3xl font-black uppercase tracking-tighter text-white">Centro de Mando</h2>
+                    <h2 className="text-3xl font-black uppercase tracking-tighter text-white">Centro de Control Operativo</h2>
                     <div className="flex flex-wrap gap-2 mt-4 bg-[#0B1120] p-1 rounded-xl w-full md:w-fit border border-slate-800">
                         <button onClick={()=>setAdminSection('ops')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='ops'?"bg-green-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Operaciones</button>
                         <button onClick={()=>setAdminSection('fleet')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='fleet'?"bg-orange-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Flota</button>
                         <button onClick={()=>setAdminSection('hr')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='hr'?"bg-purple-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>RRHH</button>
-                        <button onClick={()=>setAdminSection('agenda')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='agenda'?"bg-blue-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Agenda</button>
+                        <button onClick={()=>setAdminSection('agenda')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='agenda'?"bg-blue-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Horarios</button>
                         <button onClick={()=>setAdminSection('bi')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center flex items-center gap-1", adminSection==='bi'?"bg-indigo-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}><PieChart size={12}/> Analítica YoY</button>
                     </div>
                 </div>
@@ -704,9 +704,9 @@ function Dashboard() {
                    <div className="flex justify-between items-center bg-[#151F32] p-6 rounded-[2rem] border border-slate-800">
                       <div>
                           <h3 className="text-2xl font-black text-white">Nómina de Horas Extras</h3>
-                          <p className="text-xs text-slate-400">Control de asistencia y pagos adicionales.</p>
+                          <p className="text-xs text-slate-400">Control de asistencia y Horas Extras.</p>
                       </div>
-                      <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all"><FileSpreadsheet size={16}/> Exportar Excel RRHH</button>
+                      <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all"><FileSpreadsheet size={16}/> Exportar Excel HE</button>
                    </div>
 
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -760,7 +760,7 @@ function Dashboard() {
                    <button onClick={()=>setSupervisorSection('bitacora')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='bitacora'?"bg-blue-600 text-white":"text-slate-500 hover:bg-slate-800")}>Bitácora</button>
                    <button onClick={()=>setSupervisorSection('combustible')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='combustible'?"bg-orange-600 text-white":"text-slate-500 hover:bg-slate-800")}>Combustible</button>
                    <button onClick={()=>setSupervisorSection('taller')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='taller'?"bg-yellow-600 text-black":"text-slate-500 hover:bg-slate-800")}>Taller</button>
-                   <button onClick={()=>setSupervisorSection('agenda')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='agenda'?"bg-purple-600 text-white":"text-slate-500 hover:bg-slate-800")}>Agenda Global</button>
+                   <button onClick={()=>setSupervisorSection('agenda')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='agenda'?"bg-purple-600 text-white":"text-slate-500 hover:bg-slate-800")}>Horario Global</button>
                 </div>
                 <div className="flex bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center gap-2">
                    <Filter size={14} className="text-slate-500"/>
@@ -811,7 +811,7 @@ function Dashboard() {
              {supervisorSection === 'agenda' && (
                 <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
                    <div className="mb-4">
-                        <h3 className="font-bold text-white">AGENDA GLOBAL DE FLOTA</h3>
+                        <h3 className="font-bold text-white">HORARIO GLOBAL DE FLOTA</h3>
                         <p className="text-xs text-slate-500">Vista consolidada de horarios y mantenimientos.</p>
                    </div>
                    <table className="w-full text-left">
