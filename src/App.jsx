@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-// --- 1. IMPORTACIONES ---
 import { useAuth } from './context/AuthContext';
 import LoginModule from './components/LoginModule';
 import { db, storage } from './config/firebase'; 
@@ -12,7 +11,6 @@ import AgendaAdmin from './components/AgendaAdmin';
 import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// --- ICONOS ---
 import { 
   Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, 
   ExternalLink, MessageSquare, BarChart3, FileSpreadsheet, User, Fuel, DollarSign, 
@@ -143,7 +141,6 @@ function Dashboard() {
   useEffect(() => {
     if (!currentUser) return;
     
-    // 🚨 SOLUCION ANTI-ANÓNIMOS DE LA V1 🚨
     if (!currentUser.email) {
         if (typeof logout === 'function') logout();
         return; 
@@ -166,7 +163,6 @@ function Dashboard() {
 
   useEffect(() => {
     if (currentUser && !currentUser.email) return;
-
     if (!localStorage.getItem('recolekta_tutorial_v98')) setShowWelcome(true);
 
     Papa.parse(GITHUB_CSV_URL, {
@@ -184,8 +180,11 @@ function Dashboard() {
         }
     });
 
-    let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas;
+    let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas, unsubAgenda;
     
+    // AGENDA EN TIEMPO REAL AHORA PARA TODOS
+    unsubAgenda = onSnapshot(collection(db, "agenda_flota"), (snap) => setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+
     if (appMode === 'admin' || appMode === 'supervisor') {
         if (dataSource === 'live') {
             const qOps = query(collection(db, "registros_produccion"), orderBy("createdAt", "desc"), limit(2000)); 
@@ -232,10 +231,7 @@ function Dashboard() {
         setFuelData([]); setMaintData([]);
     }
 
-    const loadAgenda = async () => { const snap = await getDocs(collection(db, "agenda_flota")); setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() }))); };
-    loadAgenda();
-
-    return () => { if (unsubOps) unsubOps(); if (unsubFuel) unsubFuel(); if (unsubMaint) unsubMaint(); if (unsubOt) unsubOt(); if (unsubAlertas) unsubAlertas(); };
+    return () => { if (unsubOps) unsubOps(); if (unsubFuel) unsubFuel(); if (unsubMaint) unsubMaint(); if (unsubOt) unsubOt(); if (unsubAlertas) unsubAlertas(); if (unsubAgenda) unsubAgenda(); };
   }, [dataSource, filterYear, filterMonth, appMode, currentUser]); 
 
   const extractDateInfo = (dateStr) => {
@@ -354,7 +350,7 @@ function Dashboard() {
           const maintId = `auto_maint_${localTodayStr}_${miAgenda.mantenimiento || ''}`;
           const turnoId = `auto_turno_${localTodayStr}_${miAgenda.turnos || ''}`;
 
-          if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller de convenencia.' });
+          if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller asignado.' });
           if (hasTurnoToday && !hiddenAlerts.includes(turnoId)) alerts.push({ id: turnoId, type: 'turno', title: '¡Turno Extra Hoy!', msg: 'Registra tus horas al finalizar.' });
       }
 
@@ -469,16 +465,13 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-24" onClick={() => setActiveInput(null)}>
-      {/* MODAL DE IMAGEN */}
       {viewingPhoto && <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4" onClick={() => setViewingPhoto(null)}><div className="relative max-w-4xl w-full flex flex-col items-center"><img src={viewingPhoto} className="max-h-[80vh] rounded-lg border border-white/20" alt="Evidencia" /><button className="mt-6 bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-xs">Cerrar</button></div></div>}
 
-      {/* MODAL DE EDICIÓN CRUD */}
       {editingItem && (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white flex items-center gap-2"><Edit3 size={20} className="text-blue-500"/> Editar Registro</h3><button onClick={() => setEditingItem(null)}><X className="text-slate-500 hover:text-white" size={24}/></button></div>
                 <div className="space-y-4">
-                    {/* Campos dinámicos según el tipo de registro */}
                     {editingItem.collectionName === 'registros_produccion' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Sucursal</label><input name="sucursal" value={editFormData.sucursal || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-400 uppercase">H. Llegada (01-12)</label><input name="hLlegada" value={editFormData.hLlegada || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">M. Llegada (00-59)</label><input name="mLlegada" value={editFormData.mLlegada || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div><div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-400 uppercase">H. Salida (01-12)</label><input name="hSalida" value={editFormData.hSalida || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">M. Salida (00-59)</label><input name="mSalida" value={editFormData.mSalida || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Observaciones</label><textarea name="observaciones" value={editFormData.observaciones || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-20 resize-none"/></div></>)}
                     {editingItem.collectionName === 'registros_combustible' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Galones</label><input name="galones" type="number" step="0.1" value={editFormData.galones || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Costo ($)</label><input name="costo" type="number" step="0.01" value={editFormData.costo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Kilometraje</label><input name="kilometraje" type="number" value={editFormData.kilometraje || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></>)}
                     {editingItem.collectionName === 'registros_mantenimiento' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Taller</label><input name="taller" value={editFormData.taller || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Costo ($)</label><input name="costo" type="number" step="0.01" value={editFormData.costo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Detalle</label><textarea name="descripcion" value={editFormData.descripcion || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-24 resize-none"/></div></>)}
@@ -489,7 +482,6 @@ function Dashboard() {
         </div>
       )}
 
-      {/* MODAL DE ENVÍO DE AVISOS */}
       {showAvisoModal && (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
@@ -513,14 +505,10 @@ function Dashboard() {
       </nav>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6">
-        {/* =========================================
-            BLOQUE USUARIO (TMB)
-            ========================================= */}
         {appMode === 'user' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
               <div className="lg:col-span-2">
 
-              {/* BANNERS DE ALERTAS FLOTANTES PARA EL USUARIO */}
               {userAlerts.length > 0 && (
                   <div className="mb-6 space-y-3 animate-in slide-in-from-top-4">
                       {userAlerts.map((alerta, idx) => (
@@ -534,7 +522,6 @@ function Dashboard() {
                                       <p className="text-sm font-bold mt-0.5">{alerta.msg}</p>
                                   </div>
                               </div>
-                              {/* BOTÓN DE ACCIÓN PARA EL USUARIO */}
                               {alerta.tipo === 'confirm' ? (
                                   <button onClick={(e) => { e.preventDefault(); dismissAlert(alerta); }} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-lg"><Check size={14}/> CONFIRMAR</button>
                               ) : (
@@ -545,7 +532,6 @@ function Dashboard() {
                   </div>
               )}
 
-              {/* CAMBIO: MENÚ NAVEGACIÓN USUARIO 100% RESPONSIVO Y SCROLLABLE */}
               <div className="flex gap-2 mb-6 p-1 bg-[#151F32] rounded-xl w-full border border-slate-800 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
                  <button onClick={() => setUserView('ruta')} className={cn("shrink-0 px-6 py-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2", userView === 'ruta' ? "bg-green-600 text-white shadow-lg" : "text-slate-400 hover:text-white")}><Bike size={16}/> Ruta</button>
                  <button onClick={() => setUserView('combustible')} className={cn("shrink-0 px-6 py-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2", userView === 'combustible' ? "bg-orange-600 text-white shadow-lg" : "text-slate-400 hover:text-white")}><Fuel size={16}/> Combustible</button>
@@ -592,9 +578,6 @@ function Dashboard() {
            </div>
         )}
 
-        {/* =========================================
-            BLOQUE ADMIN 
-            ========================================= */}
         {appMode === 'admin' && (
           <div className="space-y-8 animate-in fade-in">
              <div className="bg-[#151F32] p-8 rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
@@ -705,9 +688,9 @@ function Dashboard() {
                    <div className="flex justify-between items-center bg-[#151F32] p-6 rounded-[2rem] border border-slate-800">
                       <div>
                           <h3 className="text-2xl font-black text-white">Nómina de Horas Extras</h3>
-                          <p className="text-xs text-slate-400">Control de Horas extras.</p>
+                          <p className="text-xs text-slate-400">Control de asistencia y Horas Extras.</p>
                       </div>
-                      <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all"><FileSpreadsheet size={16}/> Exportar Excel RRHH</button>
+                      <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all"><FileSpreadsheet size={16}/> Exportar Excel HE</button>
                    </div>
 
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -750,9 +733,6 @@ function Dashboard() {
           </div>
         )}
 
-        {/* =========================================
-            BLOQUE SUPERVISOR
-            ========================================= */}
         {appMode === 'supervisor' && (
            <div className="space-y-6 animate-in fade-in">
              <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4">
@@ -779,7 +759,6 @@ function Dashboard() {
              {supervisorSection === 'bitacora' && (
                 <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
                    <table className="w-full text-left">
-                      {/* CAMBIO: Agregadas las columnas Tipo y Obs. al Supervisor */}
                       <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center rounded-r-lg">Foto</th></tr></thead>
                       <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
                          {metrics.rows.slice(0, 50).map((r, i) => (
@@ -789,7 +768,6 @@ function Dashboard() {
                                 <td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
                                 <td className="px-4 py-3 text-slate-500">{r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida || ''}` : '--'}</td>
                                 <td className={cn("px-4 py-3", r.tiempo > 5 ? "text-orange-400" : "text-green-400")}>{r.tiempo}m</td>
-                                {/* Nuevas Celdas idénticas a las del Admin */}
                                 <td className="px-4 py-3 text-center"><span className={cn("px-2 py-0.5 rounded-md text-[9px] border font-bold uppercase", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300":"bg-orange-900/30 border-orange-900 text-orange-300")}>{r.categoria === "Principal" ? "Vital" : "Secundaria"}</span></td>
                                 <td className="px-4 py-3 text-xs italic text-slate-500 truncate max-w-[150px]" title={r.observaciones}>{r.observaciones || '--'}</td>
                                 <td className="px-4 py-3 text-center">{r.fotoData && <button onClick={()=>setViewingPhoto(r.fotoData)} className="bg-blue-900/50 text-blue-400 px-2 py-1 rounded border border-blue-900 text-[9px] uppercase hover:bg-blue-800">Ver</button>}</td>
