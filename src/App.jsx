@@ -58,16 +58,16 @@ const CATALOGOS = {
   transportistas: [
     "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", 
     "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", 
-    "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA"
+    "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "CHOFER PRUEBA"
   ],
   sucursales: [
     "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", 
     "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", 
     "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", 
-    "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", 
+    "Metapán", "Escalón 2", "Marsella", "Médica 1", "Opico", "Médica 2", "Médica 3", "Médica 4", "Santa Tecla", 
     "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares"
   ],
-  areas: ["LABORATORIO / PROCESAMIENTO", "TUVET", "Imágenes Escalón","Imágenes Medica", "Centro de Distribución", "LAB. Externo", "Contabilidad", "RRHH", "Contac Center", "Empresas", "Fisioterapia", "Cuentas por cobrar", "Mercadeo", "Fidelizacion", "IT", "LOGÍSTICA / RUTA"],
+  areas: ["LABORATORIO / PROCESAMIENTO", "TUVET", "Imágenes Escalón", "Centro de Distribución", "LAB. Externo", "Contabilidad", "RRHH", "Contac Center", "Empresas", "Fisioterapia", "Cuentas por cobrar", "Mercadeo", "Fidelizacion", "IT", "LOGÍSTICA / RUTA"],
   diligencias: ["Recolección de muestras", "Entrega de Muestras", "Traslado de toallas", "Traslado de reactivo", "Traslado de insumos", "Traslado de cortes", "Traslado de documentos", "Pago de aseguradora", "Pago o tramite bancario", "Tramite o diligencia extraordinaria", "INCIDENCIA EN RUTA"]
 };
 
@@ -142,6 +142,14 @@ function Dashboard() {
 
   useEffect(() => {
     if (!currentUser) return;
+    
+    // 🚨 VACUNA ANTI-ANÓNIMOS DE LA V1 🚨
+    // Si el usuario guardado en el celular no tiene correo (fantasma), cerrarle sesión a la fuerza.
+    if (!currentUser.email) {
+        if (typeof logout === 'function') logout();
+        return; // Detiene la ejecución aquí para que no explote la pantalla
+    }
+
     const email = currentUser.email.toLowerCase().trim();
     if (email === 'admin@recolekta.com') { setAppMode('admin'); } 
     else if (email === 'supervision@recolekta.com' || email === 'supervisor@recolekta.com') { setAppMode('supervisor'); } 
@@ -158,7 +166,10 @@ function Dashboard() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!localStorage.getItem('recolekta_tutorial_v97')) setShowWelcome(true);
+    // Evitar que corra si el usuario no tiene email (se está deslogueando)
+    if (currentUser && !currentUser.email) return;
+
+    if (!localStorage.getItem('recolekta_tutorial_v98')) setShowWelcome(true);
 
     Papa.parse(GITHUB_CSV_URL, {
         download: true, header: true,
@@ -177,7 +188,6 @@ function Dashboard() {
 
     let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas;
     
-    // 🛡️ SOLUCIÓN: QUITAR ORDER BY PARA EVITAR EL INDEX COMPUESTO EN USUARIOS
     if (appMode === 'admin' || appMode === 'supervisor') {
         if (dataSource === 'live') {
             const qOps = query(collection(db, "registros_produccion"), orderBy("createdAt", "desc"), limit(2000)); 
@@ -204,7 +214,6 @@ function Dashboard() {
             fetchHistory();
         }
     } else if (appMode === 'user' && currentUser?.email) {
-        // MODO transportista: QUITAMOS EL ORDER BY PARA QUE FUNCIONE SIN INDICES FIREBASE
         const qOps = query(collection(db, "registros_produccion"), where("usuarioEmail", "==", currentUser.email), limit(50));
         unsubOps = onSnapshot(qOps, (snap) => {
             const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -307,7 +316,6 @@ function Dashboard() {
     return { ef: ef, count: userDocs.length, label: targetUser && targetUser.length > 2 ? targetUser.split(' ')[0] : 'HOY' };
   }, [liveData, csvData, form.recolector, filterYear]);
 
-  // --- LÓGICA DE ALERTAS (CON ID DE MEMORIA VINCULADA AL TEXTO) ---
   const userAlerts = useMemo(() => {
       const alerts = [];
       if (appMode !== 'user') return alerts;
@@ -345,11 +353,10 @@ function Dashboard() {
               turnosTxt.includes(todayShortSlashUnp) ||
               turnosTxt.includes(todayFullSlashUnp);
 
-          // Ahora el ID depende del texto exacto. Si el Admin cambia el texto, la alerta revive para el chofer.
           const maintId = `auto_maint_${localTodayStr}_${miAgenda.mantenimiento || ''}`;
           const turnoId = `auto_turno_${localTodayStr}_${miAgenda.turnos || ''}`;
 
-          if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller en la hora indicada.' });
+          if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller asignado.' });
           if (hasTurnoToday && !hiddenAlerts.includes(turnoId)) alerts.push({ id: turnoId, type: 'turno', title: '¡Turno Extra Hoy!', msg: 'Registra tus horas al finalizar.' });
       }
 
@@ -359,7 +366,7 @@ function Dashboard() {
               alerts.push({ 
                   ...alerta, 
                   type: 'admin_msg',
-                  title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso General' : 'Mensaje Directo'),
+                  title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso Global' : 'Mensaje Directo'),
                   msg: alerta.mensaje 
               });
           }
@@ -473,6 +480,7 @@ function Dashboard() {
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white flex items-center gap-2"><Edit3 size={20} className="text-blue-500"/> Editar Registro</h3><button onClick={() => setEditingItem(null)}><X className="text-slate-500 hover:text-white" size={24}/></button></div>
                 <div className="space-y-4">
+                    {/* Campos dinámicos según el tipo de registro */}
                     {editingItem.collectionName === 'registros_produccion' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Sucursal</label><input name="sucursal" value={editFormData.sucursal || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-400 uppercase">H. Llegada (01-12)</label><input name="hLlegada" value={editFormData.hLlegada || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">M. Llegada (00-59)</label><input name="mLlegada" value={editFormData.mLlegada || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div><div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-400 uppercase">H. Salida (01-12)</label><input name="hSalida" value={editFormData.hSalida || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">M. Salida (00-59)</label><input name="mSalida" value={editFormData.mSalida || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Observaciones</label><textarea name="observaciones" value={editFormData.observaciones || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-20 resize-none"/></div></>)}
                     {editingItem.collectionName === 'registros_combustible' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Galones</label><input name="galones" type="number" step="0.1" value={editFormData.galones || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Costo ($)</label><input name="costo" type="number" step="0.01" value={editFormData.costo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Kilometraje</label><input name="kilometraje" type="number" value={editFormData.kilometraje || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></>)}
                     {editingItem.collectionName === 'registros_mantenimiento' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Taller</label><input name="taller" value={editFormData.taller || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Costo ($)</label><input name="costo" type="number" step="0.01" value={editFormData.costo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Detalle</label><textarea name="descripcion" value={editFormData.descripcion || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-24 resize-none"/></div></>)}
@@ -499,7 +507,7 @@ function Dashboard() {
       )}
 
       <nav className="bg-[#151F32] border-b border-slate-800 px-4 md:px-8 py-4 sticky top-0 z-50 flex justify-between items-center shadow-lg">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white border border-slate-700"><Bike size={18}/></div><h1 className="text-lg font-black tracking-tighter text-white">Recolekta OS <span className="text-green-500">OS</span></h1></div>
+        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white border border-slate-700"><Bike size={18}/></div><h1 className="text-lg font-black tracking-tighter text-white">Recolekta <span className="text-green-500">OS</span></h1></div>
         <div className="flex items-center gap-3">
             <div className="hidden md:flex flex-col items-end"><span className="text-white text-[10px] font-bold uppercase tracking-widest">{currentUser.email}</span><span className="text-slate-500 text-[8px] uppercase">{appMode.toUpperCase()}</span></div>
             <button onClick={logout} className="bg-red-900/20 text-red-400 border border-red-900/50 px-4 py-2 rounded-lg text-[10px] font-black uppercase hover:bg-red-600 hover:text-white transition-all">Salir</button>
@@ -508,12 +516,13 @@ function Dashboard() {
 
       <main className="max-w-7xl mx-auto p-4 md:p-6">
         {/* =========================================
-            BLOQUE USUARIO (TRANSPORTISTA)
+            BLOQUE USUARIO (CHOFER)
             ========================================= */}
         {appMode === 'user' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
               <div className="lg:col-span-2">
 
+              {/* BANNERS DE ALERTAS FLOTANTES PARA EL USUARIO */}
               {userAlerts.length > 0 && (
                   <div className="mb-6 space-y-3 animate-in slide-in-from-top-4">
                       {userAlerts.map((alerta, idx) => (
@@ -527,6 +536,7 @@ function Dashboard() {
                                       <p className="text-sm font-bold mt-0.5">{alerta.msg}</p>
                                   </div>
                               </div>
+                              {/* BOTÓN DE ACCIÓN PARA EL USUARIO */}
                               {alerta.tipo === 'confirm' ? (
                                   <button onClick={(e) => { e.preventDefault(); dismissAlert(alerta); }} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-lg"><Check size={14}/> CONFIRMAR</button>
                               ) : (
@@ -590,12 +600,12 @@ function Dashboard() {
           <div className="space-y-8 animate-in fade-in">
              <div className="bg-[#151F32] p-8 rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
                 <div>
-                    <h2 className="text-3xl font-black uppercase tracking-tighter text-white">Central y Analisis de Datos</h2>
+                    <h2 className="text-3xl font-black uppercase tracking-tighter text-white">Centro de Mando</h2>
                     <div className="flex flex-wrap gap-2 mt-4 bg-[#0B1120] p-1 rounded-xl w-full md:w-fit border border-slate-800">
                         <button onClick={()=>setAdminSection('ops')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='ops'?"bg-green-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Operaciones</button>
                         <button onClick={()=>setAdminSection('fleet')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='fleet'?"bg-orange-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Flota</button>
-                        <button onClick={()=>setAdminSection('hr')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='hr'?"bg-purple-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Horas Extras</button>
-                        <button onClick={()=>setAdminSection('agenda')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='agenda'?"bg-blue-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Horarios</button>
+                        <button onClick={()=>setAdminSection('hr')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='hr'?"bg-purple-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>RRHH</button>
+                        <button onClick={()=>setAdminSection('agenda')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center", adminSection==='agenda'?"bg-blue-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Agenda</button>
                         <button onClick={()=>setAdminSection('bi')} className={cn("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex-1 md:flex-none text-center flex items-center gap-1", adminSection==='bi'?"bg-indigo-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}><PieChart size={12}/> Analítica YoY</button>
                     </div>
                 </div>
@@ -683,7 +693,7 @@ function Dashboard() {
                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-orange-500"/> Costo Operativo por Transportista ($)</h4><div className="h-60 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={fleetMetrics.chartData}><CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#64748b'}} interval={0} angle={-45} textAnchor="end" height={60} /><Tooltip cursor={{fill: '#1f2937'}} contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', color: '#fff'}} /><Legend verticalAlign="top" height={36} /><Bar dataKey="fuel" name="Combustible" stackId="a" fill="#ea580c" /><Bar dataKey="maint" name="Taller" stackId="a" fill="#eab308" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
                       <div className="space-y-4">
                           <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden h-40"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Fuel size={14} className="text-orange-500"/> Últimas Cargas</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo Total</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
-                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden max-h-80"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Wrench size={14} className="text-yellow-500"/> Últimos Mantenimientos</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
+                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden max-h-80"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Wrench size={14} className="text-yellow-500"/> Últimos Servicios</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
                       </div>
                    </div>
                 </div>
@@ -750,7 +760,7 @@ function Dashboard() {
                    <button onClick={()=>setSupervisorSection('bitacora')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='bitacora'?"bg-blue-600 text-white":"text-slate-500 hover:bg-slate-800")}>Bitácora</button>
                    <button onClick={()=>setSupervisorSection('combustible')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='combustible'?"bg-orange-600 text-white":"text-slate-500 hover:bg-slate-800")}>Combustible</button>
                    <button onClick={()=>setSupervisorSection('taller')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='taller'?"bg-yellow-600 text-black":"text-slate-500 hover:bg-slate-800")}>Taller</button>
-                   <button onClick={()=>setSupervisorSection('agenda')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='agenda'?"bg-purple-600 text-white":"text-slate-500 hover:bg-slate-800")}>Horario Global</button>
+                   <button onClick={()=>setSupervisorSection('agenda')} className={cn("px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all", supervisorSection==='agenda'?"bg-purple-600 text-white":"text-slate-500 hover:bg-slate-800")}>Agenda Global</button>
                 </div>
                 <div className="flex bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center gap-2">
                    <Filter size={14} className="text-slate-500"/>
@@ -801,7 +811,7 @@ function Dashboard() {
              {supervisorSection === 'agenda' && (
                 <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
                    <div className="mb-4">
-                        <h3 className="font-bold text-white">HORARIO GLOBAL DE FLOTA</h3>
+                        <h3 className="font-bold text-white">AGENDA GLOBAL DE FLOTA</h3>
                         <p className="text-xs text-slate-500">Vista consolidada de horarios y mantenimientos.</p>
                    </div>
                    <table className="w-full text-left">
