@@ -1,173 +1,155 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../config/firebase';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { Calendar, Save, Clock, MapPin, Wrench, Loader2, Plus, Eraser, AlertTriangle } from 'lucide-react';
+import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { Calendar, Save, Trash2, Plus, Eraser, Edit3 } from 'lucide-react';
 
-export default function AgendaAdmin({ sucursales = [] }) {
-  const TRANSPORTISTAS = [
-    "ANTONIO RIVAS", "GIOVANNI CALLEJAS", "TEODORO PÉREZ", "FLOR CARDOZA", "WALTER RIVAS", 
-    "JAIRO GIL", "FELIX VASQUEZ", "DAVID ALVARADO", "EDWIN FLORES", "ROGELIO MAZARIEGO", 
-    "CARLOS SOSA", "JASON BARRERA", "BRAYAN REYES", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "CHOFER PRUEBA"
-  ];
+const TRANSPORTISTAS = [
+    "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", 
+    "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", 
+    "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "CHOFER PRUEBA"
+];
 
-  const [selectedUser, setSelectedUser] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState({
-    horario: '',
-    zona: '',
-    puntos: '',
-    turnos: '', 
-    mantenimiento: ''
-  });
+export default function AgendaAdmin() {
+    const [agendaData, setAgendaData] = useState([]);
+    const [form, setForm] = useState({ id: '', horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
+    const [tempDate, setTempDate] = useState('');
 
-  useEffect(() => {
-    if (!selectedUser) {
-        setData({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
-        return;
-    }
-    const loadData = async () => {
-        setLoading(true);
+    useEffect(() => {
+        const unsub = onSnapshot(collection(db, "agenda_flota"), (snap) => {
+            setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+        return () => unsub();
+    }, []);
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        if (!form.id) return alert("Selecciona un transportista");
         try {
-            const docRef = doc(db, "agenda_flota", selectedUser);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                setData(docSnap.data());
-            } else {
-                setData({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
-            }
+            await setDoc(doc(db, "agenda_flota", form.id), form);
+            alert("Agenda actualizada correctamente.");
+            setForm({ id: '', horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
         } catch (error) {
-            console.error("Error cargando agenda:", error);
-        } finally {
-            setLoading(false);
+            console.error("Error saving agenda:", error);
+            alert("Error al guardar en la base de datos.");
         }
     };
-    loadData();
-  }, [selectedUser]);
 
-  const addSucursal = (e) => {
-      const val = e.target.value;
-      if (!val) return;
-      setData(prev => ({
-          ...prev,
-          puntos: prev.puntos ? `${prev.puntos} / ${val}` : val
-      }));
-  };
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    if (!selectedUser) return alert("Selecciona un transportista primero.");
-
-    // --- CANDADO DE SEGURIDAD: NO TURNO + MANTENIMIENTO EL MISMO DÍA ---
-    if (data.mantenimiento && data.turnos) {
-        // 1. Extraer día y mes del mantenimiento (YYYY-MM-DD -> DD/MM)
-        const [year, month, day] = data.mantenimiento.split('-');
-        const maintDateShort = `${day}/${month}`; // Ej: "16/02"
-
-        // 2. Buscar si esa fecha existe en el texto de turnos
-        if (data.turnos.includes(maintDateShort)) {
-            return alert(`⚠️ CONFLICTO DE AGENDA:\n\nEl usuario tiene Mantenimiento el día ${maintDateShort}.\nNo puedes asignarle un Turno Extra ese mismo día.\n\nPor favor, corrige la fecha.`);
+    const handleDelete = async (id) => {
+        if(window.confirm(`¿Eliminar la agenda de ${id}?`)) {
+            await deleteDoc(doc(db, "agenda_flota", id));
         }
-    }
-    
-    setLoading(true);
-    try {
-        await setDoc(doc(db, "agenda_flota", selectedUser), {
-            ...data,
-            updatedAt: new Date().toISOString()
-        });
-        alert(`✅ Agenda actualizada correctamente para ${selectedUser}`);
-        
-        setData({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
-        setSelectedUser(''); 
-        
-    } catch (error) {
-        console.error(error);
-        alert("Error al guardar. Revisa tu conexión.");
-    } finally {
-        setLoading(false);
-    }
-  };
+    };
 
-  return (
-    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 animate-in fade-in">
-        <h3 className="text-xl font-black text-white mb-6 flex items-center gap-2">
-            <Calendar className="text-blue-500"/> Asignación de Horarios
-        </h3>
+    const handleEdit = (item) => {
+        setForm(item);
+    };
 
+    // EL MAGO DE LAS FECHAS MULTIPLES
+    const addTurnoDate = () => {
+        if (!tempDate) return;
+        const [y, m, d] = tempDate.split('-');
+        const formattedDate = `${d}/${m}/${y}`;
+        
+        let currentTurnos = form.turnos ? form.turnos.split(' - ').map(t => t.trim()).filter(t => t) : [];
+        if (!currentTurnos.includes(formattedDate)) {
+            currentTurnos.push(formattedDate);
+            setForm({ ...form, turnos: currentTurnos.join(' - ') });
+        }
+        setTempDate('');
+    };
+
+    const clearTurnos = () => {
+        setForm({ ...form, turnos: '' });
+    };
+
+    return (
         <div className="space-y-6">
-            <div>
-                <label className="text-[10px] font-bold text-slate-400 ml-4 block uppercase mb-1">Seleccionar Transportista</label>
-                <div className="flex gap-2">
-                    <select className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold text-white outline-none focus:border-blue-500"
-                        value={selectedUser} onChange={e => setSelectedUser(e.target.value)}>
-                        <option value="">-- SELECCIONAR --</option>
-                        {TRANSPORTISTAS.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    {selectedUser && (
-                        <button onClick={() => { setSelectedUser(''); setData({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' }); }} className="bg-slate-800 p-4 rounded-2xl text-slate-400 hover:text-white" title="Limpiar">
-                            <Eraser size={20}/>
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            {selectedUser && (
-                <form onSubmit={handleSave} className="space-y-4 animate-in slide-in-from-top-4 duration-300">
-                    
+            <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-800 shadow-xl">
+                <h3 className="text-xl font-black text-white mb-6 flex items-center gap-2"><Calendar className="text-blue-500"/> Gestionar Horarios y Turnos</h3>
+                
+                <form onSubmit={handleSave} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 ml-4 block uppercase mb-1">Horario Base</label>
-                            <div className="relative">
-                                <input type="text" placeholder="Ej: 6:30 AM - 4:30 PM" className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl text-white font-bold outline-none focus:border-blue-500 pl-10"
-                                    value={data.horario} onChange={e => setData({...data, horario: e.target.value})} required/>
-                                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18}/>
-                            </div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Transportista</label>
+                            <select value={form.id} onChange={e=>setForm({...form, id: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold" required>
+                                <option value="">-- SELECCIONAR --</option>
+                                {TRANSPORTISTAS.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 ml-4 block uppercase mb-1">Zona / Región</label>
-                            <input type="text" placeholder="Ej: San Salvador Centro" className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl text-white font-bold outline-none focus:border-blue-500"
-                                value={data.zona} onChange={e => setData({...data, zona: e.target.value})} required/>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Horario Base</label>
+                            <input value={form.horario} onChange={e=>setForm({...form, horario: e.target.value})} placeholder="Ej. 06:00 am - 03:00 pm" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Zona Asignada</label>
+                            <input value={form.zona} onChange={e=>setForm({...form, zona: e.target.value})} placeholder="Ej. San Salvador Centro" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Puntos / Sucursales</label>
+                            <input value={form.puntos} onChange={e=>setForm({...form, puntos: e.target.value})} placeholder="Ej. La Unión / San Martín / Casco" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/>
+                        </div>
+                    </div>
+
+                    {/* SECCIÓN ESPECIAL DE FECHAS */}
+                    <div className="bg-[#0B1120] p-4 rounded-xl border border-slate-800 space-y-4">
+                        <h4 className="text-xs font-bold text-slate-300 uppercase">Programación de Turnos Extras</h4>
+                        
+                        <div className="flex items-end gap-2">
+                            <div className="flex-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Seleccionar Día en Calendario</label>
+                                <input type="date" value={tempDate} onChange={e => setTempDate(e.target.value)} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold"/>
+                            </div>
+                            <button type="button" onClick={addTurnoDate} className="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-xl font-bold flex items-center gap-1 shadow-md transition-all h-[46px]">
+                                <Plus size={18}/> Agregar
+                            </button>
+                        </div>
+
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Lista de Turnos (Separados por guion)</label>
+                                {form.turnos && <button type="button" onClick={clearTurnos} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar Lista</button>}
+                            </div>
+                            <textarea value={form.turnos} onChange={e=>setForm({...form, turnos: e.target.value})} placeholder="01/02/2026 - 04/02/2026..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/>
                         </div>
                     </div>
 
                     <div>
-                        <label className="text-[10px] font-bold text-slate-400 ml-4 block uppercase mb-1">Puntos Específicos</label>
-                        <div className="flex gap-2 mb-2">
-                            <select onChange={addSucursal} className="w-full p-2 bg-[#0B1120] border border-slate-700 rounded-xl text-xs text-slate-300 outline-none">
-                                <option value="">+ Agregar Sucursal Rápida</option>
-                                {sucursales.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                        </div>
-                        <div className="relative">
-                            <input type="text" placeholder="Escribe o selecciona arriba..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl text-white font-bold outline-none focus:border-blue-500 pl-10"
-                                value={data.puntos} onChange={e => setData({...data, puntos: e.target.value})} required/>
-                            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18}/>
-                        </div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Fecha Próx. Mantenimiento</label>
+                        <input type="date" value={form.mantenimiento} onChange={e=>setForm({...form, mantenimiento: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-[10px] font-bold text-green-400 ml-4 block uppercase mb-1">Días Turno Extra (Texto)</label>
-                            <input type="text" placeholder="Ej: 07/02, 21/02" className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl text-white font-bold outline-none focus:border-green-500"
-                                value={data.turnos} onChange={e => setData({...data, turnos: e.target.value})} />
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-bold text-yellow-400 ml-4 block uppercase mb-1">Próximo Mantenimiento</label>
-                            <div className="relative">
-                                <input type="date" className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl text-white font-bold outline-none focus:border-yellow-500 pl-10"
-                                    value={data.mantenimiento} onChange={e => setData({...data, mantenimiento: e.target.value})} />
-                                <Wrench className="absolute left-3 top-1/2 -translate-y-1/2 text-yellow-500" size={18}/>
-                            </div>
-                        </div>
-                    </div>
-
-                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg hover:bg-blue-500 transition-all flex justify-center items-center gap-2">
-                        {loading ? <Loader2 className="animate-spin"/> : <Save size={18}/>}
-                        {loading ? "Guardando..." : "Guardar y Limpiar"}
+                    <button type="submit" className="w-full bg-green-600 hover:bg-green-500 text-white py-4 rounded-xl font-black uppercase shadow-lg flex items-center justify-center gap-2 transition-all">
+                        <Save size={18} /> {form.id && agendaData.some(a=>a.id === form.id) ? 'Actualizar Agenda' : 'Guardar Nueva Agenda'}
                     </button>
                 </form>
-            )}
+            </div>
+
+            {/* TABLA DE AGENDA */}
+            <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-x-auto">
+                <table className="w-full text-left">
+                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg">
+                        <tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Horario</th><th className="px-4 py-3">Zona</th><th className="px-4 py-3 max-w-[200px]">Turnos</th><th className="px-4 py-3">Mantenimiento</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr>
+                    </thead>
+                    <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
+                        {agendaData.map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-800/50">
+                                <td className="px-4 py-3 text-white">{item.id}</td>
+                                <td className="px-4 py-3 text-blue-400">{item.horario}</td>
+                                <td className="px-4 py-3">{item.zona}</td>
+                                <td className="px-4 py-3 truncate max-w-[200px]" title={item.turnos}>{item.turnos || '--'}</td>
+                                <td className="px-4 py-3 text-yellow-500">{item.mantenimiento || '--'}</td>
+                                <td className="px-4 py-3 flex justify-center gap-2">
+                                    <button onClick={() => handleEdit(item)} className="bg-slate-800 p-2 rounded-lg text-blue-400 hover:text-white transition-all"><Edit3 size={14}/></button>
+                                    <button onClick={() => handleDelete(item.id)} className="bg-slate-800 p-2 rounded-lg text-red-500 hover:text-white transition-all"><Trash2 size={14}/></button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </div>
-    </div>
-  );
+    );
 }
