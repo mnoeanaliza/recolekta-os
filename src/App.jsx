@@ -31,50 +31,29 @@ const cn = (...inputs) => twMerge(clsx(inputs));
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/mnoeanaliza/recolekta-os/refs/heads/main/Datos.csv";
 
 export const USUARIOS_EMAIL = {
-  "brayan@recolekta.com": "BRAYAN REYES",
-  "edwin@recolekta.com": "EDWIN FLORES",
-  "teodoro@recolekta.com": "TEODORO PÉREZ",
-  "giovanni@recolekta.com": "GIOVANNI CALLEJAS",
-  "jairo@recolekta.com": "JAIRO GIL",
-  "jason@recolekta.com": "JASON BARRERA",
-  "antonio@recolekta.com": "ANTONIO RIVAS",
-  "walter@recolekta.com": "WALTER RIVAS",
-  "rogelio@recolekta.com": "ROGELIO MAZARIEGO",
-  "david@recolekta.com": "DAVID ALVARADO",
-  "carlos@recolekta.com": "CARLOS SOSA",
-  "felix@recolekta.com": "FELIX VASQUEZ",
-  "flor@recolekta.com": "FLOR CARDOZA",
-  "hildebrando@recolekta.com": "HILDEBRANDO MENJIVAR",
-  "test@admin.com": "USUARIO PRUEBA",
-  "chofer@recolekta.com": "CHOFER PRUEBA",
-  "admin@recolekta.com": "ADMINISTRADOR",
-  "supervision@recolekta.com": "SUPERVISOR",
+  "brayan@recolekta.com": "BRAYAN REYES", "edwin@recolekta.com": "EDWIN FLORES", "teodoro@recolekta.com": "TEODORO PÉREZ",
+  "giovanni@recolekta.com": "GIOVANNI CALLEJAS", "jairo@recolekta.com": "JAIRO GIL", "jason@recolekta.com": "JASON BARRERA",
+  "antonio@recolekta.com": "ANTONIO RIVAS", "walter@recolekta.com": "WALTER RIVAS", "rogelio@recolekta.com": "ROGELIO MAZARIEGO",
+  "david@recolekta.com": "DAVID ALVARADO", "carlos@recolekta.com": "CARLOS SOSA", "felix@recolekta.com": "FELIX VASQUEZ",
+  "flor@recolekta.com": "FLOR CARDOZA", "hildebrando@recolekta.com": "HILDEBRANDO MENJIVAR", "test@admin.com": "USUARIO PRUEBA",
+  "chofer@recolekta.com": "CHOFER PRUEBA", "admin@recolekta.com": "ADMINISTRADOR", "supervision@recolekta.com": "SUPERVISOR",
   "supervisor@recolekta.com": "SUPERVISOR"
 };
 
 const CATALOGOS = {
-  transportistas: [
-    "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", 
-    "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", 
-    "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "CHOFER PRUEBA"
-  ],
-  sucursales: [
-    "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", 
-    "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", 
-    "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", 
-    "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", 
-    "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares"
-  ],
+  transportistas: [ "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "CHOFER PRUEBA" ],
+  sucursales: [ "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares" ],
   areas: ["LABORATORIO / PROCESAMIENTO", "TUVET", "Imágenes Escalón", "Centro de Distribución", "LAB. Externo", "Contabilidad", "RRHH", "Contac Center", "Empresas", "Fisioterapia", "Cuentas por cobrar", "Mercadeo", "Fidelizacion", "IT", "LOGÍSTICA / RUTA"],
   diligencias: ["Recolección de muestras", "Entrega de Muestras", "Traslado de toallas", "Traslado de reactivo", "Traslado de insumos", "Traslado de cortes", "Traslado de documentos", "Pago de aseguradora", "Pago o tramite bancario", "Tramite o diligencia extraordinaria", "INCIDENCIA EN RUTA"]
 };
 
 const PRINCIPAL_KEYWORDS = ["muestras", "entrega", "recepción", "recolección", "recoleccion"];
+const isPrincipalData = (d) => { if (d.categoria === "Principal") return true; const txt = (d.tipo || d.originalTipo || '').toLowerCase(); return PRINCIPAL_KEYWORDS.some(k => txt.includes(k)); };
 
-const isPrincipalData = (d) => { 
-    if (d.categoria === "Principal") return true; 
-    const txt = (d.tipo || d.originalTipo || '').toLowerCase(); 
-    return PRINCIPAL_KEYWORDS.some(k => txt.includes(k)); 
+// FUNCIONES DE FECHA ANTI-ZONA HORARIA
+const getLocalTodayString = () => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 };
 
 const formatLocalDate = (dateStr) => {
@@ -83,7 +62,11 @@ const formatLocalDate = (dateStr) => {
         const [y, m, d] = dateStr.split('-');
         if (y && m && d) return `${d}/${m}/${y}`;
     }
-    try { return new Date(dateStr).toLocaleDateString('es-ES'); } catch(e) { return dateStr; }
+    try { 
+        const d = new Date(dateStr); 
+        if(isNaN(d.getTime())) return dateStr;
+        return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    } catch(e) { return dateStr; }
 };
 
 export default function App() {
@@ -112,9 +95,12 @@ function Dashboard() {
   const [agendaData, setAgendaData] = useState([]); 
   const [alertasData, setAlertasData] = useState([]);
   
+  // NUEVOS FILTROS
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterUser, setFilterUser] = useState('all');
+  const [filterSpecificDate, setFilterSpecificDate] = useState(''); // Filtro por día
+  const [filterSucursal, setFilterSucursal] = useState('all'); // Filtro por sucursal
   
   const availableYears = useMemo(() => {
       const current = new Date().getFullYear();
@@ -140,11 +126,7 @@ function Dashboard() {
 
   useEffect(() => {
     if (!currentUser) return;
-    
-    if (!currentUser.email) {
-        if (typeof logout === 'function') logout();
-        return; 
-    }
+    if (!currentUser.email) { if (typeof logout === 'function') logout(); return; }
 
     const email = currentUser.email.toLowerCase().trim();
     if (email === 'admin@recolekta.com') { setAppMode('admin'); } 
@@ -163,6 +145,7 @@ function Dashboard() {
 
   useEffect(() => {
     if (currentUser && !currentUser.email) return;
+
     if (!localStorage.getItem('recolekta_tutorial_v98')) setShowWelcome(true);
 
     Papa.parse(GITHUB_CSV_URL, {
@@ -182,7 +165,6 @@ function Dashboard() {
 
     let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas, unsubAgenda;
     
-    // AGENDA EN TIEMPO REAL AHORA PARA TODOS
     unsubAgenda = onSnapshot(collection(db, "agenda_flota"), (snap) => setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     if (appMode === 'admin' || appMode === 'supervisor') {
@@ -211,7 +193,7 @@ function Dashboard() {
             fetchHistory();
         }
     } else if (appMode === 'user' && currentUser?.email) {
-        const qOps = query(collection(db, "registros_produccion"), where("usuarioEmail", "==", currentUser.email), limit(50));
+        const qOps = query(collection(db, "registros_produccion"), where("usuarioEmail", "==", currentUser.email), limit(100));
         unsubOps = onSnapshot(qOps, (snap) => {
             const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             arr.sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -266,18 +248,27 @@ function Dashboard() {
     return { totalHoras: totalHoras.toFixed(2), totalRegistros: filteredOt.length, rankingOt, rawData: filteredOt };
   }, [otData, filterMonth, filterUser, filterYear]);
 
+  // MOTOR DE FILTROS REFORZADO (Aplica Fecha Específica y Sucursal)
   const metrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
     let filtered = data.filter(d => checkDate(d.createdAt));
+    
     if (filterUser !== 'all') filtered = filtered.filter(d => d.recolector === filterUser);
+    if (filterSucursal !== 'all') filtered = filtered.filter(d => d.sucursal === filterSucursal);
+    if (filterSpecificDate) {
+        const targetDate = formatLocalDate(filterSpecificDate);
+        filtered = filtered.filter(d => formatLocalDate(d.createdAt) === targetDate);
+    }
+
     const pItems = filtered.filter(d => isPrincipalData(d)); const sItems = filtered.filter(d => !isPrincipalData(d));
     const calcEf = (arr) => arr.length > 0 ? ((arr.filter(x => (x.tiempo||0) <= 5).length / arr.length) * 100).toFixed(1) : 0;
     const calcAvg = (arr) => arr.length > 0 ? (arr.reduce((a,b)=>a+(b.tiempo||0),0)/arr.length).toFixed(1) : 0;
     const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = data.filter(d => { const { year, month } = extractDateInfo(d.createdAt); return year === filterYear && month === i + 1; }); const finalDocs = filterUser === 'all' ? mDocs : mDocs.filter(d => d.recolector === filterUser); const mRecs = finalDocs.filter(d => isPrincipalData(d)); return { name: m, ef: parseFloat(calcEf(mRecs)), count: finalDocs.length }; }).filter(d => d.count > 0);
     const sucursalStats = filtered.reduce((acc, curr) => { if(!curr.sucursal || curr.sucursal === 'N/A' || curr.sucursal === 'Ruta Externa') return acc; acc[curr.sucursal] = acc[curr.sucursal] || { totalTime: 0, count: 0 }; acc[curr.sucursal].totalTime += (curr.tiempo || 0); acc[curr.sucursal].count += 1; return acc; }, {});
     const topSucursales = Object.entries(sucursalStats).map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) })).sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
+    
     return { total: filtered.length, efP: calcEf(pItems), avgP: calcAvg(pItems), countP: pItems.length, efS: calcEf(sItems), avgS: calcAvg(sItems), countS: sItems.length, monthlyData, topSucursales, rows: filtered };
-  }, [liveData, csvData, filterMonth, filterUser, filterYear]);
+  }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal]);
 
   const biMetrics = useMemo(() => {
       const y1 = filterYear; const y2 = (parseInt(filterYear) - 1).toString(); const allOps = [...liveData, ...csvData]; const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -303,8 +294,11 @@ function Dashboard() {
     const data = filterYear === '2025' ? csvData : liveData;
     const targetUser = form.recolector;
     let userDocs = targetUser && targetUser.length > 2 ? data.filter(d => d.recolector === targetUser) : data;
-    const today = new Date().toLocaleDateString();
-    userDocs = userDocs.filter(d => new Date(d.createdAt).toLocaleDateString() === today);
+    
+    // FIX DE ZONA HORARIA: Solo lo de HOY
+    const todayStr = getLocalTodayString();
+    userDocs = userDocs.filter(d => formatLocalDate(d.createdAt) === todayStr);
+    
     const recs = userDocs.filter(d => isPrincipalData(d));
     const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= 5).length / recs.length) * 100).toFixed(1) : 0;
     return { ef: ef, count: userDocs.length, label: targetUser && targetUser.length > 2 ? targetUser.split(' ')[0] : 'HOY' };
@@ -381,9 +375,8 @@ function Dashboard() {
   };
 
   const exportToCSV = () => { 
-    const data = filterYear === '2025' ? csvData : liveData; 
-    if (!data || data.length === 0) return alert("No hay datos"); 
-    const csvRows = data.map(r => ({ Fecha: r.createdAt, Mes: r.month, Transportista: r.recolector, Sucursal: r.sucursal, Diligencia: r.tipo, Area: r.area || 'N/A', Categoria: r.categoria, Entrada: r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}` : '', Salida: r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida}` : '', Espera_Minutos: r.tiempo, Observaciones: r.observaciones || '', Foto_URL: r.fotoData || '' })); 
+    if (!metrics.rows || metrics.rows.length === 0) return alert("No hay datos"); 
+    const csvRows = metrics.rows.map(r => ({ Fecha: formatLocalDate(r.createdAt), Transportista: r.recolector, Sucursal: r.sucursal, Diligencia: r.tipo, Area: r.area || 'N/A', Categoria: r.categoria, Entrada: r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}` : '', Salida: r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida}` : '', Espera_Minutos: r.tiempo, Observaciones: r.observaciones || '', Foto_URL: r.fotoData || '' })); 
     const csv = Papa.unparse(csvRows, { delimiter: ";" }); 
     const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); 
     const url = URL.createObjectURL(blob); 
@@ -394,73 +387,74 @@ function Dashboard() {
     if (!otData || otData.length === 0) return alert("No hay datos de horas extras."); 
     const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
     const splitSchedule = (scheduleStr) => { if (!scheduleStr || !scheduleStr.includes('-')) return { start: '', end: '' }; const parts = scheduleStr.split('-'); return { start: parts[0].trim(), end: parts[1].trim() }; }; 
-    const csvRows = otData.map(r => { const workHours = splitSchedule(r.horarioTurno || ''); const heStart = formatTime12(r.horaInicio); const heEnd = formatTime12(r.horaFin); return { 'A': '', 'B': formatLocalDate(r.createdAt || r.fecha), 'C': USUARIOS_EMAIL[r.usuario] || r.usuario, 'D': formatLocalDate(r.fecha), 'E': workHours.start, 'F': workHours.end, 'G': heStart, 'H': heEnd, 'I': r.horasCalculadas, 'J': r.motivo || '', 'K': r.horarioTurno || '', 'L': `${heStart} - ${heEnd}` }; }); 
+    const csvRows = otData.map(r => { const workHours = splitSchedule(r.horarioTurno || ''); const heStart = formatTime12(r.horaInicio); const heEnd = formatTime12(r.horaFin); return { 'A': '', 'B': formatLocalDate(r.createdAt || r.fecha), 'C': USUARIOS_EMAIL[r.usuario] || r.usuario, 'D': formatLocalDate(r.fecha), 'E': workHours.start, 'F': workHours.end, 'G': r.horarioTurno || '', 'H': heStart, 'I': heEnd, 'J': `${heStart} - ${heEnd}`, 'K': r.horasCalculadas, 'L': r.motivo || '' }; }); 
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: false }); 
     const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); 
     const url = URL.createObjectURL(blob); 
     const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Consolidado_HE_${filterYear}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
   
-  const downloadReport = (forcedUser = null) => {
-    let validForcedUser = (forcedUser && typeof forcedUser !== 'object') ? forcedUser : null;
-    const doc = new jsPDF();
-    const slate900 = [15, 23, 42]; const green500 = [34, 197, 94]; const orange500 = [249, 115, 22];
-    const drawHeader = (title, subtitle) => { doc.setFillColor(...slate900); doc.rect(0,0,210,40,'F'); doc.setFillColor(...green500); doc.circle(20, 20, 10, 'F'); doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 22); doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 18); doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA", 35, 24); doc.setTextColor(40); doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.text(title, 15, 55); doc.setFontSize(10); doc.setTextColor(100); doc.text(subtitle, 15, 61); };
-    const dateStr = new Date().toLocaleDateString();
+  // MOTOR WYSIWYG PARA EL PDF (AHORRO ABSOLUTO DE COSTOS)
+  const downloadReport = () => {
+    try {
+        let reportData = [];
+        let reportTitle = "";
 
-    if (appMode === 'supervisor' && supervisorSection === 'agenda') {
-        drawHeader("AGENDA OPERATIVA GLOBAL", `Generado: ${dateStr}`);
-        const rows = agendaData.map(a => [a.id, a.horario || '--', a.zona || '--', a.puntos || '--', a.turnos || 'Ninguno', formatLocalDate(a.mantenimiento)]);
-        autoTable(doc, { startY: 65, head: [['Transportista', 'Horario Base', 'Zona/Ruta', 'Puntos/Sucursales', 'Turnos Extra', 'Mantenimiento']], body: rows, headStyles: { fillColor: slate900 }, theme: 'grid', styles: { fontSize: 8 } });
-        doc.save("Recolekta_Agenda_Global.pdf");
-        return;
-    }
-    if (appMode === 'supervisor' && supervisorSection === 'combustible') {
-        drawHeader("CONTROL DE COMBUSTIBLE", `Generado: ${dateStr} | Filtro: ${filterUser !== 'all' ? filterUser : 'GLOBAL'} | Año: ${filterYear}`);
-        let data = fuelData.filter(d => checkDate(d.fecha));
-        if (filterUser !== 'all') data = data.filter(d => (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser));
-        const rows = data.map(r => [formatLocalDate(r.fecha), USUARIOS_EMAIL[r.usuario] || r.usuario, r.galones, `$${r.costo}`]);
-        autoTable(doc, { startY: 65, head: [['Fecha', 'Usuario', 'Galones', 'Total Pagado']], body: rows, headStyles: { fillColor: slate900 }, theme: 'striped' });
-        doc.save("Recolekta_Combustible.pdf");
-        return;
-    }
-    if (appMode === 'supervisor' && supervisorSection === 'taller') {
-        drawHeader("CONTROL DE TALLER Y MANTENIMIENTO", `Generado: ${dateStr} | Filtro: ${filterUser !== 'all' ? filterUser : 'GLOBAL'} | Año: ${filterYear}`);
-        let data = maintData.filter(d => checkDate(d.fecha));
-        if (filterUser !== 'all') data = data.filter(d => (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser));
-        const rows = data.map(r => [formatLocalDate(r.fecha), USUARIOS_EMAIL[r.usuario] || r.usuario, r.tipo, r.taller, r.descripcion || '--', `$${r.costo}`]);
-        autoTable(doc, { startY: 65, head: [['Fecha', 'Usuario', 'Tipo', 'Taller', 'Detalle/Descripción', 'Costo']], body: rows, headStyles: { fillColor: slate900 }, theme: 'striped' });
-        doc.save("Recolekta_Mantenimiento.pdf");
-        return;
-    }
+        if (appMode === 'user') {
+            // USUARIO: Solo sus datos de hoy (Ahorro de lecturas)
+            const todayStr = getLocalTodayString();
+            reportData = liveData.filter(d => d.recolector === form.recolector && formatLocalDate(d.createdAt) === todayStr);
+            reportTitle = `REPORTE DIARIO DE RUTA: ${form.recolector}`;
+        } else {
+            // ADMIN: Imprime exactamente lo que ve filtrado en pantalla
+            reportData = metrics.rows;
+            let titleParts = [];
+            if (filterUser !== 'all') titleParts.push(`USUARIO: ${filterUser}`);
+            if (filterSucursal !== 'all') titleParts.push(`SUCURSAL: ${filterSucursal}`);
+            if (filterSpecificDate) titleParts.push(`FECHA: ${formatLocalDate(filterSpecificDate)}`);
+            reportTitle = titleParts.length > 0 ? titleParts.join(" | ") : "REPORTE CONSOLIDADO GLOBAL";
+        }
 
-    const targetUser = validForcedUser || (appMode === 'user' ? form.recolector : (filterUser !== 'all' ? filterUser : null));
-    const reportTitle = targetUser ? `FICHA HISTÓRICA: ${targetUser}` : "REPORTE CONSOLIDADO DE FLOTA";
-    drawHeader(reportTitle, `Periodo: ${filterMonth === 'all' ? 'ANUAL' : 'MES ' + filterMonth} ${filterYear} | Fuente: ${filterYear==='2025'?'CSV':dataSource.toUpperCase()}`);
-    let reportData = filterYear === '2025' ? csvData : liveData;
-    reportData = reportData.filter(d => checkDate(d.createdAt));
-    if (targetUser) reportData = reportData.filter(d => d.recolector === targetUser);
-    const pItems = reportData.filter(d => isPrincipalData(d));
-    const sItems = reportData.filter(d => !isPrincipalData(d));
-    const efP = pItems.length > 0 ? ((pItems.filter(x => (x.tiempo||0) <= 5).length / pItems.length) * 100).toFixed(1) : 0;
-    const avgP = pItems.length > 0 ? (pItems.reduce((a,b)=>a+(b.tiempo||0),0)/pItems.length).toFixed(1) : 0;
-    const avgS = sItems.length > 0 ? (sItems.reduce((a,b)=>a+(b.tiempo||0),0)/sItems.length).toFixed(1) : 0;
-    doc.setTextColor(0);
-    doc.text(`Eficiencia Recolección: ${efP}% (Meta: 95%)`, 20, 75);
-    doc.text(`Promedio Espera (Muestras): ${avgP} min`, 20, 81);
-    doc.text(`Total Diligencias Adic.: ${sItems.length}`, 120, 75);
-    doc.text(`Promedio Espera (Diligencias): ${avgS} min`, 120, 81);
-    const showCharts = appMode === 'admin'; 
-    if (showCharts && reportData.length > 0) {
-        const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = reportData.filter(d => extractDateInfo(d.createdAt).month === i + 1); const mRecs = mDocs.filter(d => isPrincipalData(d)); const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0; return { name: m, ef: parseFloat(mEf) }; });
-        const sucursalStats = reportData.reduce((acc, curr) => { if(!curr.sucursal || curr.sucursal === 'N/A' || curr.sucursal === 'Ruta Externa') return acc; acc[curr.sucursal] = acc[curr.sucursal] || { totalTime: 0, count: 0 }; acc[curr.sucursal].totalTime += (curr.tiempo || 0); acc[curr.sucursal].count += 1; return acc; }, {});
-        const topSucursales = Object.entries(sucursalStats).map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) })).sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
-        doc.setFontSize(9); doc.setTextColor(100); doc.text("EFICIENCIA MENSUAL (%)", 35, 90); doc.setDrawColor(200); doc.line(20, 95, 20, 135); doc.line(20, 135, 90, 135); if(monthlyData.some(m => m.ef > 0)) { const barWidth = 50 / 12; monthlyData.forEach((m, i) => { const h = (m.ef / 100) * 35; if(h > 0) { doc.setFillColor(...green500); doc.rect(22 + (i * barWidth * 1.2), (135) - h, barWidth, h, 'F'); doc.setFontSize(6); doc.text(m.name, 23 + (i * barWidth * 1.2), 139); } }); }
-        doc.setFontSize(9); doc.setTextColor(100); doc.text("TOP DEMORAS (MIN)", 130, 90); doc.setDrawColor(200); doc.line(110, 95, 110, 135); doc.line(110, 135, 190, 135); if(topSucursales.length > 0) { const maxTime = Math.max(...topSucursales.map(s => s.avgWait)) || 10; topSucursales.forEach((s, i) => { const w = (s.avgWait / maxTime) * 70; doc.setFillColor(...orange500); doc.rect(111, 100 + (i * 7), w, 4, 'F'); doc.setFontSize(7); doc.setTextColor(50); doc.text(`${s.name} (${s.avgWait}m)`, 112, 99 + (i * 7)); }); }
+        if (reportData.length === 0) return alert("No hay datos para generar el reporte con los filtros actuales.");
+
+        const doc = new jsPDF();
+        const slate900 = [15, 23, 42]; const green500 = [34, 197, 94]; const orange500 = [249, 115, 22];
+        const drawHeader = (title, subtitle) => { doc.setFillColor(...slate900); doc.rect(0,0,210,40,'F'); doc.setFillColor(...green500); doc.circle(20, 20, 10, 'F'); doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 22); doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 18); doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA", 35, 24); doc.setTextColor(40); doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.text(title, 15, 55); doc.setFontSize(10); doc.setTextColor(100); doc.text(subtitle, 15, 61); };
+        
+        drawHeader(reportTitle, `Generado: ${new Date().toLocaleDateString()} | Registros: ${reportData.length}`);
+
+        const pItems = reportData.filter(d => isPrincipalData(d));
+        const sItems = reportData.filter(d => !isPrincipalData(d));
+        const efP = pItems.length > 0 ? ((pItems.filter(x => (x.tiempo||0) <= 5).length / pItems.length) * 100).toFixed(1) : 0;
+        const avgP = pItems.length > 0 ? (pItems.reduce((a,b)=>a+(b.tiempo||0),0)/pItems.length).toFixed(1) : 0;
+        const avgS = sItems.length > 0 ? (sItems.reduce((a,b)=>a+(b.tiempo||0),0)/sItems.length).toFixed(1) : 0;
+
+        doc.setTextColor(0);
+        doc.text(`Eficiencia Muestras: ${efP}% (Meta 95%)`, 20, 75);
+        doc.text(`Promedio Espera (Muestras): ${avgP} min`, 20, 81);
+        doc.text(`Total Otras Diligencias: ${sItems.length}`, 120, 75);
+        doc.text(`Promedio Espera (Otras): ${avgS} min`, 120, 81);
+
+        // Tabla Detallada para el Reporte Diario
+        if (appMode === 'user' || filterSpecificDate) {
+            const rows = reportData.map(r => [
+                formatLocalDate(r.createdAt), r.sucursal, r.tipo, 
+                `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}`, `${r.hSalida}:${r.mSalida} ${r.pSalida}`, 
+                `${r.tiempo}m`, r.categoria
+            ]);
+            autoTable(doc, { startY: 95, head: [['Fecha', 'Sucursal', 'Diligencia', 'Llegada', 'Salida', 'Espera', 'Tipo']], body: rows, headStyles: { fillColor: slate900 }, styles: { fontSize: 8 }, theme: 'striped' });
+        } else {
+            // Tabla Mensual
+            const monthlyTableRows = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = reportData.filter(d => extractDateInfo(d.createdAt).month === i + 1); const mRecs = mDocs.filter(d => isPrincipalData(d)); const mDils = mDocs.filter(d => !isPrincipalData(d)); const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0; const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0; const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0; return [m, mRecs.length, `${mEf}%`, `${mAvgR}m`, mDils.length, `${mAvgD}m`]; }).filter(r => r[1] > 0 || r[4] > 0);
+            autoTable(doc, { startY: 95, head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']], body: monthlyTableRows, headStyles: { fillColor: slate900, halign: 'center' }, theme: 'striped' });
+        }
+        
+        doc.save(`Recolekta_Reporte_${appMode==='user'?form.recolector:'Filtrado'}.pdf`);
+
+    } catch (error) {
+        console.error("Error generating report", error);
+        alert("Error al generar el reporte.");
     }
-    const monthlyTableRows = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = reportData.filter(d => extractDateInfo(d.createdAt).month === i + 1); const mRecs = mDocs.filter(d => isPrincipalData(d)); const mDils = mDocs.filter(d => !isPrincipalData(d)); const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0; const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0; const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0; return [m, mRecs.length, `${mEf}%`, `${mAvgR}m`, mDils.length, `${mAvgD}m`]; }).filter(r => r[1] > 0 || r[4] > 0);
-    autoTable(doc, { startY: showCharts ? 150 : 95, head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']], body: monthlyTableRows, headStyles: { fillColor: slate900, halign: 'center' }, columnStyles: { 0: { fontStyle: 'bold', halign: 'left' }, 1: { halign: 'center' }, 2: { halign: 'center', fontStyle: 'bold', textColor: green500 }, 3: { halign: 'center' }, 4: { halign: 'center' }, 5: { halign: 'center' } }, theme: 'striped' });
-    doc.save(`Recolekta_Reporte_${targetUser || 'Global'}.pdf`);
   };
 
   return (
@@ -549,8 +543,8 @@ function Dashboard() {
                       <div className="relative" onClick={e => e.stopPropagation()}><input type="text" placeholder="SUCURSAL..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none text-white placeholder-slate-600" value={form.sucursal} onChange={e => handleInput('sucursal', e.target.value)} onFocus={() => setActiveInput('sucursal')} required />{activeInput === 'sucursal' && form.sucursal.length > 0 && (<div className="absolute z-30 w-full mt-2 bg-[#1F2937] shadow-xl rounded-xl border border-slate-700 max-h-40 overflow-y-auto">{CATALOGOS.sucursales.filter(t=>t.toUpperCase().includes(form.sucursal.toUpperCase())).map(s => (<div key={s} onClick={() => { setForm({...form, sucursal: s}); setActiveInput(null); }} className="p-3 hover:bg-slate-700 cursor-pointer text-xs font-bold border-b border-slate-800 text-slate-300">{s}</div>))}</div>)}</div>
                       <div className="bg-[#0B1120] p-6 rounded-[2rem] text-white grid grid-cols-1 sm:grid-cols-2 gap-6 items-center shadow-inner border border-slate-800"><div className="space-y-4"><div className="flex flex-col items-center sm:items-start"><p className="text-[9px] font-bold text-green-400 uppercase tracking-widest mb-1">Llegada</p><div className="flex gap-1"><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.hLlegada} onChange={e=>setForm({...form, hLlegada:e.target.value})}>{Array.from({length: 12},(_,i)=>String(i+1).padStart(2,'0')).map(h=><option key={h}>{h}</option>)}</select><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.mLlegada} onChange={e=>setForm({...form, mLlegada:e.target.value})}>{Array.from({length: 60},(_,i)=>String(i).padStart(2,'0')).map(m=><option key={m}>{m}</option>)}</select><select className="bg-green-900 text-green-400 border border-green-700 p-2 rounded-lg font-bold text-[10px] w-14" value={form.pLlegada} onChange={e=>setForm({...form, pLlegada:e.target.value})}><option>AM</option><option>PM</option></select></div></div><div className="flex flex-col items-center sm:items-start"><p className="text-[9px] font-bold text-orange-400 uppercase tracking-widest mb-1">Salida</p><div className="flex gap-1"><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.hSalida} onChange={e=>setForm({...form, hSalida:e.target.value})}>{Array.from({length: 12},(_,i)=>String(i+1).padStart(2,'0')).map(h=><option key={h}>{h}</option>)}</select><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.mSalida} onChange={e=>setForm({...form, mSalida:e.target.value})}>{Array.from({length: 60},(_,i)=>String(i).padStart(2,'0')).map(m=><option key={m}>{m}</option>)}</select><select className="bg-orange-900 text-orange-400 border border-orange-700 p-2 rounded-lg font-bold text-[10px] w-14" value={form.pSalida} onChange={e=>setForm({...form, pSalida:e.target.value})}><option>AM</option><option>PM</option></select></div></div></div><div className="text-center border-t sm:border-t-0 sm:border-l border-slate-800 pt-4 sm:pt-0 h-full flex flex-col justify-center"><p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Espera Calc.</p><h4 className={cn("text-5xl font-black", getWait() > 5 ? "text-orange-400" : "text-green-400")}>{getWait()}m</h4></div></div>
                       <textarea placeholder="OBSERVACIONES..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none transition-all text-white placeholder-slate-600 resize-none h-24" value={form.observaciones} onChange={e => setForm({...form, observaciones: e.target.value})} />
-                      <div className="grid grid-cols-2 gap-4"><label className="col-span-1 p-4 bg-[#0B1120] border-2 border-dashed border-slate-700 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-800 transition-all text-slate-400 font-bold uppercase text-[9px]"><Camera size={24}/><p>Foto</p><input type="file" className="hidden" accept="image/*" onChange={handleFile} /></label><button type="submit" disabled={!imagePreview || isUploading || isCompressing} className={cn("col-span-1 rounded-2xl font-black text-sm shadow-lg transition-all uppercase flex flex-col items-center justify-center gap-2", imagePreview && !isUploading && !isCompressing ? "bg-white text-black hover:bg-gray-200" : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700")}>{isCompressing ? <Loader2 className="animate-spin" size={24}/> : (isUploading ? <Loader2 className="animate-spin" size={24}/> : <CheckCircle2 size={24} className={imagePreview?"text-green-600":"text-slate-600"}/>)}{isCompressing ? 'Procesando...' : (isUploading ? 'Subiendo...' : 'Sincronizar')}</button></div>
-                      <button type="button" onClick={() => downloadReport(null)} className="w-full bg-slate-800 border border-slate-700 py-3 rounded-xl font-bold text-xs text-slate-300 uppercase flex items-center justify-center gap-2 hover:bg-slate-700 transition-all"><Download size={14}/> Descargar Mi Ficha</button>
+                      <div className="grid grid-cols-2 gap-4"><label className="col-span-1 p-4 bg-[#0B1120] border-2 border-dashed border-slate-700 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-800 transition-all text-slate-400 font-bold uppercase text-[9px]"><Camera size={24}/><p>Foto</p><input type="file" className="hidden" accept="image/*" onChange={handleFile} /></label><button type="button" onClick={() => downloadReport()} className="col-span-1 bg-slate-800 border border-slate-700 rounded-2xl font-bold text-xs text-slate-300 uppercase flex flex-col items-center justify-center gap-2 hover:bg-slate-700 transition-all"><Download size={24}/>Mi Reporte Hoy</button></div>
+                      <button type="submit" disabled={!imagePreview || isUploading || isCompressing} className={cn("w-full py-4 mt-4 rounded-2xl font-black text-sm shadow-lg transition-all uppercase flex items-center justify-center gap-2", imagePreview && !isUploading && !isCompressing ? "bg-white text-black hover:bg-gray-200" : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700")}>{isCompressing ? <Loader2 className="animate-spin" size={20}/> : (isUploading ? <Loader2 className="animate-spin" size={20}/> : <CheckCircle2 size={20} className={imagePreview?"text-green-600":"text-slate-600"}/>)}{isCompressing ? 'Procesando...' : (isUploading ? 'Subiendo...' : 'Sincronizar Datos')}</button>
                     </form>
                  </div>
               ) : userView === 'combustible' ? (
@@ -592,17 +586,20 @@ function Dashboard() {
                     </div>
                 </div>
                 <div className="flex flex-wrap gap-3 items-center">
-                  <div className="flex bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center"><Filter size={16} className="text-slate-500"/>
-                  <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300">
-                      {availableYears.map(y => <option key={y} value={y}>{y}{y==='2025'?' (CSV)':''}</option>)}
-                  </select>
-                  <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m==='all'?'Año Completo':'Mes '+m}</option>)}</select>
-                  <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2"><option value="all" className="bg-slate-900">Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
+                  <div className="flex bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center">
+                    <Filter size={16} className="text-slate-500"/>
+                    <input type="date" value={filterSpecificDate} onChange={e=>setFilterSpecificDate(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer" title="Filtrar por Día Exacto" />
+                    <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2">
+                        {availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}
+                    </select>
+                    <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m==='all'?'Año':'Mes '+m}</option>)}</select>
+                    <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2"><option value="all" className="bg-slate-900">Todos</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
+                    <select value={filterSucursal} onChange={e=>setFilterSucursal(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2"><option value="all" className="bg-slate-900">Sucursal</option>{CATALOGOS.sucursales.map(s=><option key={s} value={s} className="bg-slate-900">{s}</option>)}</select>
                   </div>
                   
                   <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-blue-500 transition-all"><Bell size={14}/> Aviso</button>
                   <button onClick={exportToCSV} className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-green-700 transition-all"><FileSpreadsheet size={14}/> Excel Total</button>
-                  <button onClick={() => downloadReport(null)} className="bg-white text-black px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-slate-200 transition-all"><Download size={14}/> PDF Datos</button>
+                  <button onClick={() => downloadReport()} className="bg-white text-black px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-slate-200 transition-all"><Download size={14}/> PDF WYSIWYG</button>
                   <button onClick={() => setDataSource(dataSource === 'live' ? 'historical' : 'live')} className={cn("px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2", dataSource==='live'?"bg-slate-700 text-white":"bg-indigo-600 text-white")} disabled={isFetchingHistory}>
                       {isFetchingHistory ? <Loader2 size={14} className="animate-spin" /> : dataSource === 'live' ? <Database size={14}/> : <RefreshCw size={14}/>} 
                       {isFetchingHistory ? 'Descargando...' : dataSource === 'live' ? 'Histórico DB' : 'Volver a Vivo'}
@@ -628,7 +625,7 @@ function Dashboard() {
                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="bg-[#151F32] p-4 md:p-6 rounded-[2rem] shadow-sm border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><TrendingUp className="text-indigo-500 w-16 h-16 md:w-24 md:h-24"/></div><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">{filterUser === 'all' ? 'VITAL (GLOBAL FLOTA)' : `VITAL (${filterUser})`}</p><div className="flex items-baseline gap-2"><h3 className="text-3xl md:text-4xl font-black text-white">{metrics.efP}%</h3><span className="text-xs font-bold text-slate-500">Eficiencia</span></div><div className="mt-4 flex gap-2"><span className="text-[10px] font-bold bg-indigo-900/30 text-indigo-400 px-3 py-1 rounded-full border border-indigo-900">Espera: {metrics.avgP}m</span><span className="text-[10px] font-bold bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700">Vol: {metrics.countP}</span></div></div>
                       <div className="bg-[#151F32] p-4 md:p-6 rounded-[2rem] shadow-sm border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><ClipboardList className="text-orange-500 w-16 h-16 md:w-24 md:h-24"/></div><p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">SECUNDARIO (ADMIN)</p><div className="flex items-baseline gap-2"><h3 className="text-3xl md:text-4xl font-black text-white">{metrics.efS}%</h3><span className="text-xs font-bold text-slate-500">Eficiencia</span></div><div className="mt-4 flex gap-2"><span className="text-[10px] font-bold bg-orange-900/30 text-orange-400 px-3 py-1 rounded-full border border-orange-900">Espera: {metrics.avgS}m</span><span className="text-[10px] font-bold bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700">Vol: {metrics.countS}</span></div></div>
-                      <div className="bg-[#0B1120] p-4 md:p-6 rounded-[2rem] shadow-inner border border-slate-800 text-white flex flex-col justify-center relative overflow-hidden"><div className="absolute -bottom-4 -right-4 opacity-20"><Database className="text-slate-600 w-20 h-20 md:w-24 md:h-24"/></div><p className="text-[10px] font-bold text-green-500 uppercase tracking-widest">TOTAL REGISTROS</p><h3 className="text-4xl md:text-5xl font-black">{metrics.total}</h3><p className="text-[10px] font-bold text-slate-600 uppercase mt-auto">Fuente: {filterYear === '2025' ? 'CSV ARCHIVO MUERTO' : dataSource}</p></div>
+                      <div className="bg-[#0B1120] p-4 md:p-6 rounded-[2rem] shadow-inner border border-slate-800 text-white flex flex-col justify-center relative overflow-hidden"><div className="absolute -bottom-4 -right-4 opacity-20"><Database className="text-slate-600 w-20 h-20 md:w-24 md:h-24"/></div><p className="text-[10px] font-bold text-green-500 uppercase tracking-widest">TOTAL REGISTROS</p><h3 className="text-4xl md:text-5xl font-black">{metrics.total}</h3><p className="text-[10px] font-bold text-slate-600 uppercase mt-auto">Filtros Activos: {filterSpecificDate || filterSucursal !== 'all' ? 'Sí' : 'No'}</p></div>
                    </div>
                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
                       <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><TrendingUp size={16} className="text-green-500"/> Evolución Anual de Eficiencia</h4><div className="h-60 w-full"><ResponsiveContainer width="100%" height="100%"><AreaChart data={metrics.monthlyData}><defs><linearGradient id="colorEf" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#64748b'}} /><YAxis hide domain={[0, 100]} /><Tooltip contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff'}} itemStyle={{color: '#10b981'}} formatter={(value) => [`${value}%`, 'Eficiencia']} /><Area type="monotone" dataKey="ef" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorEf)" /></AreaChart></ResponsiveContainer></div></div>
@@ -637,10 +634,11 @@ function Dashboard() {
 
                    <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6 mt-6">
                       <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-6 flex items-center gap-2"><ShieldCheck className="text-green-500" size={18}/> Bitácora de Operación Reciente</h4>
-                      <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center">Foto</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
+                      <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center">Foto</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
                         <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
-                            {metrics.rows.slice(0, 50).map((r, i) => (
+                            {metrics.rows.slice(0, 100).map((r, i) => (
                                 <tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors">
+                                    <td className="px-4 py-3 text-slate-300 font-bold">{formatLocalDate(r.createdAt)}</td>
                                     <td className="px-4 py-3 text-white">{r.recolector}</td>
                                     <td className="px-4 py-3">{r.sucursal}</td>
                                     <td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
@@ -690,7 +688,7 @@ function Dashboard() {
                           <h3 className="text-2xl font-black text-white">Nómina de Horas Extras</h3>
                           <p className="text-xs text-slate-400">Control de asistencia y Horas Extras.</p>
                       </div>
-                      <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all"><FileSpreadsheet size={16}/> Exportar Excel HE</button>
+                      <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all"><FileSpreadsheet size={16}/> Exportar Excel RRHH</button>
                    </div>
 
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -745,24 +743,26 @@ function Dashboard() {
                 </div>
                 <div className="flex bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center gap-2">
                    <Filter size={14} className="text-slate-500"/>
-                   <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300">
-                      {availableYears.map(y => <option key={y} value={y}>{y}{y==='2025'?' (CSV)':''}</option>)}
+                   <input type="date" value={filterSpecificDate} onChange={e=>setFilterSpecificDate(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer" title="Filtrar por Día Exacto" />
+                   <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2">
+                      {availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}
                    </select>
-                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all">Toda la Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u}>{u}</option>)}</select>
-                   <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all">Año</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m}>Mes {m}</option>)}</select>
+                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all" className="bg-slate-900">Toda la Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
+                   <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all" className="bg-slate-900">Mes</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m}</option>)}</select>
                    
                    <button onClick={() => setShowAvisoModal(true)} className="ml-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-blue-500 transition-all flex items-center gap-1 shadow-md"><Send size={12}/> AVISO</button>
-                   <button onClick={() => downloadReport(null)} className="ml-2 bg-white text-black px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-1"><Download size={12}/> PDF</button>
+                   <button onClick={() => downloadReport()} className="ml-2 bg-white text-black px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-1"><Download size={12}/> PDF</button>
                 </div>
              </div>
              
              {supervisorSection === 'bitacora' && (
                 <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
                    <table className="w-full text-left">
-                      <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center rounded-r-lg">Foto</th></tr></thead>
+                      <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center rounded-r-lg">Foto</th></tr></thead>
                       <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
-                         {metrics.rows.slice(0, 50).map((r, i) => (
+                         {metrics.rows.slice(0, 100).map((r, i) => (
                             <tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors">
+                                <td className="px-4 py-3 text-slate-300 font-bold">{formatLocalDate(r.createdAt)}</td>
                                 <td className="px-4 py-3 text-white">{r.recolector}</td>
                                 <td className="px-4 py-3">{r.sucursal}</td>
                                 <td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
