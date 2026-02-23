@@ -9,7 +9,7 @@ import MaintenanceModule from './components/MaintenanceModule';
 import OvertimeModule from './components/OvertimeModule';
 import AgendaAdmin from './components/AgendaAdmin';
 
-import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion } from 'firebase/firestore'; 
+import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion, setDoc } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // --- ICONOS ---
@@ -18,7 +18,7 @@ import {
   ExternalLink, MessageSquare, BarChart3, FileSpreadsheet, User, Fuel, DollarSign, 
   Calendar, Wrench, Briefcase, Eye, Search, Filter, MapPin, Layers, ShieldCheck, 
   Loader2, Image as ImageIcon, Eraser, Edit, Trash2, X, Edit3, Save, RefreshCw, PieChart,
-  Bell, Send, XCircle, Check
+  Bell, Send, XCircle, Check, Settings
 } from 'lucide-react';
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend, LineChart, Line } from 'recharts';
@@ -38,12 +38,12 @@ export const USUARIOS_EMAIL = {
   "antonio@recolekta.com": "ANTONIO RIVAS", "walter@recolekta.com": "WALTER RIVAS", "rogelio@recolekta.com": "ROGELIO MAZARIEGO",
   "david@recolekta.com": "DAVID ALVARADO", "carlos@recolekta.com": "CARLOS SOSA", "felix@recolekta.com": "FELIX VASQUEZ",
   "flor@recolekta.com": "FLOR CARDOZA", "hildebrando@recolekta.com": "HILDEBRANDO MENJIVAR", "test@admin.com": "USUARIO PRUEBA",
-  "chofer@recolekta.com": "CHOFER PRUEBA", "admin@recolekta.com": "ADMINISTRADOR", "supervision@recolekta.com": "SUPERVISOR",
+  "chofer@recolekta.com": "TRANSPORTISTA PRUEBA", "admin@recolekta.com": "ADMINISTRADOR", "supervision@recolekta.com": "SUPERVISOR",
   "supervisor@recolekta.com": "SUPERVISOR"
 };
 
 const CATALOGOS = {
-  transportistas: [ "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "CHOFER PRUEBA" ],
+  transportistas: [ "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "TRANSPORTISTA PRUEBA" ],
   sucursales: [ "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares" ],
   areas: ["LABORATORIO / PROCESAMIENTO", "TUVET", "Imágenes Escalón", "Centro de Distribución", "LAB. Externo", "Contabilidad", "RRHH", "Contac Center", "Empresas", "Fisioterapia", "Cuentas por cobrar", "Mercadeo", "Fidelizacion", "IT", "LOGÍSTICA / RUTA"],
   diligencias: ["Recolección de muestras", "Entrega de Muestras", "Traslado de toallas", "Traslado de reactivo", "Traslado de insumos", "Traslado de cortes", "Traslado de documentos", "Pago de aseguradora", "Pago o tramite bancario", "Tramite o diligencia extraordinaria", "INCIDENCIA EN RUTA"]
@@ -52,10 +52,16 @@ const CATALOGOS = {
 const PRINCIPAL_KEYWORDS = ["muestras", "entrega", "recepción", "recolección", "recoleccion"];
 const isPrincipalData = (d) => { if (d.categoria === "Principal") return true; const txt = (d.tipo || d.originalTipo || '').toLowerCase(); return PRINCIPAL_KEYWORDS.some(k => txt.includes(k)); };
 
+// --- 🛡️ ESCUDO ANTI ZONAS HORARIAS MEJORADO 🛡️ ---
 const getStrictDateString = (dateInput) => {
+    if (!dateInput) return '';
+    if (typeof dateInput === 'string' && dateInput.includes('-') && !dateInput.includes('T')) {
+        const parts = dateInput.split('-');
+        if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
     try {
-        const d = dateInput ? new Date(dateInput) : new Date();
-        if(isNaN(d.getTime())) return '';
+        const d = new Date(dateInput);
+        if(isNaN(d.getTime())) return typeof dateInput === 'string' ? dateInput : '';
         const day = String(d.getDate()).padStart(2, '0');
         const month = String(d.getMonth() + 1).padStart(2, '0');
         const year = d.getFullYear();
@@ -65,14 +71,28 @@ const getStrictDateString = (dateInput) => {
 
 const formatLocalDate = (dateStr) => getStrictDateString(dateStr);
 
-const formatAMPM = (time24) => {
-    if (!time24) return '';
-    const [h, m] = time24.split(':');
-    let hours = parseInt(h, 10);
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
-    return `${hours.toString().padStart(2, '0')}:${m} ${ampm}`;
+// --- 🎭 MÁSCARAS VISUALES PARA DÍAS DE LA SEMANA 🎭 ---
+const formatWithDay = (dateStr) => {
+    if (!dateStr || dateStr === '--') return '--';
+    try {
+        let parts = dateStr.split('/');
+        let dateObj;
+        if (parts.length === 3) {
+            dateObj = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
+        } else {
+            parts = dateStr.split('-');
+            if (parts.length === 3) dateObj = new Date(`${parts[0]}-${parts[1]}-${parts[2]}T12:00:00`);
+            else return dateStr;
+        }
+        if (isNaN(dateObj.getTime())) return dateStr;
+        const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        return `${days[dateObj.getDay()]} ${dateStr}`;
+    } catch(e) { return dateStr; }
+};
+
+const formatTurnosVisually = (turnosStr) => {
+    if (!turnosStr || turnosStr === 'Ninguno') return 'Ninguno';
+    return turnosStr.split('-').map(t => formatWithDay(t.trim())).join(' - ');
 };
 
 export default function App() {
@@ -92,7 +112,6 @@ function Dashboard() {
   
   const [dataSource, setDataSource] = useState('live'); 
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
-  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   
   const [liveData, setLiveData] = useState([]);
   const [fuelData, setFuelData] = useState([]); 
@@ -102,6 +121,8 @@ function Dashboard() {
   const [agendaData, setAgendaData] = useState([]); 
   const [alertasData, setAlertasData] = useState([]);
   
+  const [sysConfig, setSysConfig] = useState({ heInicio: '', heFin: '', flotaInicio: '', flotaFin: '' });
+
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterUser, setFilterUser] = useState('all');
@@ -168,7 +189,12 @@ function Dashboard() {
         }
     });
 
-    let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas, unsubAgenda;
+    let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas, unsubAgenda, unsubConfig;
+    
+    unsubConfig = onSnapshot(doc(db, "configuraciones", "general"), (snap) => {
+        if(snap.exists()) setSysConfig(snap.data());
+    });
+
     unsubAgenda = onSnapshot(collection(db, "agenda_flota"), (snap) => setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     if (appMode === 'admin' || appMode === 'supervisor') {
@@ -198,8 +224,6 @@ function Dashboard() {
         }
     } else if (appMode === 'user' && currentUser?.email) {
         
-        // 🚀 CORTE DE MEDIANOCHE (Ahorro Máximo) 🚀
-        // Le pedimos a Firebase ÚNICAMENTE los registros de HOY desde las 00:00:00
         const hoyInicio = new Date();
         hoyInicio.setHours(0,0,0,0);
         
@@ -211,15 +235,10 @@ function Dashboard() {
             setLiveData(arr);
         });
 
-        // 🚀 Para la Quincena de Horas Extras mantenemos los 15 días.
-        const fortnightAgo = new Date();
-        fortnightAgo.setDate(fortnightAgo.getDate() - 15);
-        fortnightAgo.setHours(0,0,0,0);
-
-        const qOt = query(collection(db, "registros_horas_extras"), where("createdAt", ">=", fortnightAgo.toISOString()));
+        const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 30);
+        const qOt = query(collection(db, "registros_horas_extras"), where("createdAt", ">=", monthAgo.toISOString()));
         unsubOt = onSnapshot(qOt, (snap) => {
-            const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-                .filter(d => d.usuario === currentUser.email);
+            const arr = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.usuario === currentUser.email);
             arr.sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''));
             setOtData(arr);
         });
@@ -230,7 +249,7 @@ function Dashboard() {
         setFuelData([]); setMaintData([]);
     }
 
-    return () => { if (unsubOps) unsubOps(); if (unsubFuel) unsubFuel(); if (unsubMaint) unsubMaint(); if (unsubOt) unsubOt(); if (unsubAlertas) unsubAlertas(); if (unsubAgenda) unsubAgenda(); };
+    return () => { if (unsubOps) unsubOps(); if (unsubFuel) unsubFuel(); if (unsubMaint) unsubMaint(); if (unsubOt) unsubOt(); if (unsubAlertas) unsubAlertas(); if (unsubAgenda) unsubAgenda(); if (unsubConfig) unsubConfig(); };
   }, [dataSource, filterYear, filterMonth, appMode, currentUser, form.recolector]); 
 
   const extractDateInfo = (dateStr) => {
@@ -246,6 +265,35 @@ function Dashboard() {
   const handleUpdate = async () => { if(!editingItem) return; try { const { id, collectionName, ...rest } = editingItem; await updateDoc(doc(db, collectionName, id), editFormData); setEditingItem(null); } catch(e) { console.error(e); alert("Error al actualizar"); } };
   const handleEditFormChange = (e) => { const { name, value } = e.target; setEditFormData(prev => ({...prev, [name]: value})); };
 
+  const handleSaveConfig = async () => {
+      try {
+          await setDoc(doc(db, "configuraciones", "general"), sysConfig);
+          alert("¡Configuración guardada! Toda la flota verá estos periodos activos.");
+      } catch (e) { alert("Error guardando configuración"); }
+  };
+
+  const transportistaOtData = useMemo(() => {
+      if (!otData) return [];
+      return otData.filter(d => {
+          if (!sysConfig?.heInicio || !sysConfig?.heFin) return true;
+          return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin;
+      });
+  }, [otData, sysConfig]);
+
+  const hrMetrics = useMemo(() => {
+    let filteredOt = otData.filter(d => {
+        if (!sysConfig.heInicio || !sysConfig.heFin) return true;
+        return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin;
+    });
+    
+    if (filterUser !== 'all') filteredOt = filteredOt.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser);
+    
+    const totalHoras = filteredOt.reduce((acc, curr) => { const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; return acc + hrs; }, 0);
+    const userOtStats = filteredOt.reduce((acc, curr) => { const rawName = curr.usuario || 'Desconocido'; const name = USUARIOS_EMAIL[rawName] || rawName; const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; acc[name] = (acc[name] || 0) + hrs; return acc; }, {});
+    const rankingOt = Object.entries(userOtStats).map(([name, hours]) => ({ name, hours: parseFloat(hours.toFixed(2)) })).sort((a,b) => b.hours - a.hours);
+    return { totalHoras: totalHoras.toFixed(2), totalRegistros: filteredOt.length, rankingOt, rawData: filteredOt };
+  }, [otData, filterUser, sysConfig]);
+
   const fleetMetrics = useMemo(() => {
     let filteredFuel = fuelData.filter(d => checkDate(d.fecha)); let filteredMaint = maintData.filter(d => checkDate(d.fecha));
     if (filterUser !== 'all') { filteredFuel = filteredFuel.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser); filteredMaint = filteredMaint.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser); }
@@ -256,15 +304,6 @@ function Dashboard() {
     const chartData = Object.entries(userStats).map(([name, stats]) => ({ name, fuel: parseFloat(stats.fuel.toFixed(2)), maint: parseFloat(stats.maint.toFixed(2)), total: parseFloat((stats.fuel + stats.maint).toFixed(2)) })).sort((a,b) => b.total - a.total);
     return { totalFuelCost: totalFuelCost.toFixed(2), totalGalones: totalGalones.toFixed(2), totalMaintCost: totalMaintCost.toFixed(2), chartData };
   }, [fuelData, maintData, filterMonth, filterUser, filterYear]);
-
-  const hrMetrics = useMemo(() => {
-    let filteredOt = otData.filter(d => checkDate(d.fecha));
-    if (filterUser !== 'all') filteredOt = filteredOt.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser);
-    const totalHoras = filteredOt.reduce((acc, curr) => { const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; return acc + hrs; }, 0);
-    const userOtStats = filteredOt.reduce((acc, curr) => { const rawName = curr.usuario || 'Desconocido'; const name = USUARIOS_EMAIL[rawName] || rawName; const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; acc[name] = (acc[name] || 0) + hrs; return acc; }, {});
-    const rankingOt = Object.entries(userOtStats).map(([name, hours]) => ({ name, hours: parseFloat(hours.toFixed(2)) })).sort((a,b) => b.hours - a.hours);
-    return { totalHoras: totalHoras.toFixed(2), totalRegistros: filteredOt.length, rankingOt, rawData: filteredOt };
-  }, [otData, filterMonth, filterUser, filterYear]);
 
   const metrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
@@ -288,15 +327,34 @@ function Dashboard() {
   }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal]);
 
   const biMetrics = useMemo(() => {
-      const y1 = filterYear; const y2 = (parseInt(filterYear) - 1).toString(); const allOps = [...liveData, ...csvData]; const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      const y1 = filterYear; 
+      const y2 = (parseInt(filterYear) - 1).toString(); 
+      const allOps = [...liveData, ...csvData]; 
+      const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      
+      const currYear = new Date().getFullYear().toString();
+      const currMonth = new Date().getMonth() + 1;
+
       const dataYoY = months.map((m, i) => {
           const mNum = i + 1;
+          const isFutureY1 = (y1 === currYear && mNum > currMonth) || (parseInt(y1) > parseInt(currYear));
+          const isFutureY2 = (y2 === currYear && mNum > currMonth) || (parseInt(y2) > parseInt(currYear));
+
           const getOps = (y) => { let docs = allOps.filter(d => { const info = extractDateInfo(d.createdAt); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => x.recolector === filterUser); return docs; };
           const ops1 = getOps(y1); const ops2 = getOps(y2);
           const calcEf = (docs) => { const recs = docs.filter(d => isPrincipalData(d)); if(recs.length === 0) return 0; return parseFloat(((recs.filter(x => (x.tiempo||0) <= 5).length / recs.length) * 100).toFixed(1)); };
           const getFuel = (y) => { let docs = fuelData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           const getMaint = (y) => { let docs = maintData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
-          return { name: m, [`ef${y1}`]: calcEf(ops1), [`ef${y2}`]: calcEf(ops2), [`fuel${y1}`]: parseFloat(getFuel(y1).toFixed(2)), [`fuel${y2}`]: parseFloat(getFuel(y2).toFixed(2)), [`maint${y1}`]: parseFloat(getMaint(y1).toFixed(2)), [`maint${y2}`]: parseFloat(getMaint(y2).toFixed(2)) }
+          
+          return { 
+              name: m, 
+              [`ef${y1}`]: isFutureY1 ? null : calcEf(ops1), 
+              [`ef${y2}`]: isFutureY2 ? null : calcEf(ops2), 
+              [`fuel${y1}`]: isFutureY1 ? null : parseFloat(getFuel(y1).toFixed(2)), 
+              [`fuel${y2}`]: isFutureY2 ? null : parseFloat(getFuel(y2).toFixed(2)), 
+              [`maint${y1}`]: isFutureY1 ? null : parseFloat(getMaint(y1).toFixed(2)), 
+              [`maint${y2}`]: isFutureY2 ? null : parseFloat(getMaint(y2).toFixed(2)) 
+          }
       });
       return { dataYoY, yCurrent: y1, yPrev: y2 };
   }, [liveData, csvData, fuelData, maintData, filterYear, filterUser]);
@@ -312,7 +370,6 @@ function Dashboard() {
     const targetUser = form.recolector;
     let userDocs = targetUser && targetUser.length > 2 ? data.filter(d => d.recolector === targetUser) : data;
     
-    // Comparación segura basada en el día de hoy
     const todayStr = getStrictDateString(new Date()); 
     userDocs = userDocs.filter(d => getStrictDateString(d.createdAt) === todayStr);
     
@@ -348,6 +405,18 @@ function Dashboard() {
 
           const isMaintToday = miAgenda.mantenimiento === localTodayStr;
           
+          if (miAgenda.mantenimiento && miAgenda.mantenimiento < localTodayStr) {
+              if (!hiddenAlerts.includes('kpi_maint_past')) {
+                  alerts.push({
+                      id: 'kpi_maint_past',
+                      type: 'kpi_danger',
+                      title: '🔴 ALERTA DE KPI: Mantenimiento Vencido',
+                      msg: `Tu fecha de taller (${formatLocalDate(miAgenda.mantenimiento)}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`,
+                      tipo: 'info'
+                  });
+              }
+          }
+
           const turnosTxt = (miAgenda.turnos || '').toLowerCase();
           const hasTurnoToday = 
               turnosTxt.includes(todayName.toLowerCase()) || 
@@ -408,11 +477,11 @@ function Dashboard() {
   };
   
   const exportPayrollCSV = () => { 
-    if (!otData || otData.length === 0) return alert("No hay datos de horas extras."); 
+    if (!hrMetrics.rawData || hrMetrics.rawData.length === 0) return alert("No hay datos de horas extras en este rango."); 
     const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h, 10); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
     const splitSchedule = (scheduleStr) => { if (!scheduleStr || !scheduleStr.includes('-')) return { start: '', end: '' }; const parts = scheduleStr.split('-'); return { start: parts[0].trim(), end: parts[1].trim() }; }; 
     
-    const csvRows = otData.map((r, index) => { 
+    const csvRows = hrMetrics.rawData.map((r, index) => { 
         const workHours = splitSchedule(r.horarioTurno || ''); 
         const heStart = formatTime12(r.horaInicio); 
         const heEnd = formatTime12(r.horaFin); 
@@ -434,7 +503,7 @@ function Dashboard() {
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); 
     const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); 
     const url = URL.createObjectURL(blob); 
-    const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Consolidado_HE_${filterYear}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
+    const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Consolidado_HE_${sysConfig.heInicio}_al_${sysConfig.heFin}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
   
   const downloadReport = () => {
@@ -499,6 +568,7 @@ function Dashboard() {
     <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-24" onClick={() => setActiveInput(null)}>
       {viewingPhoto && <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4" onClick={() => setViewingPhoto(null)}><div className="relative max-w-4xl w-full flex flex-col items-center"><img src={viewingPhoto} className="max-h-[80vh] rounded-lg border border-white/20" alt="Evidencia" /><button className="mt-6 bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-xs">Cerrar</button></div></div>}
 
+      {/* --- MODAL DE EDICIÓN CON EL CAMPO FECHA AGREGADO --- */}
       {editingItem && (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
@@ -507,7 +577,14 @@ function Dashboard() {
                     {editingItem.collectionName === 'registros_produccion' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Sucursal</label><input name="sucursal" value={editFormData.sucursal || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-400 uppercase">H. Llegada (01-12)</label><input name="hLlegada" value={editFormData.hLlegada || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">M. Llegada (00-59)</label><input name="mLlegada" value={editFormData.mLlegada || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div><div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-400 uppercase">H. Salida (01-12)</label><input name="hSalida" value={editFormData.hSalida || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">M. Salida (00-59)</label><input name="mSalida" value={editFormData.mSalida || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Observaciones</label><textarea name="observaciones" value={editFormData.observaciones || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-20 resize-none"/></div></>)}
                     {editingItem.collectionName === 'registros_combustible' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Galones</label><input name="galones" type="number" step="0.1" value={editFormData.galones || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Costo ($)</label><input name="costo" type="number" step="0.01" value={editFormData.costo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Kilometraje</label><input name="kilometraje" type="number" value={editFormData.kilometraje || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></>)}
                     {editingItem.collectionName === 'registros_mantenimiento' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Taller</label><input name="taller" value={editFormData.taller || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Costo ($)</label><input name="costo" type="number" step="0.01" value={editFormData.costo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Detalle</label><textarea name="descripcion" value={editFormData.descripcion || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-24 resize-none"/></div></>)}
-                    {editingItem.collectionName === 'registros_horas_extras' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Hora Inicio</label><input name="horaInicio" type="time" value={editFormData.horaInicio || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Hora Fin</label><input name="horaFin" type="time" value={editFormData.horaFin || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Motivo</label><input name="motivo" value={editFormData.motivo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></>)}
+                    
+                    {/* PARCHE: Se agregó el campo 'fecha' para poder editar el día de la hora extra */}
+                    {editingItem.collectionName === 'registros_horas_extras' && (<>
+                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Fecha Real</label><input name="fecha" type="date" value={editFormData.fecha || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
+                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Hora Inicio</label><input name="horaInicio" type="time" value={editFormData.horaInicio || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
+                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Hora Fin</label><input name="horaFin" type="time" value={editFormData.horaFin || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
+                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Motivo</label><input name="motivo" value={editFormData.motivo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
+                    </>)}
                     <button onClick={handleUpdate} className="w-full py-4 bg-green-600 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-green-500 flex justify-center items-center gap-2"><CheckCircle2 size={18}/> Guardar Cambios</button>
                 </div>
             </div>
@@ -565,6 +642,9 @@ function Dashboard() {
       </nav>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6">
+        {/* =========================================
+            BLOQUE USUARIO (TRANSPORTISTA)
+            ========================================= */}
         {appMode === 'user' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
               <div className="lg:col-span-2">
@@ -572,11 +652,11 @@ function Dashboard() {
               {userAlerts.length > 0 && (
                   <div className="mb-6 space-y-3 animate-in slide-in-from-top-4">
                       {userAlerts.map((alerta, idx) => (
-                          <div key={idx} className={cn("p-4 rounded-xl flex flex-col gap-3 shadow-lg border", alerta.type === 'turno' ? "bg-purple-900/30 border-purple-500 text-purple-200" : alerta.type === 'maint' ? "bg-yellow-900/30 border-yellow-500 text-yellow-200" : alerta.tipo === 'confirm' ? "bg-red-900/30 border-red-500 text-red-200" : "bg-blue-900/30 border-blue-500 text-blue-200")}>
+                          <div key={idx} className={cn("p-4 rounded-xl flex flex-col gap-3 shadow-lg border", alerta.type === 'kpi_danger' ? "bg-red-900/50 border-red-500 text-white" : alerta.type === 'turno' ? "bg-purple-900/30 border-purple-500 text-purple-200" : alerta.type === 'maint' ? "bg-yellow-900/30 border-yellow-500 text-yellow-200" : alerta.tipo === 'confirm' ? "bg-red-900/30 border-red-500 text-red-200" : "bg-blue-900/30 border-blue-500 text-blue-200")}>
                               <div className="flex items-start justify-between gap-4">
                                   <div className="flex items-center gap-3">
-                                      <div className="p-2 bg-black/30 rounded-lg shrink-0">
-                                          {alerta.type === 'turno' ? <Clock size={20} className="text-purple-400"/> : alerta.type === 'maint' ? <Wrench size={20} className="text-yellow-400"/> : <Bell size={20} className={alerta.tipo === 'confirm' ? "text-red-400" : "text-blue-400"}/>}
+                                      <div className={cn("p-2 rounded-lg shrink-0", alerta.type==='kpi_danger'?"bg-red-600 text-white":"bg-black/30")}>
+                                          {alerta.type === 'turno' ? <Clock size={20} className="text-purple-400"/> : (alerta.type === 'maint' || alerta.type === 'kpi_danger') ? <Wrench size={20} className={alerta.type==='kpi_danger'?"":"text-yellow-400"}/> : <Bell size={20} className={alerta.tipo === 'confirm' ? "text-red-400" : "text-blue-400"}/>}
                                       </div>
                                       <div>
                                           <h4 className="font-black uppercase text-xs opacity-80 mb-0.5">{alerta.title}</h4>
@@ -622,11 +702,11 @@ function Dashboard() {
                     </form>
                  </div>
               ) : userView === 'combustible' ? (
-                 <FuelModule currentUser={currentUser} />
+                 <FuelModule currentUser={currentUser} sysConfig={sysConfig} />
               ) : userView === 'extras' ? (
-                 <OvertimeModule currentUser={currentUser} history={otData} />
+                 <OvertimeModule currentUser={currentUser} history={transportistaOtData} sysConfig={sysConfig} />
               ) : userView === 'mantenimiento' ? (
-                 <MaintenanceModule currentUser={currentUser} onBack={() => setUserView('agenda')} />
+                 <MaintenanceModule currentUser={currentUser} onBack={() => setUserView('agenda')} sysConfig={sysConfig} />
               ) : (
                  <div className="space-y-4">
                     <button onClick={() => setUserView('mantenimiento')} className="w-full bg-yellow-600/90 border-b-4 border-yellow-800 text-white py-4 rounded-2xl font-black uppercase shadow-xl hover:bg-yellow-500 transition-all flex items-center justify-center gap-3"><div className="bg-black/20 p-2 rounded-full"><Wrench size={20}/></div><span>Registrar Mantenimiento</span></button>
@@ -674,6 +754,7 @@ function Dashboard() {
                   <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-blue-500 transition-all"><Bell size={14}/> Aviso</button>
                   <button onClick={exportToCSV} className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-green-700 transition-all"><FileSpreadsheet size={14}/> Excel Total</button>
                   <button onClick={() => downloadReport()} className="bg-white text-black px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-slate-200 transition-all"><Download size={14}/> PDF WYSIWYG</button>
+                  
                   <button onClick={() => setDataSource(dataSource === 'live' ? 'historical' : 'live')} className={cn("px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2", dataSource==='live'?"bg-slate-700 text-white":"bg-indigo-600 text-white")} disabled={isFetchingHistory}>
                       {isFetchingHistory ? <Loader2 size={14} className="animate-spin" /> : dataSource === 'live' ? <Database size={14}/> : <RefreshCw size={14}/>} 
                       {isFetchingHistory ? 'Descargando...' : dataSource === 'live' ? 'Histórico DB' : 'Volver a Vivo'}
@@ -739,6 +820,21 @@ function Dashboard() {
              
              {adminSection === 'fleet' && (
                 <div className="animate-in fade-in space-y-6">
+                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-orange-900/30 rounded-xl text-orange-400"><Settings size={24}/></div>
+                            <div>
+                                <h3 className="text-sm font-black text-white uppercase">Corte Operativo de Flota</h3>
+                                <p className="text-[10px] text-slate-400">Define el periodo activo para tu presupuesto y la app del transportista.</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 w-full md:w-auto">
+                            <input type="date" value={sysConfig.flotaInicio || ''} onChange={e=>setSysConfig({...sysConfig, flotaInicio: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/>
+                            <input type="date" value={sysConfig.flotaFin || ''} onChange={e=>setSysConfig({...sysConfig, flotaFin: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/>
+                            <button onClick={handleSaveConfig} className="bg-orange-600 hover:bg-orange-500 text-white px-4 rounded-xl font-bold text-[10px] uppercase transition-all shadow-md">Fijar</button>
+                        </div>
+                   </div>
+
                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><DollarSign size={80} className="text-green-500"/></div><p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">COMB. (MES)</p><h3 className="text-3xl font-black text-white">${fleetMetrics.totalFuelCost}</h3></div>
                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><Wrench size={80} className="text-yellow-500"/></div><p className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mb-2">TALLER (MES)</p><h3 className="text-3xl font-black text-white">${fleetMetrics.totalMaintCost}</h3></div>
@@ -757,10 +853,27 @@ function Dashboard() {
 
              {adminSection === 'hr' && (
                 <div className="animate-in fade-in space-y-6">
+                   
+                   {/* PANEl DE CONFIGURACIÓN DE QUINCENA */}
+                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-purple-900/30 rounded-xl text-purple-400"><Settings size={24}/></div>
+                            <div>
+                                <h3 className="text-sm font-black text-white uppercase">Corte de Quincena (Horas Extra)</h3>
+                                <p className="text-[10px] text-slate-400">Define las fechas para la exportación y visualización del transportista.</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 w-full md:w-auto">
+                            <input type="date" value={sysConfig.heInicio || ''} onChange={e=>setSysConfig({...sysConfig, heInicio: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/>
+                            <input type="date" value={sysConfig.heFin || ''} onChange={e=>setSysConfig({...sysConfig, heFin: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/>
+                            <button onClick={handleSaveConfig} className="bg-purple-600 hover:bg-purple-500 text-white px-4 rounded-xl font-bold text-[10px] uppercase transition-all shadow-md">Fijar</button>
+                        </div>
+                   </div>
+
                    <div className="flex justify-between items-center bg-[#151F32] p-6 rounded-[2rem] border border-slate-800">
                       <div>
                           <h3 className="text-2xl font-black text-white">Nómina de Horas Extras</h3>
-                          <p className="text-xs text-slate-400">Control de asistencia y Horas Extras.</p>
+                          <p className="text-xs text-slate-400">Mostrando registros del {formatLocalDate(sysConfig.heInicio) || '--'} al {formatLocalDate(sysConfig.heFin) || '--'}</p>
                       </div>
                       <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all"><FileSpreadsheet size={16}/> Exportar Excel RRHH</button>
                    </div>
@@ -768,7 +881,7 @@ function Dashboard() {
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden">
                           <div className="absolute top-0 right-0 p-4 opacity-10"><Clock size={100} className="text-purple-500"/></div>
-                          <p className="text-[10px] font-bold text-purple-500 uppercase tracking-widest mb-2">HORAS EXTRAS TOTALES</p>
+                          <p className="text-[10px] font-bold text-purple-500 uppercase tracking-widest mb-2">HORAS EXTRAS (EN ESTE CORTE)</p>
                           <h3 className="text-5xl font-black text-white">{hrMetrics.totalHoras} <span className="text-lg text-slate-500">hrs</span></h3>
                           <p className="text-xs text-slate-400 mt-2">Registros procesados: {hrMetrics.totalRegistros}</p>
                       </div>
@@ -797,6 +910,7 @@ function Dashboard() {
                 </div>
              )}
 
+             {/* 🎭 TABLA DE AGENDA CON LA MÁSCARA VISUAL DE DÍAS 🎭 */}
              {adminSection === 'agenda' && (
                 <div className="animate-in fade-in">
                     <AgendaAdmin sucursales={CATALOGOS.sucursales} />
@@ -874,6 +988,7 @@ function Dashboard() {
                 </div>
              )}
 
+             {/* 🎭 TABLA DE AGENDA CON LA MÁSCARA VISUAL DE DÍAS 🎭 */}
              {supervisorSection === 'agenda' && (
                 <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
                    <div className="mb-4">
@@ -889,8 +1004,8 @@ function Dashboard() {
                                  <td className="px-4 py-3 text-blue-400">{a.horario || '--'}</td>
                                  <td className="px-4 py-3">{a.zona || '--'}</td>
                                  <td className="px-4 py-3 italic">{a.puntos || '--'}</td>
-                                 <td className="px-4 py-3">{a.turnos || 'Ninguno'}</td>
-                                 <td className="px-4 py-3 text-yellow-500">{formatLocalDate(a.mantenimiento)}</td>
+                                 <td className="px-4 py-3">{formatTurnosVisually(a.turnos)}</td>
+                                 <td className="px-4 py-3 text-yellow-500">{formatWithDay(formatLocalDate(a.mantenimiento))}</td>
                              </tr>
                          ))}
                       </tbody>
