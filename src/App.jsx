@@ -9,7 +9,6 @@ import MaintenanceModule from './components/MaintenanceModule';
 import OvertimeModule from './components/OvertimeModule';
 import AgendaAdmin from './components/AgendaAdmin';
 
-// IMPORTANTE: Se agregó arrayUnion a las importaciones para poder guardar las respuestas de los avisos
 import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -53,23 +52,27 @@ const CATALOGOS = {
 const PRINCIPAL_KEYWORDS = ["muestras", "entrega", "recepción", "recolección", "recoleccion"];
 const isPrincipalData = (d) => { if (d.categoria === "Principal") return true; const txt = (d.tipo || d.originalTipo || '').toLowerCase(); return PRINCIPAL_KEYWORDS.some(k => txt.includes(k)); };
 
-// FUNCIONES DE FECHA ANTI-ZONA HORARIA
-const getLocalTodayString = () => {
-    const d = new Date();
-    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+const getStrictDateString = (dateInput) => {
+    try {
+        const d = dateInput ? new Date(dateInput) : new Date();
+        if(isNaN(d.getTime())) return '';
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}/${month}/${year}`;
+    } catch(e) { return ''; }
 };
 
-const formatLocalDate = (dateStr) => {
-    if (!dateStr) return '--';
-    if (dateStr.includes('-') && !dateStr.includes('T')) {
-        const [y, m, d] = dateStr.split('-');
-        if (y && m && d) return `${d}/${m}/${y}`;
-    }
-    try { 
-        const d = new Date(dateStr); 
-        if(isNaN(d.getTime())) return dateStr;
-        return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-    } catch(e) { return dateStr; }
+const formatLocalDate = (dateStr) => getStrictDateString(dateStr);
+
+const formatAMPM = (time24) => {
+    if (!time24) return '';
+    const [h, m] = time24.split(':');
+    let hours = parseInt(h, 10);
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${hours.toString().padStart(2, '0')}:${m} ${ampm}`;
 };
 
 export default function App() {
@@ -166,7 +169,6 @@ function Dashboard() {
     });
 
     let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas, unsubAgenda;
-    
     unsubAgenda = onSnapshot(collection(db, "agenda_flota"), (snap) => setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     if (appMode === 'admin' || appMode === 'supervisor') {
@@ -195,16 +197,29 @@ function Dashboard() {
             fetchHistory();
         }
     } else if (appMode === 'user' && currentUser?.email) {
-        const qOps = query(collection(db, "registros_produccion"), where("usuarioEmail", "==", currentUser.email), limit(100));
+        
+        // 🚀 CORTE DE MEDIANOCHE (Ahorro Máximo) 🚀
+        // Le pedimos a Firebase ÚNICAMENTE los registros de HOY desde las 00:00:00
+        const hoyInicio = new Date();
+        hoyInicio.setHours(0,0,0,0);
+        
+        const qOps = query(collection(db, "registros_produccion"), where("createdAt", ">=", hoyInicio.toISOString()));
         unsubOps = onSnapshot(qOps, (snap) => {
-            const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .filter(d => d.usuarioEmail === currentUser.email || d.recolector === form.recolector);
             arr.sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
             setLiveData(arr);
         });
 
-        const qOt = query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email), limit(50));
+        // 🚀 Para la Quincena de Horas Extras mantenemos los 15 días.
+        const fortnightAgo = new Date();
+        fortnightAgo.setDate(fortnightAgo.getDate() - 15);
+        fortnightAgo.setHours(0,0,0,0);
+
+        const qOt = query(collection(db, "registros_horas_extras"), where("createdAt", ">=", fortnightAgo.toISOString()));
         unsubOt = onSnapshot(qOt, (snap) => {
-            const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .filter(d => d.usuario === currentUser.email);
             arr.sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''));
             setOtData(arr);
         });
@@ -216,12 +231,13 @@ function Dashboard() {
     }
 
     return () => { if (unsubOps) unsubOps(); if (unsubFuel) unsubFuel(); if (unsubMaint) unsubMaint(); if (unsubOt) unsubOt(); if (unsubAlertas) unsubAlertas(); if (unsubAgenda) unsubAgenda(); };
-  }, [dataSource, filterYear, filterMonth, appMode, currentUser]); 
+  }, [dataSource, filterYear, filterMonth, appMode, currentUser, form.recolector]); 
 
   const extractDateInfo = (dateStr) => {
-      if (!dateStr) return { year: null, month: null };
-      if (dateStr.includes('/')) { const parts = dateStr.split(/[\s\/:]+/); return { year: parts.find(p => p.length === 4) || '2025', month: parseInt(parts[1], 10) }; } 
-      else { const d = new Date(dateStr); if(isNaN(d.getTime())) return { year: null, month: null }; return { year: d.getFullYear().toString(), month: d.getMonth() + 1 }; }
+      const strictStr = getStrictDateString(dateStr);
+      if (!strictStr) return { year: null, month: null };
+      const [d, m, y] = strictStr.split('/');
+      return { year: y, month: parseInt(m, 10) };
   };
   const checkDate = (dateStr) => { const { year, month } = extractDateInfo(dateStr); return year === filterYear && (filterMonth === 'all' || month === parseInt(filterMonth)); };
 
@@ -257,8 +273,8 @@ function Dashboard() {
     if (filterUser !== 'all') filtered = filtered.filter(d => d.recolector === filterUser);
     if (filterSucursal !== 'all') filtered = filtered.filter(d => d.sucursal === filterSucursal);
     if (filterSpecificDate) {
-        const targetDate = formatLocalDate(filterSpecificDate);
-        filtered = filtered.filter(d => formatLocalDate(d.createdAt) === targetDate);
+        const targetDate = getStrictDateString(filterSpecificDate); 
+        filtered = filtered.filter(d => getStrictDateString(d.createdAt) === targetDate);
     }
 
     const pItems = filtered.filter(d => isPrincipalData(d)); const sItems = filtered.filter(d => !isPrincipalData(d));
@@ -296,8 +312,9 @@ function Dashboard() {
     const targetUser = form.recolector;
     let userDocs = targetUser && targetUser.length > 2 ? data.filter(d => d.recolector === targetUser) : data;
     
-    const todayStr = getLocalTodayString();
-    userDocs = userDocs.filter(d => formatLocalDate(d.createdAt) === todayStr);
+    // Comparación segura basada en el día de hoy
+    const todayStr = getStrictDateString(new Date()); 
+    userDocs = userDocs.filter(d => getStrictDateString(d.createdAt) === todayStr);
     
     const recs = userDocs.filter(d => isPrincipalData(d));
     const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= 5).length / recs.length) * 100).toFixed(1) : 0;
@@ -362,9 +379,7 @@ function Dashboard() {
       return alerts;
   }, [agendaData, form.recolector, alertasData, appMode, hiddenAlerts]);
 
-  // --- NUEVA FUNCIÓN DISMISS CON GUARDADO DE RESPUESTAS ---
   const dismissAlert = async (alerta, replyText = '') => {
-      // 1. Si es de confirmación, guardamos la respuesta en la base de datos sin borrar el aviso global
       if (alerta.tipo === 'confirm' && replyText) {
           try { 
               const alertRef = doc(db, "alertas_flota", alerta.id);
@@ -373,11 +388,9 @@ function Dashboard() {
               });
           } catch(e) { console.error("Error al enviar respuesta", e); }
       } else if (alerta.tipo === 'info' && alerta.para !== 'Todos') {
-          // Solo borramos de la DB si es un aviso INFO directo para una persona
           try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) { console.error(e); }
       }
 
-      // 2. Ocultamos el aviso localmente para el usuario que ya respondió
       const newHidden = [...hiddenAlerts, alerta.id];
       setHiddenAlerts(newHidden);
       if (currentUser && currentUser.email) {
@@ -387,14 +400,13 @@ function Dashboard() {
 
   const exportToCSV = () => { 
     if (!metrics.rows || metrics.rows.length === 0) return alert("No hay datos"); 
-    const csvRows = metrics.rows.map(r => ({ Fecha: formatLocalDate(r.createdAt), Transportista: r.recolector, Sucursal: r.sucursal, Diligencia: r.tipo, Area: r.area || 'N/A', Categoria: r.categoria, Entrada: r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}` : '', Salida: r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida}` : '', Espera_Minutos: r.tiempo, Observaciones: r.observaciones || '', Foto_URL: r.fotoData || '' })); 
+    const csvRows = metrics.rows.map(r => ({ Fecha: getStrictDateString(r.createdAt), Transportista: r.recolector, Sucursal: r.sucursal, Diligencia: r.tipo, Area: r.area || 'N/A', Categoria: r.categoria, Entrada: r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}` : '', Salida: r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida}` : '', Espera_Minutos: r.tiempo, Observaciones: r.observaciones || '', Foto_URL: r.fotoData || '' })); 
     const csv = Papa.unparse(csvRows, { delimiter: ";" }); 
     const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); 
     const url = URL.createObjectURL(blob); 
     const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Respaldo_Recolekta_${filterYear}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
   
-  // --- EXCEL RRHH CON EL ORDEN EXACTO (A-L) SOLICITADO ---
   const exportPayrollCSV = () => { 
     if (!otData || otData.length === 0) return alert("No hay datos de horas extras."); 
     const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h, 10); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
@@ -404,21 +416,19 @@ function Dashboard() {
         const workHours = splitSchedule(r.horarioTurno || ''); 
         const heStart = formatTime12(r.horaInicio); 
         const heEnd = formatTime12(r.horaFin); 
-        
-        // COLUMNAS EXACTAS SEGUN TU PLANTILLA
         return { 
-            'ID': index + 1,                                          // Columna A
-            'Marca temporal': formatLocalDate(r.createdAt || r.fecha),// Columna B
-            'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, // Columna C
-            'Fecha': formatLocalDate(r.fecha),                        // Columna D
-            'Hora de trabajo Inicio': workHours.start,                // Columna E
-            'Hora de trabajo Fin': workHours.end,                     // Columna F
-            'Horario de Horas extras Inicio': heStart,                // Columna G
-            'Horario de Horas extras Fin': heEnd,                     // Columna H
-            'Horas extras': r.horasCalculadas,                        // Columna I
-            'Actividad Realizada / Observaciones': r.motivo || '',    // Columna J
-            'HorarioTrabajo': r.horarioTurno || '',                   // Columna K
-            'HorarioHE': `${heStart} - ${heEnd}`                      // Columna L
+            'ID': index + 1, 
+            'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 
+            'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, 
+            'Fecha': getStrictDateString(r.fecha), 
+            'Hora de trabajo Inicio': workHours.start, 
+            'Hora de trabajo Fin': workHours.end, 
+            'Horario de Horas extras Inicio': heStart, 
+            'Horario de Horas extras Fin': heEnd, 
+            'Horas extras': r.horasCalculadas, 
+            'Actividad Realizada / Observaciones': r.motivo || '', 
+            'HorarioTrabajo': r.horarioTurno || '', 
+            'HorarioHE': `${heStart} - ${heEnd}` 
         }; 
     }); 
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); 
@@ -433,15 +443,15 @@ function Dashboard() {
         let reportTitle = "";
 
         if (appMode === 'user') {
-            const todayStr = getLocalTodayString();
-            reportData = liveData.filter(d => d.recolector === form.recolector && formatLocalDate(d.createdAt) === todayStr);
+            const todayStr = getStrictDateString(new Date());
+            reportData = liveData.filter(d => d.recolector === form.recolector && getStrictDateString(d.createdAt) === todayStr);
             reportTitle = `REPORTE DIARIO DE RUTA: ${form.recolector}`;
         } else {
             reportData = metrics.rows;
             let titleParts = [];
             if (filterUser !== 'all') titleParts.push(`USUARIO: ${filterUser}`);
             if (filterSucursal !== 'all') titleParts.push(`SUCURSAL: ${filterSucursal}`);
-            if (filterSpecificDate) titleParts.push(`FECHA: ${formatLocalDate(filterSpecificDate)}`);
+            if (filterSpecificDate) titleParts.push(`FECHA: ${getStrictDateString(filterSpecificDate)}`);
             reportTitle = titleParts.length > 0 ? titleParts.join(" | ") : "REPORTE CONSOLIDADO GLOBAL";
         }
 
@@ -467,7 +477,7 @@ function Dashboard() {
 
         if (appMode === 'user' || filterSpecificDate) {
             const rows = reportData.map(r => [
-                formatLocalDate(r.createdAt), r.sucursal, r.tipo, 
+                getStrictDateString(r.createdAt), r.sucursal, r.tipo, 
                 `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}`, `${r.hSalida}:${r.mSalida} ${r.pSalida}`, 
                 `${r.tiempo}m`, r.categoria
             ]);
@@ -504,7 +514,6 @@ function Dashboard() {
         </div>
       )}
 
-      {/* --- MODAL DE ENVÍO DE AVISOS ADMIN Y SUPERVISOR --- */}
       {showAvisoModal && (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -516,7 +525,6 @@ function Dashboard() {
                     <button onClick={async () => { if(!avisoForm.mensaje) return; await addDoc(collection(db, 'alertas_flota'), {...avisoForm, createdAt: new Date().toISOString()}); setAvisoForm({mensaje: '', para: 'Todos', tipo: 'info'}); alert("Aviso enviado a la plataforma."); }} className="w-full py-4 bg-blue-600 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-blue-500 flex items-center justify-center gap-2"><Send size={16}/> Enviar Mensaje</button>
                 </div>
 
-                {/* --- NUEVA SECCIÓN ADMIN: HISTORIAL DE RESPUESTAS --- */}
                 <div className="mt-8 border-t border-slate-700 pt-6">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase mb-4 flex items-center gap-2"><MessageSquare size={14}/> Avisos Activos y Respuestas</h4>
                     <div className="space-y-3">
@@ -557,9 +565,6 @@ function Dashboard() {
       </nav>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6">
-        {/* =========================================
-            BLOQUE USUARIO (CHOFER)
-            ========================================= */}
         {appMode === 'user' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
               <div className="lg:col-span-2">
@@ -583,7 +588,6 @@ function Dashboard() {
                                   )}
                               </div>
                               
-                              {/* --- NUEVOS BOTONES DE RESPUESTA PARA EL CHOFER --- */}
                               {alerta.tipo === 'confirm' && (
                                   <div className="flex gap-2 justify-end mt-1 border-t border-white/10 pt-3">
                                       <button onClick={(e) => { e.preventDefault(); dismissAlert(alerta, 'Enterado'); }} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-[10px] shadow-md uppercase transition-all">Enterado</button>
@@ -659,7 +663,7 @@ function Dashboard() {
                   <div className="flex bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center">
                     <Filter size={16} className="text-slate-500"/>
                     <input type="date" value={filterSpecificDate} onChange={e=>setFilterSpecificDate(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer" title="Filtrar por Día Exacto" />
-                    <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2">
+                    <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2">
                         {availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}
                     </select>
                     <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m==='all'?'Año':'Mes '+m}</option>)}</select>
@@ -708,7 +712,7 @@ function Dashboard() {
                         <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
                             {metrics.rows.slice(0, 100).map((r, i) => (
                                 <tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors">
-                                    <td className="px-4 py-3 text-slate-300 font-bold">{formatLocalDate(r.createdAt)}</td>
+                                    <td className="px-4 py-3 text-slate-300 font-bold">{getStrictDateString(r.createdAt)}</td>
                                     <td className="px-4 py-3 text-white">{r.recolector}</td>
                                     <td className="px-4 py-3">{r.sucursal}</td>
                                     <td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
@@ -788,7 +792,7 @@ function Dashboard() {
                    </div>
                    <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6">
                       <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-6 flex items-center gap-2"><ClipboardList className="text-purple-500" size={18}/> Detalle de Horas Extras</h4>
-                      <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Colaborador</th><th className="px-4 py-3">Inicio</th><th className="px-4 py-3">Fin</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">{hrMetrics.rawData.map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-4 py-3">{formatLocalDate(r.fecha)}</td><td className="px-4 py-3 text-white">{USUARIOS_EMAIL[r.usuario] || r.usuario}</td><td className="px-4 py-3">{r.horaInicio}</td><td className="px-4 py-3">{r.horaFin}</td><td className="px-4 py-3 text-purple-400">{r.horasCalculadas}h</td><td className="px-4 py-3 italic text-slate-500">{r.motivo}</td><td className="px-4 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_horas_extras')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_horas_extras', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div>
+                      <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Colaborador</th><th className="px-4 py-3">Inicio</th><th className="px-4 py-3">Fin</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">{hrMetrics.rawData.map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-4 py-3">{getStrictDateString(r.fecha)}</td><td className="px-4 py-3 text-white">{USUARIOS_EMAIL[r.usuario] || r.usuario}</td><td className="px-4 py-3">{r.horaInicio}</td><td className="px-4 py-3">{r.horaFin}</td><td className="px-4 py-3 text-purple-400">{r.horasCalculadas}h</td><td className="px-4 py-3 italic text-slate-500">{r.motivo}</td><td className="px-4 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_horas_extras')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_horas_extras', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div>
                    </div>
                 </div>
              )}
@@ -820,9 +824,8 @@ function Dashboard() {
                    <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all">Toda la Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u}>{u}</option>)}</select>
                    <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all">Año</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m}>Mes {m}</option>)}</select>
                    
-                   {/* MODAL TAMBIÉN PARA EL SUPERVISOR */}
                    <button onClick={() => setShowAvisoModal(true)} className="ml-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-blue-500 transition-all flex items-center gap-1 shadow-md"><Send size={12}/> AVISO</button>
-                   <button onClick={() => downloadReport()} className="ml-2 bg-white text-black px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-1"><Download size={12}/> PDF</button>
+                   <button onClick={() => downloadReport(null)} className="ml-2 bg-white text-black px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-1"><Download size={12}/> PDF</button>
                 </div>
              </div>
              
@@ -833,7 +836,7 @@ function Dashboard() {
                       <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
                          {metrics.rows.slice(0, 100).map((r, i) => (
                             <tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors">
-                                <td className="px-4 py-3 text-slate-300 font-bold">{formatLocalDate(r.createdAt)}</td>
+                                <td className="px-4 py-3 text-slate-300 font-bold">{getStrictDateString(r.createdAt)}</td>
                                 <td className="px-4 py-3 text-white">{r.recolector}</td>
                                 <td className="px-4 py-3">{r.sucursal}</td>
                                 <td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
@@ -841,7 +844,7 @@ function Dashboard() {
                                 <td className={cn("px-4 py-3", r.tiempo > 5 ? "text-orange-400" : "text-green-400")}>{r.tiempo}m</td>
                                 <td className="px-4 py-3 text-center"><span className={cn("px-2 py-0.5 rounded-md text-[9px] border font-bold uppercase", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300":"bg-orange-900/30 border-orange-900 text-orange-300")}>{r.categoria === "Principal" ? "Vital" : "Secundaria"}</span></td>
                                 <td className="px-4 py-3 text-xs italic text-slate-500 truncate max-w-[150px]" title={r.observaciones}>{r.observaciones || '--'}</td>
-                                <td className="px-4 py-3 text-center">{r.fotoData && <button onClick={()=>setViewingPhoto(r.fotoData)} className="bg-blue-900/50 text-blue-400 px-2 py-1 rounded border border-blue-900 text-[9px] uppercase hover:bg-blue-800">Ver</button>}</td>
+                                <td className="px-4 py-3 text-center">{r.fotoData && r.fotoData.startsWith('http') ? <a href={r.fotoData} target="_blank" rel="noreferrer" className="inline-flex justify-center items-center bg-blue-900/30 text-blue-400 w-8 h-8 rounded-lg border border-blue-900"><ExternalLink size={14}/></a> : r.fotoData ? <img src={r.fotoData} className="w-8 h-8 rounded-lg object-cover cursor-pointer border border-slate-600 hover:border-white transition-all" onClick={()=>setViewingPhoto(r.fotoData)} alt="evidencia"/> : <span className="text-slate-700">-</span>}</td>
                             </tr>
                          ))}
                       </tbody>
