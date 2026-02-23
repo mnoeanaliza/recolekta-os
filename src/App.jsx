@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+// --- 1. IMPORTACIONES ---
 import { useAuth } from './context/AuthContext';
 import LoginModule from './components/LoginModule';
 import { db, storage } from './config/firebase'; 
@@ -8,9 +9,11 @@ import MaintenanceModule from './components/MaintenanceModule';
 import OvertimeModule from './components/OvertimeModule';
 import AgendaAdmin from './components/AgendaAdmin';
 
-import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where } from 'firebase/firestore'; 
+// IMPORTANTE: Se agregó arrayUnion a las importaciones para poder guardar las respuestas de los avisos
+import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
+// --- ICONOS ---
 import { 
   Bike, ClipboardList, TrendingUp, Clock, CheckCircle2, Database, Download, Camera, 
   ExternalLink, MessageSquare, BarChart3, FileSpreadsheet, User, Fuel, DollarSign, 
@@ -86,6 +89,7 @@ function Dashboard() {
   
   const [dataSource, setDataSource] = useState('live'); 
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   
   const [liveData, setLiveData] = useState([]);
   const [fuelData, setFuelData] = useState([]); 
@@ -95,12 +99,11 @@ function Dashboard() {
   const [agendaData, setAgendaData] = useState([]); 
   const [alertasData, setAlertasData] = useState([]);
   
-  // NUEVOS FILTROS
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterUser, setFilterUser] = useState('all');
-  const [filterSpecificDate, setFilterSpecificDate] = useState(''); // Filtro por día
-  const [filterSucursal, setFilterSucursal] = useState('all'); // Filtro por sucursal
+  const [filterSpecificDate, setFilterSpecificDate] = useState(''); 
+  const [filterSucursal, setFilterSucursal] = useState('all'); 
   
   const availableYears = useMemo(() => {
       const current = new Date().getFullYear();
@@ -145,7 +148,6 @@ function Dashboard() {
 
   useEffect(() => {
     if (currentUser && !currentUser.email) return;
-
     if (!localStorage.getItem('recolekta_tutorial_v98')) setShowWelcome(true);
 
     Papa.parse(GITHUB_CSV_URL, {
@@ -248,7 +250,6 @@ function Dashboard() {
     return { totalHoras: totalHoras.toFixed(2), totalRegistros: filteredOt.length, rankingOt, rawData: filteredOt };
   }, [otData, filterMonth, filterUser, filterYear]);
 
-  // MOTOR DE FILTROS REFORZADO (Aplica Fecha Específica y Sucursal)
   const metrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
     let filtered = data.filter(d => checkDate(d.createdAt));
@@ -295,7 +296,6 @@ function Dashboard() {
     const targetUser = form.recolector;
     let userDocs = targetUser && targetUser.length > 2 ? data.filter(d => d.recolector === targetUser) : data;
     
-    // FIX DE ZONA HORARIA: Solo lo de HOY
     const todayStr = getLocalTodayString();
     userDocs = userDocs.filter(d => formatLocalDate(d.createdAt) === todayStr);
     
@@ -362,15 +362,26 @@ function Dashboard() {
       return alerts;
   }, [agendaData, form.recolector, alertasData, appMode, hiddenAlerts]);
 
-  const dismissAlert = async (alerta) => {
-      if (alerta.tipo === 'confirm') {
-          try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) { alert("Error al confirmar"); }
-      } else {
-          const newHidden = [...hiddenAlerts, alerta.id];
-          setHiddenAlerts(newHidden);
-          if (currentUser && currentUser.email) {
-              localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
-          }
+  // --- NUEVA FUNCIÓN DISMISS CON GUARDADO DE RESPUESTAS ---
+  const dismissAlert = async (alerta, replyText = '') => {
+      // 1. Si es de confirmación, guardamos la respuesta en la base de datos sin borrar el aviso global
+      if (alerta.tipo === 'confirm' && replyText) {
+          try { 
+              const alertRef = doc(db, "alertas_flota", alerta.id);
+              await updateDoc(alertRef, {
+                  respuestas: arrayUnion({ usuario: form.recolector, respuesta: replyText, fecha: new Date().toISOString() })
+              });
+          } catch(e) { console.error("Error al enviar respuesta", e); }
+      } else if (alerta.tipo === 'info' && alerta.para !== 'Todos') {
+          // Solo borramos de la DB si es un aviso INFO directo para una persona
+          try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) { console.error(e); }
+      }
+
+      // 2. Ocultamos el aviso localmente para el usuario que ya respondió
+      const newHidden = [...hiddenAlerts, alerta.id];
+      setHiddenAlerts(newHidden);
+      if (currentUser && currentUser.email) {
+          localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
       }
   };
 
@@ -383,30 +394,49 @@ function Dashboard() {
     const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Respaldo_Recolekta_${filterYear}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
   
+  // --- EXCEL RRHH CON EL ORDEN EXACTO (A-L) SOLICITADO ---
   const exportPayrollCSV = () => { 
     if (!otData || otData.length === 0) return alert("No hay datos de horas extras."); 
-    const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
+    const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h, 10); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
     const splitSchedule = (scheduleStr) => { if (!scheduleStr || !scheduleStr.includes('-')) return { start: '', end: '' }; const parts = scheduleStr.split('-'); return { start: parts[0].trim(), end: parts[1].trim() }; }; 
-    const csvRows = otData.map(r => { const workHours = splitSchedule(r.horarioTurno || ''); const heStart = formatTime12(r.horaInicio); const heEnd = formatTime12(r.horaFin); return { 'A': '', 'B': formatLocalDate(r.createdAt || r.fecha), 'C': USUARIOS_EMAIL[r.usuario] || r.usuario, 'D': formatLocalDate(r.fecha), 'E': workHours.start, 'F': workHours.end, 'G': r.horarioTurno || '', 'H': heStart, 'I': heEnd, 'J': `${heStart} - ${heEnd}`, 'K': r.horasCalculadas, 'L': r.motivo || '' }; }); 
-    const csv = Papa.unparse(csvRows, { delimiter: ";", header: false }); 
+    
+    const csvRows = otData.map((r, index) => { 
+        const workHours = splitSchedule(r.horarioTurno || ''); 
+        const heStart = formatTime12(r.horaInicio); 
+        const heEnd = formatTime12(r.horaFin); 
+        
+        // COLUMNAS EXACTAS SEGUN TU PLANTILLA
+        return { 
+            'ID': index + 1,                                          // Columna A
+            'Marca temporal': formatLocalDate(r.createdAt || r.fecha),// Columna B
+            'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, // Columna C
+            'Fecha': formatLocalDate(r.fecha),                        // Columna D
+            'Hora de trabajo Inicio': workHours.start,                // Columna E
+            'Hora de trabajo Fin': workHours.end,                     // Columna F
+            'Horario de Horas extras Inicio': heStart,                // Columna G
+            'Horario de Horas extras Fin': heEnd,                     // Columna H
+            'Horas extras': r.horasCalculadas,                        // Columna I
+            'Actividad Realizada / Observaciones': r.motivo || '',    // Columna J
+            'HorarioTrabajo': r.horarioTurno || '',                   // Columna K
+            'HorarioHE': `${heStart} - ${heEnd}`                      // Columna L
+        }; 
+    }); 
+    const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); 
     const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); 
     const url = URL.createObjectURL(blob); 
     const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Consolidado_HE_${filterYear}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
   
-  // MOTOR WYSIWYG PARA EL PDF (AHORRO ABSOLUTO DE COSTOS)
   const downloadReport = () => {
     try {
         let reportData = [];
         let reportTitle = "";
 
         if (appMode === 'user') {
-            // USUARIO: Solo sus datos de hoy (Ahorro de lecturas)
             const todayStr = getLocalTodayString();
             reportData = liveData.filter(d => d.recolector === form.recolector && formatLocalDate(d.createdAt) === todayStr);
             reportTitle = `REPORTE DIARIO DE RUTA: ${form.recolector}`;
         } else {
-            // ADMIN: Imprime exactamente lo que ve filtrado en pantalla
             reportData = metrics.rows;
             let titleParts = [];
             if (filterUser !== 'all') titleParts.push(`USUARIO: ${filterUser}`);
@@ -435,7 +465,6 @@ function Dashboard() {
         doc.text(`Total Otras Diligencias: ${sItems.length}`, 120, 75);
         doc.text(`Promedio Espera (Otras): ${avgS} min`, 120, 81);
 
-        // Tabla Detallada para el Reporte Diario
         if (appMode === 'user' || filterSpecificDate) {
             const rows = reportData.map(r => [
                 formatLocalDate(r.createdAt), r.sucursal, r.tipo, 
@@ -444,7 +473,6 @@ function Dashboard() {
             ]);
             autoTable(doc, { startY: 95, head: [['Fecha', 'Sucursal', 'Diligencia', 'Llegada', 'Salida', 'Espera', 'Tipo']], body: rows, headStyles: { fillColor: slate900 }, styles: { fontSize: 8 }, theme: 'striped' });
         } else {
-            // Tabla Mensual
             const monthlyTableRows = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = reportData.filter(d => extractDateInfo(d.createdAt).month === i + 1); const mRecs = mDocs.filter(d => isPrincipalData(d)); const mDils = mDocs.filter(d => !isPrincipalData(d)); const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0; const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0; const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0; return [m, mRecs.length, `${mEf}%`, `${mAvgR}m`, mDils.length, `${mAvgD}m`]; }).filter(r => r[1] > 0 || r[4] > 0);
             autoTable(doc, { startY: 95, head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']], body: monthlyTableRows, headStyles: { fillColor: slate900, halign: 'center' }, theme: 'striped' });
         }
@@ -476,15 +504,45 @@ function Dashboard() {
         </div>
       )}
 
+      {/* --- MODAL DE ENVÍO DE AVISOS ADMIN Y SUPERVISOR --- */}
       {showAvisoModal && (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto custom-scrollbar">
                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white flex items-center gap-2"><Send size={20} className="text-blue-500"/> Enviar Aviso a Equipo</h3><button onClick={() => setShowAvisoModal(false)}><XCircle className="text-slate-500 hover:text-white" size={24}/></button></div>
                 <div className="space-y-4">
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Tipo de Aviso</label><select value={avisoForm.tipo} onChange={e=>setAvisoForm({...avisoForm, tipo: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="info">ℹ️ Informativo (Solo lectura)</option><option value="confirm">✅ Requiere Confirmación</option></select></div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Destinatario</label><select value={avisoForm.para} onChange={e=>setAvisoForm({...avisoForm, para: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="Todos">Toda la Flota (Global)</option>{CATALOGOS.transportistas.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Mensaje Corto</label><textarea value={avisoForm.mensaje} onChange={e=>setAvisoForm({...avisoForm, mensaje: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-24 resize-none" placeholder="Escribe el recordatorio o alerta aquí..."/></div>
-                    <button onClick={async () => { if(!avisoForm.mensaje) return; await addDoc(collection(db, 'alertas_flota'), {...avisoForm, createdAt: new Date().toISOString()}); setShowAvisoModal(false); setAvisoForm({mensaje: '', para: 'Todos', tipo: 'info'}); alert("Aviso enviado a la plataforma."); }} className="w-full py-4 bg-blue-600 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-blue-500 flex items-center justify-center gap-2"><Send size={16}/> Enviar Mensaje</button>
+                    <button onClick={async () => { if(!avisoForm.mensaje) return; await addDoc(collection(db, 'alertas_flota'), {...avisoForm, createdAt: new Date().toISOString()}); setAvisoForm({mensaje: '', para: 'Todos', tipo: 'info'}); alert("Aviso enviado a la plataforma."); }} className="w-full py-4 bg-blue-600 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-blue-500 flex items-center justify-center gap-2"><Send size={16}/> Enviar Mensaje</button>
+                </div>
+
+                {/* --- NUEVA SECCIÓN ADMIN: HISTORIAL DE RESPUESTAS --- */}
+                <div className="mt-8 border-t border-slate-700 pt-6">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase mb-4 flex items-center gap-2"><MessageSquare size={14}/> Avisos Activos y Respuestas</h4>
+                    <div className="space-y-3">
+                        {alertasData.length === 0 ? <p className="text-xs text-slate-600 italic">No hay avisos activos en la calle.</p> : null}
+                        {alertasData.map(a => (
+                            <div key={a.id} className="p-3 bg-[#0B1120] rounded-xl border border-slate-700">
+                                <div className="flex justify-between items-start text-slate-400 mb-2">
+                                    <span className={cn("text-[9px] font-black px-2 py-0.5 rounded-md", a.tipo==='confirm'?"bg-red-900/30 text-red-400":"bg-blue-900/30 text-blue-400")}>{a.para} ({a.tipo==='confirm'?'Con Respuesta':'Info'})</span>
+                                    <button onClick={()=>handleDelete('alertas_flota', a.id)} className="text-slate-600 hover:text-red-500 transition-colors" title="Borrar Aviso de la calle"><Trash2 size={14}/></button>
+                                </div>
+                                <p className="text-xs text-white font-bold mb-3">{a.mensaje}</p>
+                                
+                                {a.respuestas && a.respuestas.length > 0 && (
+                                    <div className="space-y-1.5 bg-[#151F32] p-2 rounded-lg border border-slate-800">
+                                        <p className="text-[8px] font-bold text-slate-500 uppercase">Confirmaciones recibidas:</p>
+                                        {a.respuestas.map((r, i) => (
+                                            <div key={i} className="text-[10px] flex items-center gap-2">
+                                                <span className="font-black text-white">{r.usuario.split(' ')[0]}:</span>
+                                                <span className={cn("font-bold px-1.5 py-0.5 rounded", r.respuesta==='Enterado'?"bg-blue-900/50 text-blue-400":r.respuesta==='En camino'?"bg-orange-900/50 text-orange-400":"bg-green-900/50 text-green-400")}>{r.respuesta}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>
@@ -499,6 +557,9 @@ function Dashboard() {
       </nav>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6">
+        {/* =========================================
+            BLOQUE USUARIO (CHOFER)
+            ========================================= */}
         {appMode === 'user' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
               <div className="lg:col-span-2">
@@ -506,20 +567,29 @@ function Dashboard() {
               {userAlerts.length > 0 && (
                   <div className="mb-6 space-y-3 animate-in slide-in-from-top-4">
                       {userAlerts.map((alerta, idx) => (
-                          <div key={idx} className={cn("p-4 rounded-xl flex items-center justify-between shadow-lg border", alerta.type === 'turno' ? "bg-purple-900/30 border-purple-500 text-purple-200" : alerta.type === 'maint' ? "bg-yellow-900/30 border-yellow-500 text-yellow-200" : alerta.tipo === 'confirm' ? "bg-red-900/30 border-red-500 text-red-200" : "bg-blue-900/30 border-blue-500 text-blue-200")}>
-                              <div className="flex items-center gap-4">
-                                  <div className="p-2 bg-black/30 rounded-lg">
-                                      {alerta.type === 'turno' ? <Clock size={24} className="text-purple-400"/> : alerta.type === 'maint' ? <Wrench size={24} className="text-yellow-400"/> : <Bell size={24} className={alerta.tipo === 'confirm' ? "text-red-400" : "text-blue-400"}/>}
+                          <div key={idx} className={cn("p-4 rounded-xl flex flex-col gap-3 shadow-lg border", alerta.type === 'turno' ? "bg-purple-900/30 border-purple-500 text-purple-200" : alerta.type === 'maint' ? "bg-yellow-900/30 border-yellow-500 text-yellow-200" : alerta.tipo === 'confirm' ? "bg-red-900/30 border-red-500 text-red-200" : "bg-blue-900/30 border-blue-500 text-blue-200")}>
+                              <div className="flex items-start justify-between gap-4">
+                                  <div className="flex items-center gap-3">
+                                      <div className="p-2 bg-black/30 rounded-lg shrink-0">
+                                          {alerta.type === 'turno' ? <Clock size={20} className="text-purple-400"/> : alerta.type === 'maint' ? <Wrench size={20} className="text-yellow-400"/> : <Bell size={20} className={alerta.tipo === 'confirm' ? "text-red-400" : "text-blue-400"}/>}
+                                      </div>
+                                      <div>
+                                          <h4 className="font-black uppercase text-xs opacity-80 mb-0.5">{alerta.title}</h4>
+                                          <p className="text-sm font-bold leading-tight">{alerta.msg}</p>
+                                      </div>
                                   </div>
-                                  <div>
-                                      <h4 className="font-black uppercase text-xs opacity-80">{alerta.title}</h4>
-                                      <p className="text-sm font-bold mt-0.5">{alerta.msg}</p>
-                                  </div>
+                                  {alerta.tipo !== 'confirm' && (
+                                      <button onClick={(e) => { e.preventDefault(); dismissAlert(alerta); }} className="text-slate-400 hover:text-white shrink-0"><X size={18}/></button>
+                                  )}
                               </div>
-                              {alerta.tipo === 'confirm' ? (
-                                  <button onClick={(e) => { e.preventDefault(); dismissAlert(alerta); }} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-lg"><Check size={14}/> CONFIRMAR</button>
-                              ) : (
-                                  <button onClick={(e) => { e.preventDefault(); dismissAlert(alerta); }} className="text-slate-400 hover:text-white"><X size={18}/></button>
+                              
+                              {/* --- NUEVOS BOTONES DE RESPUESTA PARA EL CHOFER --- */}
+                              {alerta.tipo === 'confirm' && (
+                                  <div className="flex gap-2 justify-end mt-1 border-t border-white/10 pt-3">
+                                      <button onClick={(e) => { e.preventDefault(); dismissAlert(alerta, 'Enterado'); }} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-[10px] shadow-md uppercase transition-all">Enterado</button>
+                                      <button onClick={(e) => { e.preventDefault(); dismissAlert(alerta, 'En camino'); }} className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-[10px] shadow-md uppercase transition-all">En camino</button>
+                                      <button onClick={(e) => { e.preventDefault(); dismissAlert(alerta, 'Listo'); }} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-[10px] shadow-md uppercase transition-all flex items-center gap-1"><Check size={12}/> Listo</button>
+                                  </div>
                               )}
                           </div>
                       ))}
@@ -747,9 +817,10 @@ function Dashboard() {
                    <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2">
                       {availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}
                    </select>
-                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all" className="bg-slate-900">Toda la Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
-                   <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all" className="bg-slate-900">Mes</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m}</option>)}</select>
+                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all">Toda la Flota</option>{CATALOGOS.transportistas.map(u=><option key={u} value={u}>{u}</option>)}</select>
+                   <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all">Año</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m}>Mes {m}</option>)}</select>
                    
+                   {/* MODAL TAMBIÉN PARA EL SUPERVISOR */}
                    <button onClick={() => setShowAvisoModal(true)} className="ml-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-blue-500 transition-all flex items-center gap-1 shadow-md"><Send size={12}/> AVISO</button>
                    <button onClick={() => downloadReport()} className="ml-2 bg-white text-black px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-1"><Download size={12}/> PDF</button>
                 </div>
