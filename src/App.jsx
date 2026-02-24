@@ -39,7 +39,7 @@ export const USUARIOS_EMAIL = {
   "david@recolekta.com": "DAVID ALVARADO", "carlos@recolekta.com": "CARLOS SOSA", "felix@recolekta.com": "FELIX VASQUEZ",
   "flor@recolekta.com": "FLOR CARDOZA", "hildebrando@recolekta.com": "HILDEBRANDO MENJIVAR", "test@admin.com": "USUARIO PRUEBA",
   "chofer@recolekta.com": "TRANSPORTISTA PRUEBA", "admin@recolekta.com": "ADMINISTRADOR", "supervision@recolekta.com": "SUPERVISOR",
-  "supervisor@recolekta.com": "SUPERVISOR"
+  "supervisor@recolekta.com": "SUPERVISOR", "nuevo_admin@recolekta.com": "NUEVO ADMIN"
 };
 
 const CATALOGOS = {
@@ -156,8 +156,16 @@ function Dashboard() {
     if (!currentUser.email) { if (typeof logout === 'function') logout(); return; }
 
     const email = currentUser.email.toLowerCase().trim();
-    if (email === 'admin@recolekta.com') { setAppMode('admin'); } 
-    else if (email === 'supervision@recolekta.com' || email === 'supervisor@recolekta.com') { setAppMode('supervisor'); } 
+    
+    // 🚀 LÓGICA DE ROLES MEJORADA: Agrega nuevos correos admin aquí abajo
+    const adminEmails = ['admin@recolekta.com', 'nuevo_admin@recolekta.com', 'ing.admin@recolekta.com'];
+    
+    if (adminEmails.includes(email)) { 
+        setAppMode('admin'); 
+    } 
+    else if (email === 'supervision@recolekta.com' || email === 'supervisor@recolekta.com') { 
+        setAppMode('supervisor'); 
+    } 
     else {
       setAppMode('user');
       const nombreReal = USUARIOS_EMAIL[currentUser.email];
@@ -243,10 +251,15 @@ function Dashboard() {
             setOtData(arr);
         });
 
+        const qMaint = query(collection(db, "registros_mantenimiento"), where("usuario", "==", currentUser.email));
+        unsubMaint = onSnapshot(qMaint, (snap) => {
+            setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
         const qAlertas = query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(10));
         unsubAlertas = onSnapshot(qAlertas, (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         
-        setFuelData([]); setMaintData([]);
+        setFuelData([]); 
     }
 
     return () => { if (unsubOps) unsubOps(); if (unsubFuel) unsubFuel(); if (unsubMaint) unsubMaint(); if (unsubOt) unsubOt(); if (unsubAlertas) unsubAlertas(); if (unsubAgenda) unsubAgenda(); if (unsubConfig) unsubConfig(); };
@@ -404,17 +417,24 @@ function Dashboard() {
           const todayName = days[todayDate.getDay()];
 
           const isMaintToday = miAgenda.mantenimiento === localTodayStr;
+          const isMaintPast = miAgenda.mantenimiento && miAgenda.mantenimiento < localTodayStr;
+
+          const hasRegisteredMaint = maintData.some(m => {
+              return m.fecha >= miAgenda.mantenimiento;
+          });
           
-          if (miAgenda.mantenimiento && miAgenda.mantenimiento < localTodayStr) {
-              if (!hiddenAlerts.includes('kpi_maint_past')) {
+          if (!hasRegisteredMaint) {
+              if (isMaintPast && !hiddenAlerts.includes('kpi_maint_past')) {
                   alerts.push({
                       id: 'kpi_maint_past',
                       type: 'kpi_danger',
                       title: '🔴 ALERTA DE KPI: Mantenimiento Vencido',
-                      msg: `Tu fecha de taller (${formatLocalDate(miAgenda.mantenimiento)}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`,
+                      msg: `Tu fecha de taller (${formatWithDay(formatLocalDate(miAgenda.mantenimiento))}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`,
                       tipo: 'info'
                   });
               }
+              const maintId = `auto_maint_${localTodayStr}_${miAgenda.mantenimiento || ''}`;
+              if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller asignado y registra el comprobante.' });
           }
 
           const turnosTxt = (miAgenda.turnos || '').toLowerCase();
@@ -427,10 +447,7 @@ function Dashboard() {
               turnosTxt.includes(todayShortSlashUnp) ||
               turnosTxt.includes(todayFullSlashUnp);
 
-          const maintId = `auto_maint_${localTodayStr}_${miAgenda.mantenimiento || ''}`;
           const turnoId = `auto_turno_${localTodayStr}_${miAgenda.turnos || ''}`;
-
-          if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller asignado.' });
           if (hasTurnoToday && !hiddenAlerts.includes(turnoId)) alerts.push({ id: turnoId, type: 'turno', title: '¡Turno Extra Hoy!', msg: 'Registra tus horas al finalizar.' });
       }
 
@@ -446,7 +463,7 @@ function Dashboard() {
           }
       });
       return alerts;
-  }, [agendaData, form.recolector, alertasData, appMode, hiddenAlerts]);
+  }, [agendaData, form.recolector, alertasData, appMode, hiddenAlerts, maintData]);
 
   const dismissAlert = async (alerta, replyText = '') => {
       if (alerta.tipo === 'confirm' && replyText) {
@@ -506,8 +523,49 @@ function Dashboard() {
     const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Consolidado_HE_${sysConfig.heInicio}_al_${sysConfig.heFin}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
   
+  // --- 📄 MOTOR DE PDF INTELIGENTE (RESTAURADO PARA SUPERVISORES) 📄 ---
   const downloadReport = () => {
     try {
+        const doc = new jsPDF();
+        const slate900 = [15, 23, 42]; const green500 = [34, 197, 94]; const orange500 = [249, 115, 22];
+        const dateStr = new Date().toLocaleDateString();
+
+        const drawHeader = (title, subtitle) => { doc.setFillColor(...slate900); doc.rect(0,0,210,40,'F'); doc.setFillColor(...green500); doc.circle(20, 20, 10, 'F'); doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 22); doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 18); doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA", 35, 24); doc.setTextColor(40); doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.text(title, 15, 55); doc.setFontSize(10); doc.setTextColor(100); doc.text(subtitle, 15, 61); };
+        
+        // 1. REPORTE DE AGENDA (Admin o Supervisor)
+        const currentSection = appMode === 'supervisor' ? supervisorSection : adminSection;
+
+        if (currentSection === 'agenda') {
+            drawHeader("AGENDA GLOBAL DE FLOTA", `Generado: ${dateStr}`);
+            const rows = agendaData.map(a => [a.id, a.horario || '--', a.zona || '--', a.puntos || '--', formatTurnosVisually(a.turnos) || 'Ninguno', formatWithDay(formatLocalDate(a.mantenimiento))]);
+            autoTable(doc, { startY: 65, head: [['Transportista', 'Horario Base', 'Zona/Ruta', 'Puntos/Sucursales', 'Turnos Extra', 'Prox. Mantenimiento']], body: rows, headStyles: { fillColor: slate900 }, theme: 'grid', styles: { fontSize: 8 } });
+            doc.save("Recolekta_Agenda.pdf");
+            return;
+        }
+
+        // 2. REPORTE DE COMBUSTIBLE (Supervisor)
+        if (appMode === 'supervisor' && currentSection === 'combustible') {
+            drawHeader("CONTROL DE COMBUSTIBLE", `Generado: ${dateStr} | Filtro: ${filterUser !== 'all' ? filterUser : 'GLOBAL'}`);
+            let data = fuelData.filter(d => checkDate(d.fecha));
+            if (filterUser !== 'all') data = data.filter(d => (USUARIOS_EMAIL[d.usuario]||'') === filterUser);
+            const rows = data.map(r => [formatLocalDate(r.fecha), USUARIOS_EMAIL[r.usuario] || r.usuario, r.galones, `$${r.costo}`, r.kilometraje]);
+            autoTable(doc, { startY: 65, head: [['Fecha', 'Usuario', 'Galones', 'Costo Total', 'Km']], body: rows, headStyles: { fillColor: slate900 }, theme: 'striped' });
+            doc.save("Recolekta_Combustible.pdf");
+            return;
+        }
+
+        // 3. REPORTE DE TALLER (Supervisor)
+        if (appMode === 'supervisor' && currentSection === 'taller') {
+            drawHeader("CONTROL DE TALLER Y MANTENIMIENTO", `Generado: ${dateStr} | Filtro: ${filterUser !== 'all' ? filterUser : 'GLOBAL'}`);
+            let data = maintData.filter(d => checkDate(d.fecha));
+            if (filterUser !== 'all') data = data.filter(d => (USUARIOS_EMAIL[d.usuario]||'') === filterUser);
+            const rows = data.map(r => [formatLocalDate(r.fecha), USUARIOS_EMAIL[r.usuario] || r.usuario, r.tipo, r.taller, r.descripcion || '--', `$${r.costo}`]);
+            autoTable(doc, { startY: 65, head: [['Fecha', 'Usuario', 'Tipo', 'Taller', 'Detalle', 'Costo']], body: rows, headStyles: { fillColor: slate900 }, theme: 'striped' });
+            doc.save("Recolekta_Mantenimiento.pdf");
+            return;
+        }
+
+        // 4. REPORTE PRINCIPAL DE OPERACIONES (Admin ops/bi, Supervisor bitacora, User ruta)
         let reportData = [];
         let reportTitle = "";
 
@@ -526,10 +584,6 @@ function Dashboard() {
 
         if (reportData.length === 0) return alert("No hay datos para generar el reporte con los filtros actuales.");
 
-        const doc = new jsPDF();
-        const slate900 = [15, 23, 42]; const green500 = [34, 197, 94]; const orange500 = [249, 115, 22];
-        const drawHeader = (title, subtitle) => { doc.setFillColor(...slate900); doc.rect(0,0,210,40,'F'); doc.setFillColor(...green500); doc.circle(20, 20, 10, 'F'); doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 22); doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 18); doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA", 35, 24); doc.setTextColor(40); doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.text(title, 15, 55); doc.setFontSize(10); doc.setTextColor(100); doc.text(subtitle, 15, 61); };
-        
         drawHeader(reportTitle, `Generado: ${new Date().toLocaleDateString()} | Registros: ${reportData.length}`);
 
         const pItems = reportData.filter(d => isPrincipalData(d));
@@ -568,7 +622,6 @@ function Dashboard() {
     <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-24" onClick={() => setActiveInput(null)}>
       {viewingPhoto && <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4" onClick={() => setViewingPhoto(null)}><div className="relative max-w-4xl w-full flex flex-col items-center"><img src={viewingPhoto} className="max-h-[80vh] rounded-lg border border-white/20" alt="Evidencia" /><button className="mt-6 bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-xs">Cerrar</button></div></div>}
 
-      {/* --- MODAL DE EDICIÓN CON EL CAMPO FECHA AGREGADO --- */}
       {editingItem && (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
@@ -939,7 +992,7 @@ function Dashboard() {
                    <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2"><option value="all">Año</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m}>Mes {m}</option>)}</select>
                    
                    <button onClick={() => setShowAvisoModal(true)} className="ml-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-blue-500 transition-all flex items-center gap-1 shadow-md"><Send size={12}/> AVISO</button>
-                   <button onClick={() => downloadReport(null)} className="ml-2 bg-white text-black px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-1"><Download size={12}/> PDF</button>
+                   <button onClick={() => downloadReport()} className="ml-2 bg-white text-black px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-1"><Download size={12}/> PDF</button>
                 </div>
              </div>
              
@@ -988,7 +1041,6 @@ function Dashboard() {
                 </div>
              )}
 
-             {/* 🎭 TABLA DE AGENDA CON LA MÁSCARA VISUAL DE DÍAS 🎭 */}
              {supervisorSection === 'agenda' && (
                 <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
                    <div className="mb-4">
