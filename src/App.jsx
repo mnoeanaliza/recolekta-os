@@ -43,7 +43,7 @@ export const USUARIOS_EMAIL = {
   "supervisor@recolekta.com": "SUPERVISOR", "nuevo_admin@recolekta.com": "NUEVO ADMIN", "ing.admin@recolekta.com": "INGENIERÍA ADMIN"
 };
 
-// --- CATÁLOGOS BASE (Solo se usan si la Base de Datos está vacía por primera vez) ---
+// --- CATÁLOGOS BASE DE EMERGENCIA ---
 const DEFAULT_CATALOGS = {
   transportistas: [ "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "TRANSPORTISTA PRUEBA" ],
   sucursales: [ "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares" ],
@@ -98,11 +98,8 @@ function Dashboard() {
   const [agendaData, setAgendaData] = useState([]); 
   const [alertasData, setAlertasData] = useState([]);
   
-  // ESTADO DE CATÁLOGOS DINÁMICOS
   const [catalogs, setCatalogs] = useState(DEFAULT_CATALOGS);
-  // ESTADOS DEL EDITOR DE CATÁLOGOS
   const [newCatalogItems, setNewCatalogItems] = useState({ transportistas: '', sucursales: '', areas: '', diligencias: '' });
-
   const [sysConfig, setSysConfig] = useState({ heInicio: '', heFin: '', flotaInicio: '', flotaFin: '' });
 
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
@@ -138,8 +135,6 @@ function Dashboard() {
     if (!currentUser.email) { if (typeof logout === 'function') logout(); return; }
 
     const email = currentUser.email.toLowerCase().trim();
-    
-    // 🚀 LÓGICA DE ROLES (Se agregó ing.admin@recolekta.com)
     const adminEmails = ['admin@recolekta.com', 'nuevo_admin@recolekta.com', 'gerencia@recolekta.com', 'ing.admin@recolekta.com'];
     
     if (adminEmails.includes(email)) { 
@@ -156,7 +151,7 @@ function Dashboard() {
 
     const savedHiddenAlerts = localStorage.getItem(`recolekta_hidden_alerts_${email}`);
     if (savedHiddenAlerts) {
-        try { setHiddenAlerts(JSON.parse(savedHiddenAlerts)); } catch (e) { console.error("Error parsing hidden alerts", e); }
+        try { setHiddenAlerts(JSON.parse(savedHiddenAlerts)); } catch (e) { console.error(e); }
     }
   }, [currentUser]);
 
@@ -181,18 +176,19 @@ function Dashboard() {
 
     let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas, unsubAgenda, unsubConfig, unsubCatalogs;
     
-    // CARGAR CONFIGURACIONES
     unsubConfig = onSnapshot(doc(db, "configuraciones", "general"), (snap) => {
         if(snap.exists()) setSysConfig(snap.data());
     });
 
-    // CARGAR CATÁLOGOS DINÁMICOS
+    // 🛡️ BLINDAJE DE CATÁLOGOS: Garantiza que siempre existan arreglos válidos para evitar Pantalla Blanca
     unsubCatalogs = onSnapshot(doc(db, "configuraciones", "catalogos"), (snap) => {
-        if(snap.exists()) {
-            setCatalogs({ ...DEFAULT_CATALOGS, ...snap.data() }); 
-        } else {
-            setDoc(doc(db, "configuraciones", "catalogos"), DEFAULT_CATALOGS);
-        }
+        const data = snap.exists() ? snap.data() : {};
+        setCatalogs({
+            transportistas: data.transportistas || DEFAULT_CATALOGS.transportistas,
+            sucursales: data.sucursales || DEFAULT_CATALOGS.sucursales,
+            areas: data.areas || DEFAULT_CATALOGS.areas,
+            diligencias: data.diligencias || DEFAULT_CATALOGS.diligencias
+        });
     });
 
     unsubAgenda = onSnapshot(collection(db, "agenda_flota"), (snap) => setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
@@ -275,17 +271,13 @@ function Dashboard() {
       } catch (e) { alert("Error guardando configuración"); }
   };
 
-  // --- MOTOR DE ACTUALIZACIÓN DE CATÁLOGOS ---
   const handleAddCatalogItem = async (catalogName) => {
       const item = newCatalogItems[catalogName]?.trim();
       if (!item) return;
-      
       const currentList = catalogs[catalogName] || [];
       if (currentList.includes(item)) return alert("El elemento ya existe en la lista.");
-
       const newList = [...currentList, item].sort();
       const newCatalogs = { ...catalogs, [catalogName]: newList };
-      
       try {
           await setDoc(doc(db, "configuraciones", "catalogos"), newCatalogs, { merge: true });
           setNewCatalogItems(prev => ({ ...prev, [catalogName]: '' }));
@@ -294,32 +286,18 @@ function Dashboard() {
 
   const handleRemoveCatalogItem = async (catalogName, itemToRemove) => {
       if (!window.confirm(`¿Seguro que deseas eliminar "${itemToRemove}" del catálogo?`)) return;
-      
       const currentList = catalogs[catalogName] || [];
       const newList = currentList.filter(item => item !== itemToRemove);
       const newCatalogs = { ...catalogs, [catalogName]: newList };
-
-      try {
-          await setDoc(doc(db, "configuraciones", "catalogos"), newCatalogs, { merge: true });
-      } catch (e) { alert("Error al eliminar del catálogo."); }
+      try { await setDoc(doc(db, "configuraciones", "catalogos"), newCatalogs, { merge: true }); } catch (e) { alert("Error al eliminar del catálogo."); }
   };
-
-  const transportistaOtData = useMemo(() => {
-      if (!otData) return [];
-      return otData.filter(d => {
-          if (!sysConfig?.heInicio || !sysConfig?.heFin) return true;
-          return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin;
-      });
-  }, [otData, sysConfig]);
 
   const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter(d => {
         if (!sysConfig.heInicio || !sysConfig.heFin) return true;
         return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin;
     });
-    
     if (filterUser !== 'all') filteredOt = filteredOt.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser);
-    
     const totalHoras = filteredOt.reduce((acc, curr) => { const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; return acc + hrs; }, 0);
     const userOtStats = filteredOt.reduce((acc, curr) => { const rawName = curr.usuario || 'Desconocido'; const name = USUARIOS_EMAIL[rawName] || rawName; const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; acc[name] = (acc[name] || 0) + hrs; return acc; }, {});
     const rankingOt = Object.entries(userOtStats).map(([name, hours]) => ({ name, hours: parseFloat(hours.toFixed(2)) })).sort((a,b) => b.hours - a.hours);
@@ -340,21 +318,18 @@ function Dashboard() {
   const metrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
     let filtered = data.filter(d => checkDate(d.createdAt));
-    
     if (filterUser !== 'all') filtered = filtered.filter(d => d.recolector === filterUser);
     if (filterSucursal !== 'all') filtered = filtered.filter(d => d.sucursal === filterSucursal);
     if (filterSpecificDate) {
         const targetDate = getStrictDateString(filterSpecificDate); 
         filtered = filtered.filter(d => getStrictDateString(d.createdAt) === targetDate);
     }
-
     const pItems = filtered.filter(d => isPrincipalData(d)); const sItems = filtered.filter(d => !isPrincipalData(d));
     const calcEf = (arr) => arr.length > 0 ? ((arr.filter(x => (x.tiempo||0) <= 5).length / arr.length) * 100).toFixed(1) : 0;
     const calcAvg = (arr) => arr.length > 0 ? (arr.reduce((a,b)=>a+(b.tiempo||0),0)/arr.length).toFixed(1) : 0;
     const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = data.filter(d => { const { year, month } = extractDateInfo(d.createdAt); return year === filterYear && month === i + 1; }); const finalDocs = filterUser === 'all' ? mDocs : mDocs.filter(d => d.recolector === filterUser); const mRecs = finalDocs.filter(d => isPrincipalData(d)); return { name: m, ef: parseFloat(calcEf(mRecs)), count: finalDocs.length }; }).filter(d => d.count > 0);
     const sucursalStats = filtered.reduce((acc, curr) => { if(!curr.sucursal || curr.sucursal === 'N/A' || curr.sucursal === 'Ruta Externa') return acc; acc[curr.sucursal] = acc[curr.sucursal] || { totalTime: 0, count: 0 }; acc[curr.sucursal].totalTime += (curr.tiempo || 0); acc[curr.sucursal].count += 1; return acc; }, {});
     const topSucursales = Object.entries(sucursalStats).map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) })).sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
-    
     return { total: filtered.length, efP: calcEf(pItems), avgP: calcAvg(pItems), countP: pItems.length, efS: calcEf(sItems), avgS: calcAvg(sItems), countS: sItems.length, monthlyData, topSucursales, rows: filtered };
   }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal]);
 
@@ -363,7 +338,6 @@ function Dashboard() {
       const y2 = (parseInt(filterYear) - 1).toString(); 
       const allOps = [...liveData, ...csvData]; 
       const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-      
       const currYear = new Date().getFullYear().toString();
       const currMonth = new Date().getMonth() + 1;
 
@@ -371,22 +345,13 @@ function Dashboard() {
           const mNum = i + 1;
           const isFutureY1 = (y1 === currYear && mNum > currMonth) || (parseInt(y1) > parseInt(currYear));
           const isFutureY2 = (y2 === currYear && mNum > currMonth) || (parseInt(y2) > parseInt(currYear));
-
           const getOps = (y) => { let docs = allOps.filter(d => { const info = extractDateInfo(d.createdAt); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => x.recolector === filterUser); return docs; };
           const ops1 = getOps(y1); const ops2 = getOps(y2);
           const calcEf = (docs) => { const recs = docs.filter(d => isPrincipalData(d)); if(recs.length === 0) return 0; return parseFloat(((recs.filter(x => (x.tiempo||0) <= 5).length / recs.length) * 100).toFixed(1)); };
           const getFuel = (y) => { let docs = fuelData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           const getMaint = (y) => { let docs = maintData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           
-          return { 
-              name: m, 
-              [`ef${y1}`]: isFutureY1 ? null : calcEf(ops1), 
-              [`ef${y2}`]: isFutureY2 ? null : calcEf(ops2), 
-              [`fuel${y1}`]: isFutureY1 ? null : parseFloat(getFuel(y1).toFixed(2)), 
-              [`fuel${y2}`]: isFutureY2 ? null : parseFloat(getFuel(y2).toFixed(2)), 
-              [`maint${y1}`]: isFutureY1 ? null : parseFloat(getMaint(y1).toFixed(2)), 
-              [`maint${y2}`]: isFutureY2 ? null : parseFloat(getMaint(y2).toFixed(2)) 
-          }
+          return { name: m, [`ef${y1}`]: isFutureY1 ? null : calcEf(ops1), [`ef${y2}`]: isFutureY2 ? null : calcEf(ops2), [`fuel${y1}`]: isFutureY1 ? null : parseFloat(getFuel(y1).toFixed(2)), [`fuel${y2}`]: isFutureY2 ? null : parseFloat(getFuel(y2).toFixed(2)), [`maint${y1}`]: isFutureY1 ? null : parseFloat(getMaint(y1).toFixed(2)), [`maint${y2}`]: isFutureY2 ? null : parseFloat(getMaint(y2).toFixed(2)) }
       });
       return { dataYoY, yCurrent: y1, yPrev: y2 };
   }, [liveData, csvData, fuelData, maintData, filterYear, filterUser]);
@@ -394,17 +359,44 @@ function Dashboard() {
   const convertToMinutes = (h, m, p) => { let hour = parseInt(h); if (p === 'AM' && hour === 12) hour = 0; if (p === 'PM' && hour !== 12) hour += 12; return hour * 60 + parseInt(m); };
   const getWait = () => { const startMins = convertToMinutes(form.hLlegada, form.mLlegada, form.pLlegada); const endMins = convertToMinutes(form.hSalida, form.mSalida, form.pSalida); return Math.max(0, endMins - startMins); };
   const handleInput = (field, value) => { setForm(prev => ({ ...prev, [field]: field === 'recolector' ? value.toUpperCase() : value })); setActiveInput(field); };
-  const compressImage = (file) => { return new Promise((resolve) => { const reader = new FileReader(); reader.readAsDataURL(file); reader.onload = (event) => { const img = new Image(); img.src = event.target.result; img.onload = () => { const canvas = document.createElement('canvas'); const MAX_WIDTH = 800; const scaleSize = MAX_WIDTH / img.width; canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height); canvas.toBlob((blob) => { resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() })); }, 'image/jpeg', 0.7); }; }; }); };
+
+  // 🛡️ BLINDAJE DE IMÁGENES: Fallback si el Canvas falla por memoria en Android bajos
+  const compressImage = (file) => {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 800;
+                    const scaleSize = MAX_WIDTH / img.width;
+                    canvas.width = MAX_WIDTH;
+                    canvas.height = img.height * scaleSize;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    canvas.toBlob((blob) => {
+                        if (blob) resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+                        else resolve(file);
+                    }, 'image/jpeg', 0.7);
+                } catch(e) { resolve(file); } // Si la memoria colapsa, envía la original
+            };
+            img.onerror = () => resolve(file);
+        };
+        reader.onerror = () => resolve(file);
+    });
+  };
+
   const handleFile = async (e) => { const file = e.target.files[0]; if (file) { setIsCompressing(true); try { const compressedFile = await compressImage(file); setImageFile(compressedFile); const reader = new FileReader(); reader.onloadend = () => setImagePreview(reader.result); reader.readAsDataURL(compressedFile); } catch (e) { alert("Error al procesar la imagen"); } finally { setIsCompressing(false); } } };
   
   const userMetrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
     const targetUser = form.recolector;
     let userDocs = targetUser && targetUser.length > 2 ? data.filter(d => d.recolector === targetUser) : data;
-    
     const todayStr = getStrictDateString(new Date()); 
     userDocs = userDocs.filter(d => getStrictDateString(d.createdAt) === todayStr);
-    
     const recs = userDocs.filter(d => isPrincipalData(d));
     const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= 5).length / recs.length) * 100).toFixed(1) : 0;
     return { ef: ef, count: userDocs.length, label: targetUser && targetUser.length > 2 ? targetUser.split(' ')[0] : 'HOY' };
@@ -438,34 +430,18 @@ function Dashboard() {
           const isMaintToday = miAgenda.mantenimiento === localTodayStr;
           const isMaintPast = miAgenda.mantenimiento && miAgenda.mantenimiento < localTodayStr;
 
-          const hasRegisteredMaint = maintData.some(m => {
-              return m.fecha >= miAgenda.mantenimiento;
-          });
+          const hasRegisteredMaint = maintData.some(m => m.fecha >= miAgenda.mantenimiento);
           
           if (!hasRegisteredMaint) {
               if (isMaintPast && !hiddenAlerts.includes('kpi_maint_past')) {
-                  alerts.push({
-                      id: 'kpi_maint_past',
-                      type: 'kpi_danger',
-                      title: '🔴 ALERTA DE KPI: Mantenimiento Vencido',
-                      msg: `Tu fecha de taller (${formatWithDay(formatLocalDate(miAgenda.mantenimiento))}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`,
-                      tipo: 'info'
-                  });
+                  alerts.push({ id: 'kpi_maint_past', type: 'kpi_danger', title: '🔴 ALERTA DE KPI: Mantenimiento Vencido', msg: `Tu fecha de taller (${formatWithDay(formatLocalDate(miAgenda.mantenimiento))}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`, tipo: 'info' });
               }
               const maintId = `auto_maint_${localTodayStr}_${miAgenda.mantenimiento || ''}`;
               if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller asignado y registra el comprobante.' });
           }
 
           const turnosTxt = (miAgenda.turnos || '').toLowerCase();
-          const hasTurnoToday = 
-              turnosTxt.includes(todayName.toLowerCase()) || 
-              turnosTxt.includes(todayShortSlash) || 
-              turnosTxt.includes(todayShortDash) || 
-              turnosTxt.includes(todayFullSlash) || 
-              turnosTxt.includes(todayFullDash) ||
-              turnosTxt.includes(todayShortSlashUnp) ||
-              turnosTxt.includes(todayFullSlashUnp);
-
+          const hasTurnoToday = turnosTxt.includes(todayName.toLowerCase()) || turnosTxt.includes(todayShortSlash) || turnosTxt.includes(todayShortDash) || turnosTxt.includes(todayFullSlash) || turnosTxt.includes(todayFullDash) || turnosTxt.includes(todayShortSlashUnp) || turnosTxt.includes(todayFullSlashUnp);
           const turnoId = `auto_turno_${localTodayStr}_${miAgenda.turnos || ''}`;
           if (hasTurnoToday && !hiddenAlerts.includes(turnoId)) alerts.push({ id: turnoId, type: 'turno', title: '¡Turno Extra Hoy!', msg: 'Registra tus horas al finalizar.' });
       }
@@ -473,12 +449,7 @@ function Dashboard() {
       alertasData.forEach(alerta => {
           if (hiddenAlerts.includes(alerta.id)) return;
           if (alerta.para === 'Todos' || alerta.para === form.recolector) {
-              alerts.push({ 
-                  ...alerta, 
-                  type: 'admin_msg',
-                  title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso Global' : 'Mensaje Directo'),
-                  msg: alerta.mensaje 
-              });
+              alerts.push({ ...alerta, type: 'admin_msg', title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso Global' : 'Mensaje Directo'), msg: alerta.mensaje });
           }
       });
       return alerts;
@@ -486,21 +457,13 @@ function Dashboard() {
 
   const dismissAlert = async (alerta, replyText = '') => {
       if (alerta.tipo === 'confirm' && replyText) {
-          try { 
-              const alertRef = doc(db, "alertas_flota", alerta.id);
-              await updateDoc(alertRef, {
-                  respuestas: arrayUnion({ usuario: form.recolector, respuesta: replyText, fecha: new Date().toISOString() })
-              });
-          } catch(e) { console.error("Error al enviar respuesta", e); }
+          try { await updateDoc(doc(db, "alertas_flota", alerta.id), { respuestas: arrayUnion({ usuario: form.recolector, respuesta: replyText, fecha: new Date().toISOString() }) }); } catch(e) {}
       } else if (alerta.tipo === 'info' && alerta.para !== 'Todos') {
-          try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) { console.error(e); }
+          try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) {}
       }
-
       const newHidden = [...hiddenAlerts, alerta.id];
       setHiddenAlerts(newHidden);
-      if (currentUser && currentUser.email) {
-          localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
-      }
+      if (currentUser && currentUser.email) localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
   };
 
   const exportToCSV = () => { 
@@ -516,25 +479,11 @@ function Dashboard() {
     if (!hrMetrics.rawData || hrMetrics.rawData.length === 0) return alert("No hay datos de horas extras en este rango."); 
     const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h, 10); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
     const splitSchedule = (scheduleStr) => { if (!scheduleStr || !scheduleStr.includes('-')) return { start: '', end: '' }; const parts = scheduleStr.split('-'); return { start: parts[0].trim(), end: parts[1].trim() }; }; 
-    
     const csvRows = hrMetrics.rawData.map((r, index) => { 
         const workHours = splitSchedule(r.horarioTurno || ''); 
         const heStart = formatTime12(r.horaInicio); 
         const heEnd = formatTime12(r.horaFin); 
-        return { 
-            'ID': index + 1, 
-            'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 
-            'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, 
-            'Fecha': getStrictDateString(r.fecha), 
-            'Hora de trabajo Inicio': workHours.start, 
-            'Hora de trabajo Fin': workHours.end, 
-            'Horario de Horas extras Inicio': heStart, 
-            'Horario de Horas extras Fin': heEnd, 
-            'Horas extras': r.horasCalculadas, 
-            'Actividad Realizada / Observaciones': r.motivo || '', 
-            'HorarioTrabajo': r.horarioTurno || '', 
-            'HorarioHE': `${heStart} - ${heEnd}` 
-        }; 
+        return { 'ID': index + 1, 'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, 'Fecha': getStrictDateString(r.fecha), 'Hora de trabajo Inicio': workHours.start, 'Hora de trabajo Fin': workHours.end, 'Horario de Horas extras Inicio': heStart, 'Horario de Horas extras Fin': heEnd, 'Horas extras': r.horasCalculadas, 'Actividad Realizada / Observaciones': r.motivo || '', 'HorarioTrabajo': r.horarioTurno || '', 'HorarioHE': `${heStart} - ${heEnd}` }; 
     }); 
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); 
     const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); 
@@ -546,7 +495,6 @@ function Dashboard() {
     try {
         let reportData = [];
         let reportTitle = "";
-
         if (appMode === 'user') {
             const todayStr = getStrictDateString(new Date());
             reportData = liveData.filter(d => d.recolector === form.recolector && getStrictDateString(d.createdAt) === todayStr);
@@ -559,7 +507,6 @@ function Dashboard() {
             if (filterSpecificDate) titleParts.push(`FECHA: ${getStrictDateString(filterSpecificDate)}`);
             reportTitle = titleParts.length > 0 ? titleParts.join(" | ") : "REPORTE CONSOLIDADO GLOBAL";
         }
-
         if (reportData.length === 0) return alert("No hay datos para generar el reporte con los filtros actuales.");
 
         const doc = new jsPDF();
@@ -567,7 +514,6 @@ function Dashboard() {
         const drawHeader = (title, subtitle) => { doc.setFillColor(...slate900); doc.rect(0,0,210,40,'F'); doc.setFillColor(...green500); doc.circle(20, 20, 10, 'F'); doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 22); doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 18); doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA", 35, 24); doc.setTextColor(40); doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.text(title, 15, 55); doc.setFontSize(10); doc.setTextColor(100); doc.text(subtitle, 15, 61); };
         
         drawHeader(reportTitle, `Generado: ${new Date().toLocaleDateString()} | Registros: ${reportData.length}`);
-
         const pItems = reportData.filter(d => isPrincipalData(d));
         const sItems = reportData.filter(d => !isPrincipalData(d));
         const efP = pItems.length > 0 ? ((pItems.filter(x => (x.tiempo||0) <= 5).length / pItems.length) * 100).toFixed(1) : 0;
@@ -581,23 +527,14 @@ function Dashboard() {
         doc.text(`Promedio Espera (Otras): ${avgS} min`, 120, 81);
 
         if (appMode === 'user' || filterSpecificDate) {
-            const rows = reportData.map(r => [
-                getStrictDateString(r.createdAt), r.sucursal, r.tipo, 
-                `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}`, `${r.hSalida}:${r.mSalida} ${r.pSalida}`, 
-                `${r.tiempo}m`, r.categoria
-            ]);
+            const rows = reportData.map(r => [ getStrictDateString(r.createdAt), r.sucursal, r.tipo, `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}`, `${r.hSalida}:${r.mSalida} ${r.pSalida}`, `${r.tiempo}m`, r.categoria ]);
             autoTable(doc, { startY: 95, head: [['Fecha', 'Sucursal', 'Diligencia', 'Llegada', 'Salida', 'Espera', 'Tipo']], body: rows, headStyles: { fillColor: slate900 }, styles: { fontSize: 8 }, theme: 'striped' });
         } else {
             const monthlyTableRows = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = reportData.filter(d => extractDateInfo(d.createdAt).month === i + 1); const mRecs = mDocs.filter(d => isPrincipalData(d)); const mDils = mDocs.filter(d => !isPrincipalData(d)); const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0; const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0; const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0; return [m, mRecs.length, `${mEf}%`, `${mAvgR}m`, mDils.length, `${mAvgD}m`]; }).filter(r => r[1] > 0 || r[4] > 0);
             autoTable(doc, { startY: 95, head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']], body: monthlyTableRows, headStyles: { fillColor: slate900, halign: 'center' }, theme: 'striped' });
         }
-        
         doc.save(`Recolekta_Reporte_${appMode==='user'?form.recolector:'Filtrado'}.pdf`);
-
-    } catch (error) {
-        console.error("Error generating report", error);
-        alert("Error al generar el reporte.");
-    }
+    } catch (error) { alert("Error al generar el reporte."); }
   };
 
   return (
@@ -630,7 +567,7 @@ function Dashboard() {
                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white flex items-center gap-2"><Send size={20} className="text-blue-500"/> Enviar Aviso a Equipo</h3><button onClick={() => setShowAvisoModal(false)}><XCircle className="text-slate-500 hover:text-white" size={24}/></button></div>
                 <div className="space-y-4">
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Tipo de Aviso</label><select value={avisoForm.tipo} onChange={e=>setAvisoForm({...avisoForm, tipo: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="info">ℹ️ Informativo (Solo lectura)</option><option value="confirm">✅ Requiere Confirmación</option></select></div>
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Destinatario</label><select value={avisoForm.para} onChange={e=>setAvisoForm({...avisoForm, para: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="Todos">Toda la Flota (Global)</option>{catalogs.transportistas.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Destinatario</label><select value={avisoForm.para} onChange={e=>setAvisoForm({...avisoForm, para: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="Todos">Toda la Flota (Global)</option>{(catalogs.transportistas || []).map(t=><option key={t} value={t}>{t}</option>)}</select></div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Mensaje Corto</label><textarea value={avisoForm.mensaje} onChange={e=>setAvisoForm({...avisoForm, mensaje: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-24 resize-none" placeholder="Escribe el recordatorio o alerta aquí..."/></div>
                     <button onClick={async () => { if(!avisoForm.mensaje) return; await addDoc(collection(db, 'alertas_flota'), {...avisoForm, createdAt: new Date().toISOString()}); setAvisoForm({mensaje: '', para: 'Todos', tipo: 'info'}); alert("Aviso enviado a la plataforma."); }} className="w-full py-4 bg-blue-600 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-blue-500 flex items-center justify-center gap-2"><Send size={16}/> Enviar Mensaje</button>
                 </div>
@@ -713,7 +650,6 @@ function Dashboard() {
                   </div>
               )}
 
-              {/* NAV TRANSPORTISTA RESPONSIVO */}
               <div className="flex gap-2 mb-6 p-1 bg-[#151F32] rounded-xl w-full border border-slate-800 overflow-x-auto md:flex-wrap md:overflow-visible custom-scrollbar">
                  <button onClick={() => setUserView('ruta')} className={cn("shrink-0 px-6 py-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2", userView === 'ruta' ? "bg-green-600 text-white shadow-lg" : "text-slate-400 hover:text-white")}><Bike size={16}/> Ruta</button>
                  <button onClick={() => setUserView('combustible')} className={cn("shrink-0 px-6 py-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2", userView === 'combustible' ? "bg-orange-600 text-white shadow-lg" : "text-slate-400 hover:text-white")}><Fuel size={16}/> Combustible</button>
@@ -725,10 +661,10 @@ function Dashboard() {
                  <div className="bg-[#151F32] p-6 md:p-10 rounded-[2rem] shadow-xl border border-slate-800 relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-500 to-emerald-400"></div>
                     <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-white"><ClipboardList className="text-green-500"/> Registro de Ruta</h2>
-                    <form onSubmit={async (e) => { e.preventDefault(); if(!imageFile) return alert("FOTO REQUERIDA"); if(getWait() === 0 && form.mLlegada !== form.mSalida) return alert("ERROR EN HORAS"); if (!catalogs.transportistas.includes(form.recolector)) return alert("TRANSPORTISTA NO VÁLIDO"); if (!catalogs.sucursales.includes(form.sucursal)) return alert("SUCURSAL NO VÁLIDA"); setIsUploading(true); try { const storageRef = ref(storage, `evidencias/${Date.now()}_${form.recolector.replace(/\s+/g, '_')}`); await uploadBytes(storageRef, imageFile); const photoURL = await getDownloadURL(storageRef); const isP = PRINCIPAL_KEYWORDS.some(k=>form.tipo.toLowerCase().includes(k)); await addDoc(collection(db, "registros_produccion"), { ...form, tiempo: getWait(), createdAt: new Date().toISOString(), categoria: isP ? "Principal" : "Secundaria", fotoData: photoURL, month: new Date().getMonth() + 1, usuarioEmail: currentUser.email }); alert("¡Registrado!"); setForm(prev => ({...prev, sucursal: '', observaciones: ''})); setImagePreview(null); setImageFile(null); } catch(e) { console.error(e); alert("Error al subir"); } finally { setIsUploading(false); } }} className="space-y-5">
+                    <form onSubmit={async (e) => { e.preventDefault(); if(!imageFile) return alert("FOTO REQUERIDA"); if(getWait() === 0 && form.mLlegada !== form.mSalida) return alert("ERROR EN HORAS"); if (!(catalogs.transportistas || []).includes(form.recolector)) return alert("TRANSPORTISTA NO VÁLIDO"); if (!(catalogs.sucursales || []).includes(form.sucursal)) return alert("SUCURSAL NO VÁLIDA"); setIsUploading(true); try { const storageRef = ref(storage, `evidencias/${Date.now()}_${form.recolector.replace(/\s+/g, '_')}`); await uploadBytes(storageRef, imageFile); const photoURL = await getDownloadURL(storageRef); const isP = PRINCIPAL_KEYWORDS.some(k=>form.tipo.toLowerCase().includes(k)); await addDoc(collection(db, "registros_produccion"), { ...form, tiempo: getWait(), createdAt: new Date().toISOString(), categoria: isP ? "Principal" : "Secundaria", fotoData: photoURL, month: new Date().getMonth() + 1, usuarioEmail: currentUser.email }); alert("¡Registrado!"); setForm(prev => ({...prev, sucursal: '', observaciones: ''})); setImagePreview(null); setImageFile(null); } catch(e) { console.error(e); alert("Error al subir"); } finally { setIsUploading(false); } }} className="space-y-5">
                       <div className="relative"><label className="text-[10px] font-bold text-slate-400 ml-4 block uppercase mb-1">Responsable</label><div className="relative"><input type="text" className={cn("w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase text-slate-400 cursor-not-allowed")} value={form.recolector} disabled /><User size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500"/></div></div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-blue-500 text-slate-300" value={form.tipo} onChange={e => setForm({...form, tipo: e.target.value})} required><option value="">-- DILIGENCIA --</option>{catalogs.diligencias.map(d => <option key={d} value={d}>{d}</option>)}</select><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-indigo-500 text-slate-300" value={form.area} onChange={e => setForm({...form, area: e.target.value})} required><option value="">-- ÁREA --</option>{catalogs.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
-                      <div className="relative" onClick={e => e.stopPropagation()}><input type="text" placeholder="SUCURSAL..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none text-white placeholder-slate-600" value={form.sucursal} onChange={e => handleInput('sucursal', e.target.value)} onFocus={() => setActiveInput('sucursal')} required />{activeInput === 'sucursal' && form.sucursal.length > 0 && (<div className="absolute z-30 w-full mt-2 bg-[#1F2937] shadow-xl rounded-xl border border-slate-700 max-h-40 overflow-y-auto">{catalogs.sucursales.filter(t=>t.toUpperCase().includes(form.sucursal.toUpperCase())).map(s => (<div key={s} onClick={() => { setForm({...form, sucursal: s}); setActiveInput(null); }} className="p-3 hover:bg-slate-700 cursor-pointer text-xs font-bold border-b border-slate-800 text-slate-300">{s}</div>))}</div>)}</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-blue-500 text-slate-300" value={form.tipo} onChange={e => setForm({...form, tipo: e.target.value})} required><option value="">-- DILIGENCIA --</option>{(catalogs.diligencias || []).map(d => <option key={d} value={d}>{d}</option>)}</select><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-indigo-500 text-slate-300" value={form.area} onChange={e => setForm({...form, area: e.target.value})} required><option value="">-- ÁREA --</option>{(catalogs.areas || []).map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+                      <div className="relative" onClick={e => e.stopPropagation()}><input type="text" placeholder="SUCURSAL..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none text-white placeholder-slate-600" value={form.sucursal} onChange={e => handleInput('sucursal', e.target.value)} onFocus={() => setActiveInput('sucursal')} required />{activeInput === 'sucursal' && form.sucursal.length > 0 && (<div className="absolute z-30 w-full mt-2 bg-[#1F2937] shadow-xl rounded-xl border border-slate-700 max-h-40 overflow-y-auto">{(catalogs.sucursales || []).filter(t=>t && typeof t === 'string' && t.toUpperCase().includes(form.sucursal.toUpperCase())).map(s => (<div key={s} onClick={() => { setForm({...form, sucursal: s}); setActiveInput(null); }} className="p-3 hover:bg-slate-700 cursor-pointer text-xs font-bold border-b border-slate-800 text-slate-300">{s}</div>))}</div>)}</div>
                       <div className="bg-[#0B1120] p-6 rounded-[2rem] text-white grid grid-cols-1 sm:grid-cols-2 gap-6 items-center shadow-inner border border-slate-800"><div className="space-y-4"><div className="flex flex-col items-center sm:items-start"><p className="text-[9px] font-bold text-green-400 uppercase tracking-widest mb-1">Llegada</p><div className="flex gap-1"><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.hLlegada} onChange={e=>setForm({...form, hLlegada:e.target.value})}>{Array.from({length: 12},(_,i)=>String(i+1).padStart(2,'0')).map(h=><option key={h}>{h}</option>)}</select><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.mLlegada} onChange={e=>setForm({...form, mLlegada:e.target.value})}>{Array.from({length: 60},(_,i)=>String(i).padStart(2,'0')).map(m=><option key={m}>{m}</option>)}</select><select className="bg-green-900 text-green-400 border border-green-700 p-2 rounded-lg font-bold text-[10px] w-14" value={form.pLlegada} onChange={e=>setForm({...form, pLlegada:e.target.value})}><option>AM</option><option>PM</option></select></div></div><div className="flex flex-col items-center sm:items-start"><p className="text-[9px] font-bold text-orange-400 uppercase tracking-widest mb-1">Salida</p><div className="flex gap-1"><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.hSalida} onChange={e=>setForm({...form, hSalida:e.target.value})}>{Array.from({length: 12},(_,i)=>String(i+1).padStart(2,'0')).map(h=><option key={h}>{h}</option>)}</select><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.mSalida} onChange={e=>setForm({...form, mSalida:e.target.value})}>{Array.from({length: 60},(_,i)=>String(i).padStart(2,'0')).map(m=><option key={m}>{m}</option>)}</select><select className="bg-orange-900 text-orange-400 border border-orange-700 p-2 rounded-lg font-bold text-[10px] w-14" value={form.pSalida} onChange={e=>setForm({...form, pSalida:e.target.value})}><option>AM</option><option>PM</option></select></div></div></div><div className="text-center border-t sm:border-t-0 sm:border-l border-slate-800 pt-4 sm:pt-0 h-full flex flex-col justify-center"><p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Espera Calc.</p><h4 className={cn("text-5xl font-black", getWait() > 5 ? "text-orange-400" : "text-green-400")}>{getWait()}m</h4></div></div>
                       <textarea placeholder="OBSERVACIONES..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none transition-all text-white placeholder-slate-600 resize-none h-24" value={form.observaciones} onChange={e => setForm({...form, observaciones: e.target.value})} />
                       <div className="grid grid-cols-2 gap-4"><label className="col-span-1 p-4 bg-[#0B1120] border-2 border-dashed border-slate-700 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-800 transition-all text-slate-400 font-bold uppercase text-[9px]"><Camera size={24}/><p>Foto</p><input type="file" className="hidden" accept="image/*" onChange={handleFile} /></label><button type="button" onClick={() => downloadReport()} className="col-span-1 bg-slate-800 border border-slate-700 rounded-2xl font-bold text-xs text-slate-300 uppercase flex flex-col items-center justify-center gap-2 hover:bg-slate-700 transition-all"><Download size={24}/>Mi Reporte Hoy</button></div>
@@ -763,7 +699,6 @@ function Dashboard() {
         {appMode === 'admin' && (
           <div className="space-y-6 md:space-y-8 animate-in fade-in">
              
-             {/* HEADER ADMIN RESPONSIVO */}
              <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
                 <div className="w-full xl:w-auto overflow-hidden">
                     <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-white mb-4 xl:mb-0">Centro de Control</h2>
@@ -777,7 +712,6 @@ function Dashboard() {
                     </div>
                 </div>
                 
-                {/* FILTROS RESPONSIVOS */}
                 <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center w-full xl:w-auto">
                   <div className="flex flex-wrap bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center gap-2 w-full sm:w-auto">
                     <Filter size={16} className="text-slate-500 hidden sm:block"/>
@@ -786,8 +720,8 @@ function Dashboard() {
                         {availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}
                     </select>
                     <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m==='all'?'Año':'Mes '+m}</option>)}</select>
-                    <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Todos</option>{catalogs.transportistas.map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
-                    <select value={filterSucursal} onChange={e=>setFilterSucursal(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Sucursal</option>{catalogs.sucursales.map(s=><option key={s} value={s} className="bg-slate-900">{s}</option>)}</select>
+                    <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Todos</option>{(catalogs.transportistas || []).map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
+                    <select value={filterSucursal} onChange={e=>setFilterSucursal(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Sucursal</option>{(catalogs.sucursales || []).map(s=><option key={s} value={s} className="bg-slate-900">{s}</option>)}</select>
                   </div>
                   
                   <div className="flex flex-wrap gap-2 w-full sm:w-auto">
@@ -802,7 +736,6 @@ function Dashboard() {
                 </div>
              </div>
 
-             {/* MÓDULO CATÁLOGOS */}
              {adminSection === 'catalogos' && (
                 <div className="animate-in fade-in space-y-6">
                    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl">
@@ -810,7 +743,6 @@ function Dashboard() {
                        <p className="text-xs text-slate-400 mb-6">Agrega o elimina opciones de las listas desplegables. Los cambios se reflejarán inmediatamente en las pantallas de los transportistas.</p>
                        
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                           {/* Tarjeta Transportistas */}
                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700 shadow-inner">
                                <h4 className="text-xs font-bold text-slate-300 uppercase mb-4 flex items-center gap-2"><User size={14} className="text-blue-400"/> Transportistas</h4>
                                <div className="flex gap-2 mb-4">
@@ -818,7 +750,7 @@ function Dashboard() {
                                    <button onClick={() => handleAddCatalogItem('transportistas')} className="bg-blue-600 hover:bg-blue-500 text-white px-4 rounded-xl flex items-center justify-center shadow-md transition-all"><Plus size={16}/></button>
                                </div>
                                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                                   {catalogs.transportistas.map(item => (
+                                   {(catalogs.transportistas || []).map(item => (
                                        <span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2 border border-slate-700">
                                            {item} <X size={12} className="cursor-pointer hover:text-red-400 text-slate-500" onClick={() => handleRemoveCatalogItem('transportistas', item)}/>
                                        </span>
@@ -826,7 +758,6 @@ function Dashboard() {
                                </div>
                            </div>
 
-                           {/* Tarjeta Sucursales */}
                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700 shadow-inner">
                                <h4 className="text-xs font-bold text-slate-300 uppercase mb-4 flex items-center gap-2"><MapPin size={14} className="text-indigo-400"/> Sucursales</h4>
                                <div className="flex gap-2 mb-4">
@@ -834,7 +765,7 @@ function Dashboard() {
                                    <button onClick={() => handleAddCatalogItem('sucursales')} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 rounded-xl flex items-center justify-center shadow-md transition-all"><Plus size={16}/></button>
                                </div>
                                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                                   {catalogs.sucursales.map(item => (
+                                   {(catalogs.sucursales || []).map(item => (
                                        <span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2 border border-slate-700">
                                            {item} <X size={12} className="cursor-pointer hover:text-red-400 text-slate-500" onClick={() => handleRemoveCatalogItem('sucursales', item)}/>
                                        </span>
@@ -842,7 +773,6 @@ function Dashboard() {
                                </div>
                            </div>
 
-                           {/* Tarjeta Diligencias */}
                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700 shadow-inner">
                                <h4 className="text-xs font-bold text-slate-300 uppercase mb-4 flex items-center gap-2"><ClipboardList size={14} className="text-green-400"/> Tipos de Diligencia</h4>
                                <div className="flex gap-2 mb-4">
@@ -850,7 +780,7 @@ function Dashboard() {
                                    <button onClick={() => handleAddCatalogItem('diligencias')} className="bg-green-600 hover:bg-green-500 text-white px-4 rounded-xl flex items-center justify-center shadow-md transition-all"><Plus size={16}/></button>
                                </div>
                                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                                   {catalogs.diligencias.map(item => (
+                                   {(catalogs.diligencias || []).map(item => (
                                        <span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2 border border-slate-700">
                                            {item} <X size={12} className="cursor-pointer hover:text-red-400 text-slate-500" onClick={() => handleRemoveCatalogItem('diligencias', item)}/>
                                        </span>
@@ -858,7 +788,6 @@ function Dashboard() {
                                </div>
                            </div>
 
-                           {/* Tarjeta Areas */}
                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700 shadow-inner">
                                <h4 className="text-xs font-bold text-slate-300 uppercase mb-4 flex items-center gap-2"><Layers size={14} className="text-orange-400"/> Áreas</h4>
                                <div className="flex gap-2 mb-4">
@@ -866,7 +795,7 @@ function Dashboard() {
                                    <button onClick={() => handleAddCatalogItem('areas')} className="bg-orange-600 hover:bg-orange-500 text-white px-4 rounded-xl flex items-center justify-center shadow-md transition-all"><Plus size={16}/></button>
                                </div>
                                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                                   {catalogs.areas.map(item => (
+                                   {(catalogs.areas || []).map(item => (
                                        <span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] font-bold flex items-center gap-2 border border-slate-700">
                                            {item} <X size={12} className="cursor-pointer hover:text-red-400 text-slate-500" onClick={() => handleRemoveCatalogItem('areas', item)}/>
                                        </span>
@@ -960,8 +889,8 @@ function Dashboard() {
                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-orange-500"/> Costo Operativo por Transportista ($)</h4><div className="h-60 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={fleetMetrics.chartData}><CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#64748b'}} interval={0} angle={-45} textAnchor="end" height={60} /><Tooltip cursor={{fill: '#1f2937'}} contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', color: '#fff'}} /><Legend verticalAlign="top" height={36} /><Bar dataKey="fuel" name="Combustible" stackId="a" fill="#ea580c" /><Bar dataKey="maint" name="Taller" stackId="a" fill="#eab308" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
                       <div className="space-y-4">
-                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden h-40"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Fuel size={14} className="text-orange-500"/> Últimas Cargas</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo Total</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
-                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden max-h-80"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Wrench size={14} className="text-yellow-500"/> Últimos Servicios</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
+                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden h-40"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Fuel size={14} className="text-orange-500"/> Últimas Cargas</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo Total</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{getStrictDateString(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
+                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden max-h-80"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Wrench size={14} className="text-yellow-500"/> Últimos Servicios</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{getStrictDateString(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
                       </div>
                    </div>
                 </div>
@@ -1039,21 +968,21 @@ function Dashboard() {
                 <div className="w-full xl:w-auto overflow-hidden">
                     <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-white mb-4 xl:mb-0 flex items-center gap-2"><Eye className="text-blue-500"/> Visor Operativo</h2>
                     <div className="flex gap-2 mt-0 xl:mt-4 bg-[#0B1120] p-1 rounded-xl w-full border border-slate-800 overflow-x-auto md:flex-wrap md:overflow-visible custom-scrollbar">
-                        <button onClick={()=>setSupervisorSection('bitacora')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='bitacora'?"bg-blue-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Bitácora</button>
-                        <button onClick={()=>setSupervisorSection('combustible')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='combustible'?"bg-orange-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Combustible</button>
-                        <button onClick={()=>setSupervisorSection('taller')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='taller'?"bg-yellow-600 text-black shadow-md":"text-slate-500 hover:text-slate-300")}>Taller</button>
-                        <button onClick={()=>setSupervisorSection('agenda')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='agenda'?"bg-purple-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}>Horarios</button>
+                        <button onClick={()=>setSupervisorSection('bitacora')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='bitacora'?"bg-blue-600 text-white shadow-md":"text-slate-500 hover:bg-slate-800")}>Bitácora</button>
+                        <button onClick={()=>setSupervisorSection('combustible')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='combustible'?"bg-orange-600 text-white shadow-md":"text-slate-500 hover:bg-slate-800")}>Combustible</button>
+                        <button onClick={()=>setSupervisorSection('taller')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='taller'?"bg-yellow-600 text-black shadow-md":"text-slate-500 hover:bg-slate-800")}>Taller</button>
+                        <button onClick={()=>setSupervisorSection('agenda')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='agenda'?"bg-purple-600 text-white shadow-md":"text-slate-500 hover:bg-slate-800")}>Horarios</button>
                     </div>
                 </div>
                 
                 <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center w-full xl:w-auto">
                   <div className="flex flex-wrap bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center gap-2 w-full sm:w-auto">
-                    <Filter size={16} className="text-slate-500 hidden sm:block"/>
+                    <Filter size={14} className="text-slate-500 hidden sm:block"/>
                     <input type="date" value={filterSpecificDate} onChange={e=>setFilterSpecificDate(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer flex-1 sm:flex-none" title="Filtrar por Día Exacto" />
                     <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">
                       {availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}
                    </select>
-                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Toda la Flota</option>{catalogs.transportistas.map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
+                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Toda la Flota</option>{(catalogs.transportistas || []).map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
                    <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Año</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">Mes {m}</option>)}</select>
                   </div>
                   
@@ -1109,6 +1038,7 @@ function Dashboard() {
                 </div>
              )}
 
+             {/* 🎭 TABLA DE AGENDA CON LA MÁSCARA VISUAL DE DÍAS 🎭 */}
              {supervisorSection === 'agenda' && (
                 <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
                    <div className="mb-4">
