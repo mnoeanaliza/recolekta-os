@@ -32,7 +32,7 @@ const cn = (...inputs) => twMerge(clsx(inputs));
 
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/mnoeanaliza/recolekta-os/refs/heads/main/Datos.csv";
 
-// MAPEO DE CORREOS PARA REPORTES
+// MAPEO DE CORREOS
 export const USUARIOS_EMAIL = {
   "brayan@recolekta.com": "BRAYAN REYES", "edwin@recolekta.com": "EDWIN FLORES", "teodoro@recolekta.com": "TEODORO PÉREZ",
   "giovanni@recolekta.com": "GIOVANNI CALLEJAS", "jairo@recolekta.com": "JAIRO GIL", "jason@recolekta.com": "JASON BARRERA",
@@ -43,7 +43,7 @@ export const USUARIOS_EMAIL = {
   "supervisor@recolekta.com": "SUPERVISOR", "nuevo_admin@recolekta.com": "NUEVO ADMIN", "ing.admin@recolekta.com": "INGENIERÍA ADMIN"
 };
 
-// --- CATÁLOGOS BASE DE EMERGENCIA ---
+// --- CATÁLOGOS BASE ---
 const DEFAULT_CATALOGS = {
   transportistas: [ "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "TRANSPORTISTA PRUEBA" ],
   sucursales: [ "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares" ],
@@ -130,6 +130,15 @@ function Dashboard() {
   const [form, setForm] = useState({ recolector: '', sucursal: '', area: '', tipo: '', hLlegada: '08', mLlegada: '00', pLlegada: 'AM', hSalida: '08', mSalida: '05', pSalida: 'AM', observaciones: '' });
   const [activeInput, setActiveInput] = useState(null);
 
+  // --- MEMORIAS DE CÁLCULO SEGURO (Moviendo esto arriba para evitar errores de ReferenceError) ---
+  const transportistaOtData = useMemo(() => {
+      if (!otData) return [];
+      return otData.filter(d => {
+          if (!sysConfig?.heInicio || !sysConfig?.heFin) return true;
+          return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin;
+      });
+  }, [otData, sysConfig]);
+
   useEffect(() => {
     if (!currentUser) return;
     if (!currentUser.email) { if (typeof logout === 'function') logout(); return; }
@@ -180,7 +189,6 @@ function Dashboard() {
         if(snap.exists()) setSysConfig(snap.data());
     });
 
-    // 🛡️ BLINDAJE DE CATÁLOGOS: Garantiza que siempre existan arreglos válidos para evitar Pantalla Blanca
     unsubCatalogs = onSnapshot(doc(db, "configuraciones", "catalogos"), (snap) => {
         const data = snap.exists() ? snap.data() : {};
         setCatalogs({
@@ -220,10 +228,14 @@ function Dashboard() {
         }
     } else if (appMode === 'user' && currentUser?.email) {
         
-        const hoyInicio = new Date();
-        hoyInicio.setHours(0,0,0,0);
+        // 🚀 SOLUCIÓN DEL CERO (ZONAS HORARIAS) 🚀
+        // Le pedimos a Firebase que nos mande registros desde hace 2 días para garantizar 
+        // que no se coma nada por culpa de la zona horaria. Luego el celular lo filtra a "Hoy".
+        const fechaSegura = new Date();
+        fechaSegura.setDate(fechaSegura.getDate() - 2); 
+        fechaSegura.setHours(0,0,0,0);
         
-        const qOps = query(collection(db, "registros_produccion"), where("createdAt", ">=", hoyInicio.toISOString()));
+        const qOps = query(collection(db, "registros_produccion"), where("createdAt", ">=", fechaSegura.toISOString()));
         unsubOps = onSnapshot(qOps, (snap) => {
             const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }))
                 .filter(d => d.usuarioEmail === currentUser.email || d.recolector === form.recolector);
@@ -297,7 +309,9 @@ function Dashboard() {
         if (!sysConfig.heInicio || !sysConfig.heFin) return true;
         return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin;
     });
+    
     if (filterUser !== 'all') filteredOt = filteredOt.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser);
+    
     const totalHoras = filteredOt.reduce((acc, curr) => { const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; return acc + hrs; }, 0);
     const userOtStats = filteredOt.reduce((acc, curr) => { const rawName = curr.usuario || 'Desconocido'; const name = USUARIOS_EMAIL[rawName] || rawName; const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; acc[name] = (acc[name] || 0) + hrs; return acc; }, {});
     const rankingOt = Object.entries(userOtStats).map(([name, hours]) => ({ name, hours: parseFloat(hours.toFixed(2)) })).sort((a,b) => b.hours - a.hours);
@@ -318,18 +332,21 @@ function Dashboard() {
   const metrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
     let filtered = data.filter(d => checkDate(d.createdAt));
+    
     if (filterUser !== 'all') filtered = filtered.filter(d => d.recolector === filterUser);
     if (filterSucursal !== 'all') filtered = filtered.filter(d => d.sucursal === filterSucursal);
     if (filterSpecificDate) {
         const targetDate = getStrictDateString(filterSpecificDate); 
         filtered = filtered.filter(d => getStrictDateString(d.createdAt) === targetDate);
     }
+
     const pItems = filtered.filter(d => isPrincipalData(d)); const sItems = filtered.filter(d => !isPrincipalData(d));
     const calcEf = (arr) => arr.length > 0 ? ((arr.filter(x => (x.tiempo||0) <= 5).length / arr.length) * 100).toFixed(1) : 0;
     const calcAvg = (arr) => arr.length > 0 ? (arr.reduce((a,b)=>a+(b.tiempo||0),0)/arr.length).toFixed(1) : 0;
     const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = data.filter(d => { const { year, month } = extractDateInfo(d.createdAt); return year === filterYear && month === i + 1; }); const finalDocs = filterUser === 'all' ? mDocs : mDocs.filter(d => d.recolector === filterUser); const mRecs = finalDocs.filter(d => isPrincipalData(d)); return { name: m, ef: parseFloat(calcEf(mRecs)), count: finalDocs.length }; }).filter(d => d.count > 0);
     const sucursalStats = filtered.reduce((acc, curr) => { if(!curr.sucursal || curr.sucursal === 'N/A' || curr.sucursal === 'Ruta Externa') return acc; acc[curr.sucursal] = acc[curr.sucursal] || { totalTime: 0, count: 0 }; acc[curr.sucursal].totalTime += (curr.tiempo || 0); acc[curr.sucursal].count += 1; return acc; }, {});
     const topSucursales = Object.entries(sucursalStats).map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) })).sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
+    
     return { total: filtered.length, efP: calcEf(pItems), avgP: calcAvg(pItems), countP: pItems.length, efS: calcEf(sItems), avgS: calcAvg(sItems), countS: sItems.length, monthlyData, topSucursales, rows: filtered };
   }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal]);
 
@@ -338,6 +355,7 @@ function Dashboard() {
       const y2 = (parseInt(filterYear) - 1).toString(); 
       const allOps = [...liveData, ...csvData]; 
       const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      
       const currYear = new Date().getFullYear().toString();
       const currMonth = new Date().getMonth() + 1;
 
@@ -345,13 +363,22 @@ function Dashboard() {
           const mNum = i + 1;
           const isFutureY1 = (y1 === currYear && mNum > currMonth) || (parseInt(y1) > parseInt(currYear));
           const isFutureY2 = (y2 === currYear && mNum > currMonth) || (parseInt(y2) > parseInt(currYear));
+
           const getOps = (y) => { let docs = allOps.filter(d => { const info = extractDateInfo(d.createdAt); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => x.recolector === filterUser); return docs; };
           const ops1 = getOps(y1); const ops2 = getOps(y2);
           const calcEf = (docs) => { const recs = docs.filter(d => isPrincipalData(d)); if(recs.length === 0) return 0; return parseFloat(((recs.filter(x => (x.tiempo||0) <= 5).length / recs.length) * 100).toFixed(1)); };
           const getFuel = (y) => { let docs = fuelData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           const getMaint = (y) => { let docs = maintData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           
-          return { name: m, [`ef${y1}`]: isFutureY1 ? null : calcEf(ops1), [`ef${y2}`]: isFutureY2 ? null : calcEf(ops2), [`fuel${y1}`]: isFutureY1 ? null : parseFloat(getFuel(y1).toFixed(2)), [`fuel${y2}`]: isFutureY2 ? null : parseFloat(getFuel(y2).toFixed(2)), [`maint${y1}`]: isFutureY1 ? null : parseFloat(getMaint(y1).toFixed(2)), [`maint${y2}`]: isFutureY2 ? null : parseFloat(getMaint(y2).toFixed(2)) }
+          return { 
+              name: m, 
+              [`ef${y1}`]: isFutureY1 ? null : calcEf(ops1), 
+              [`ef${y2}`]: isFutureY2 ? null : calcEf(ops2), 
+              [`fuel${y1}`]: isFutureY1 ? null : parseFloat(getFuel(y1).toFixed(2)), 
+              [`fuel${y2}`]: isFutureY2 ? null : parseFloat(getFuel(y2).toFixed(2)), 
+              [`maint${y1}`]: isFutureY1 ? null : parseFloat(getMaint(y1).toFixed(2)), 
+              [`maint${y2}`]: isFutureY2 ? null : parseFloat(getMaint(y2).toFixed(2)) 
+          }
       });
       return { dataYoY, yCurrent: y1, yPrev: y2 };
   }, [liveData, csvData, fuelData, maintData, filterYear, filterUser]);
@@ -359,44 +386,18 @@ function Dashboard() {
   const convertToMinutes = (h, m, p) => { let hour = parseInt(h); if (p === 'AM' && hour === 12) hour = 0; if (p === 'PM' && hour !== 12) hour += 12; return hour * 60 + parseInt(m); };
   const getWait = () => { const startMins = convertToMinutes(form.hLlegada, form.mLlegada, form.pLlegada); const endMins = convertToMinutes(form.hSalida, form.mSalida, form.pSalida); return Math.max(0, endMins - startMins); };
   const handleInput = (field, value) => { setForm(prev => ({ ...prev, [field]: field === 'recolector' ? value.toUpperCase() : value })); setActiveInput(field); };
-
-  // 🛡️ BLINDAJE DE IMÁGENES: Fallback si el Canvas falla por memoria en Android bajos
-  const compressImage = (file) => {
-    return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target.result;
-            img.onload = () => {
-                try {
-                    const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 800;
-                    const scaleSize = MAX_WIDTH / img.width;
-                    canvas.width = MAX_WIDTH;
-                    canvas.height = img.height * scaleSize;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    canvas.toBlob((blob) => {
-                        if (blob) resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
-                        else resolve(file);
-                    }, 'image/jpeg', 0.7);
-                } catch(e) { resolve(file); } // Si la memoria colapsa, envía la original
-            };
-            img.onerror = () => resolve(file);
-        };
-        reader.onerror = () => resolve(file);
-    });
-  };
-
+  const compressImage = (file) => { return new Promise((resolve) => { const reader = new FileReader(); reader.readAsDataURL(file); reader.onload = (event) => { const img = new Image(); img.src = event.target.result; img.onload = () => { try { const canvas = document.createElement('canvas'); const MAX_WIDTH = 800; const scaleSize = MAX_WIDTH / img.width; canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height); canvas.toBlob((blob) => { if (blob) resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() })); else resolve(file); }, 'image/jpeg', 0.7); } catch(e) { resolve(file); } }; img.onerror = () => resolve(file); }; reader.onerror = () => resolve(file); }); };
   const handleFile = async (e) => { const file = e.target.files[0]; if (file) { setIsCompressing(true); try { const compressedFile = await compressImage(file); setImageFile(compressedFile); const reader = new FileReader(); reader.onloadend = () => setImagePreview(reader.result); reader.readAsDataURL(compressedFile); } catch (e) { alert("Error al procesar la imagen"); } finally { setIsCompressing(false); } } };
   
   const userMetrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
     const targetUser = form.recolector;
     let userDocs = targetUser && targetUser.length > 2 ? data.filter(d => d.recolector === targetUser) : data;
+    
+    // Filtro Exacto de Hoy usando la misma máscara (Indestructible)
     const todayStr = getStrictDateString(new Date()); 
     userDocs = userDocs.filter(d => getStrictDateString(d.createdAt) === todayStr);
+    
     const recs = userDocs.filter(d => isPrincipalData(d));
     const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= 5).length / recs.length) * 100).toFixed(1) : 0;
     return { ef: ef, count: userDocs.length, label: targetUser && targetUser.length > 2 ? targetUser.split(' ')[0] : 'HOY' };
@@ -430,18 +431,34 @@ function Dashboard() {
           const isMaintToday = miAgenda.mantenimiento === localTodayStr;
           const isMaintPast = miAgenda.mantenimiento && miAgenda.mantenimiento < localTodayStr;
 
-          const hasRegisteredMaint = maintData.some(m => m.fecha >= miAgenda.mantenimiento);
+          const hasRegisteredMaint = maintData.some(m => {
+              return m.fecha >= miAgenda.mantenimiento;
+          });
           
           if (!hasRegisteredMaint) {
               if (isMaintPast && !hiddenAlerts.includes('kpi_maint_past')) {
-                  alerts.push({ id: 'kpi_maint_past', type: 'kpi_danger', title: '🔴 ALERTA DE KPI: Mantenimiento Vencido', msg: `Tu fecha de taller (${formatWithDay(formatLocalDate(miAgenda.mantenimiento))}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`, tipo: 'info' });
+                  alerts.push({
+                      id: 'kpi_maint_past',
+                      type: 'kpi_danger',
+                      title: '🔴 ALERTA DE KPI: Mantenimiento Vencido',
+                      msg: `Tu fecha de taller (${formatLocalDate(miAgenda.mantenimiento)}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`,
+                      tipo: 'info'
+                  });
               }
               const maintId = `auto_maint_${localTodayStr}_${miAgenda.mantenimiento || ''}`;
               if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller asignado y registra el comprobante.' });
           }
 
           const turnosTxt = (miAgenda.turnos || '').toLowerCase();
-          const hasTurnoToday = turnosTxt.includes(todayName.toLowerCase()) || turnosTxt.includes(todayShortSlash) || turnosTxt.includes(todayShortDash) || turnosTxt.includes(todayFullSlash) || turnosTxt.includes(todayFullDash) || turnosTxt.includes(todayShortSlashUnp) || turnosTxt.includes(todayFullSlashUnp);
+          const hasTurnoToday = 
+              turnosTxt.includes(todayName.toLowerCase()) || 
+              turnosTxt.includes(todayShortSlash) || 
+              turnosTxt.includes(todayShortDash) || 
+              turnosTxt.includes(todayFullSlash) || 
+              turnosTxt.includes(todayFullDash) ||
+              turnosTxt.includes(todayShortSlashUnp) ||
+              turnosTxt.includes(todayFullSlashUnp);
+
           const turnoId = `auto_turno_${localTodayStr}_${miAgenda.turnos || ''}`;
           if (hasTurnoToday && !hiddenAlerts.includes(turnoId)) alerts.push({ id: turnoId, type: 'turno', title: '¡Turno Extra Hoy!', msg: 'Registra tus horas al finalizar.' });
       }
@@ -449,7 +466,12 @@ function Dashboard() {
       alertasData.forEach(alerta => {
           if (hiddenAlerts.includes(alerta.id)) return;
           if (alerta.para === 'Todos' || alerta.para === form.recolector) {
-              alerts.push({ ...alerta, type: 'admin_msg', title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso Global' : 'Mensaje Directo'), msg: alerta.mensaje });
+              alerts.push({ 
+                  ...alerta, 
+                  type: 'admin_msg',
+                  title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso Global' : 'Mensaje Directo'),
+                  msg: alerta.mensaje 
+              });
           }
       });
       return alerts;
@@ -457,13 +479,21 @@ function Dashboard() {
 
   const dismissAlert = async (alerta, replyText = '') => {
       if (alerta.tipo === 'confirm' && replyText) {
-          try { await updateDoc(doc(db, "alertas_flota", alerta.id), { respuestas: arrayUnion({ usuario: form.recolector, respuesta: replyText, fecha: new Date().toISOString() }) }); } catch(e) {}
+          try { 
+              const alertRef = doc(db, "alertas_flota", alerta.id);
+              await updateDoc(alertRef, {
+                  respuestas: arrayUnion({ usuario: form.recolector, respuesta: replyText, fecha: new Date().toISOString() })
+              });
+          } catch(e) { console.error("Error al enviar respuesta", e); }
       } else if (alerta.tipo === 'info' && alerta.para !== 'Todos') {
-          try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) {}
+          try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) { console.error(e); }
       }
+
       const newHidden = [...hiddenAlerts, alerta.id];
       setHiddenAlerts(newHidden);
-      if (currentUser && currentUser.email) localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
+      if (currentUser && currentUser.email) {
+          localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
+      }
   };
 
   const exportToCSV = () => { 
@@ -479,11 +509,25 @@ function Dashboard() {
     if (!hrMetrics.rawData || hrMetrics.rawData.length === 0) return alert("No hay datos de horas extras en este rango."); 
     const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h, 10); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
     const splitSchedule = (scheduleStr) => { if (!scheduleStr || !scheduleStr.includes('-')) return { start: '', end: '' }; const parts = scheduleStr.split('-'); return { start: parts[0].trim(), end: parts[1].trim() }; }; 
+    
     const csvRows = hrMetrics.rawData.map((r, index) => { 
         const workHours = splitSchedule(r.horarioTurno || ''); 
         const heStart = formatTime12(r.horaInicio); 
         const heEnd = formatTime12(r.horaFin); 
-        return { 'ID': index + 1, 'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, 'Fecha': getStrictDateString(r.fecha), 'Hora de trabajo Inicio': workHours.start, 'Hora de trabajo Fin': workHours.end, 'Horario de Horas extras Inicio': heStart, 'Horario de Horas extras Fin': heEnd, 'Horas extras': r.horasCalculadas, 'Actividad Realizada / Observaciones': r.motivo || '', 'HorarioTrabajo': r.horarioTurno || '', 'HorarioHE': `${heStart} - ${heEnd}` }; 
+        return { 
+            'ID': index + 1, 
+            'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 
+            'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, 
+            'Fecha': getStrictDateString(r.fecha), 
+            'Hora de trabajo Inicio': workHours.start, 
+            'Hora de trabajo Fin': workHours.end, 
+            'Horario de Horas extras Inicio': heStart, 
+            'Horario de Horas extras Fin': heEnd, 
+            'Horas extras': r.horasCalculadas, 
+            'Actividad Realizada / Observaciones': r.motivo || '', 
+            'HorarioTrabajo': r.horarioTurno || '', 
+            'HorarioHE': `${heStart} - ${heEnd}` 
+        }; 
     }); 
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); 
     const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); 
@@ -495,6 +539,7 @@ function Dashboard() {
     try {
         let reportData = [];
         let reportTitle = "";
+
         if (appMode === 'user') {
             const todayStr = getStrictDateString(new Date());
             reportData = liveData.filter(d => d.recolector === form.recolector && getStrictDateString(d.createdAt) === todayStr);
@@ -507,6 +552,7 @@ function Dashboard() {
             if (filterSpecificDate) titleParts.push(`FECHA: ${getStrictDateString(filterSpecificDate)}`);
             reportTitle = titleParts.length > 0 ? titleParts.join(" | ") : "REPORTE CONSOLIDADO GLOBAL";
         }
+
         if (reportData.length === 0) return alert("No hay datos para generar el reporte con los filtros actuales.");
 
         const doc = new jsPDF();
@@ -514,6 +560,7 @@ function Dashboard() {
         const drawHeader = (title, subtitle) => { doc.setFillColor(...slate900); doc.rect(0,0,210,40,'F'); doc.setFillColor(...green500); doc.circle(20, 20, 10, 'F'); doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 22); doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 18); doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA", 35, 24); doc.setTextColor(40); doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.text(title, 15, 55); doc.setFontSize(10); doc.setTextColor(100); doc.text(subtitle, 15, 61); };
         
         drawHeader(reportTitle, `Generado: ${new Date().toLocaleDateString()} | Registros: ${reportData.length}`);
+
         const pItems = reportData.filter(d => isPrincipalData(d));
         const sItems = reportData.filter(d => !isPrincipalData(d));
         const efP = pItems.length > 0 ? ((pItems.filter(x => (x.tiempo||0) <= 5).length / pItems.length) * 100).toFixed(1) : 0;
@@ -527,14 +574,23 @@ function Dashboard() {
         doc.text(`Promedio Espera (Otras): ${avgS} min`, 120, 81);
 
         if (appMode === 'user' || filterSpecificDate) {
-            const rows = reportData.map(r => [ getStrictDateString(r.createdAt), r.sucursal, r.tipo, `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}`, `${r.hSalida}:${r.mSalida} ${r.pSalida}`, `${r.tiempo}m`, r.categoria ]);
+            const rows = reportData.map(r => [
+                getStrictDateString(r.createdAt), r.sucursal, r.tipo, 
+                `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}`, `${r.hSalida}:${r.mSalida} ${r.pSalida}`, 
+                `${r.tiempo}m`, r.categoria
+            ]);
             autoTable(doc, { startY: 95, head: [['Fecha', 'Sucursal', 'Diligencia', 'Llegada', 'Salida', 'Espera', 'Tipo']], body: rows, headStyles: { fillColor: slate900 }, styles: { fontSize: 8 }, theme: 'striped' });
         } else {
             const monthlyTableRows = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = reportData.filter(d => extractDateInfo(d.createdAt).month === i + 1); const mRecs = mDocs.filter(d => isPrincipalData(d)); const mDils = mDocs.filter(d => !isPrincipalData(d)); const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0; const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0; const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0; return [m, mRecs.length, `${mEf}%`, `${mAvgR}m`, mDils.length, `${mAvgD}m`]; }).filter(r => r[1] > 0 || r[4] > 0);
             autoTable(doc, { startY: 95, head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']], body: monthlyTableRows, headStyles: { fillColor: slate900, halign: 'center' }, theme: 'striped' });
         }
+        
         doc.save(`Recolekta_Reporte_${appMode==='user'?form.recolector:'Filtrado'}.pdf`);
-    } catch (error) { alert("Error al generar el reporte."); }
+
+    } catch (error) {
+        console.error("Error generating report", error);
+        alert("Error al generar el reporte.");
+    }
   };
 
   return (
@@ -982,13 +1038,13 @@ function Dashboard() {
                     <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">
                       {availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}
                    </select>
-                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Toda la Flota</option>{(catalogs.transportistas || []).map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
+                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all">Toda la Flota</option>{(catalogs.transportistas || []).map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
                    <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Año</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">Mes {m}</option>)}</select>
                   </div>
                   
                   <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                      <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-blue-500 transition-all flex-1 sm:flex-none"><Bell size={14}/> Aviso</button>
-                      <button onClick={() => downloadReport()} className="bg-white text-black px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-slate-200 transition-all flex-1 sm:flex-none"><Download size={14}/> PDF</button>
+                      <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-blue-500 transition-all flex-1 sm:flex-none"><Bell size={12}/> Aviso</button>
+                      <button onClick={() => downloadReport(null)} className="bg-white text-black px-4 py-3 md:py-2 rounded-xl text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center justify-center gap-1 flex-1 sm:flex-none"><Download size={12}/> PDF</button>
                   </div>
                 </div>
              </div>
@@ -1038,7 +1094,6 @@ function Dashboard() {
                 </div>
              )}
 
-             {/* 🎭 TABLA DE AGENDA CON LA MÁSCARA VISUAL DE DÍAS 🎭 */}
              {supervisorSection === 'agenda' && (
                 <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
                    <div className="mb-4">
