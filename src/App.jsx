@@ -7,7 +7,6 @@ import FuelModule from './components/FuelModule';
 import ScheduleModule from './components/ScheduleModule';
 import MaintenanceModule from './components/MaintenanceModule';
 import OvertimeModule from './components/OvertimeModule';
-import AgendaAdmin from './components/AgendaAdmin';
 
 import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion, setDoc } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -18,7 +17,7 @@ import {
   ExternalLink, MessageSquare, BarChart3, FileSpreadsheet, User, Fuel, DollarSign, 
   Calendar, Wrench, Briefcase, Eye, Search, Filter, MapPin, Layers, ShieldCheck, 
   Loader2, Image as ImageIcon, Eraser, Edit, Trash2, X, Edit3, Save, RefreshCw, PieChart,
-  Bell, Send, XCircle, Check, Settings, Smartphone, ListChecks, Plus
+  Bell, Send, XCircle, Check, Settings, Smartphone, ListChecks, Plus, ChevronLeft, ChevronRight, Users
 } from 'lucide-react';
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend, LineChart, Line } from 'recharts';
@@ -54,6 +53,7 @@ const DEFAULT_CATALOGS = {
 const PRINCIPAL_KEYWORDS = ["muestras", "entrega", "recepción", "recolección", "recoleccion"];
 const isPrincipalData = (d) => { if (d.categoria === "Principal") return true; const txt = (d.tipo || d.originalTipo || '').toLowerCase(); return PRINCIPAL_KEYWORDS.some(k => txt.includes(k)); };
 
+// --- 🛡️ ESCUDO Y FORMATEADORES DE FECHA ---
 const getStrictDateString = (dateInput) => {
     if (!dateInput) return '';
     if (typeof dateInput === 'string' && dateInput.includes('-') && !dateInput.includes('T')) {
@@ -71,6 +71,383 @@ const getStrictDateString = (dateInput) => {
 };
 
 const formatLocalDate = (dateStr) => getStrictDateString(dateStr);
+
+const formatWithDay = (dateStr) => {
+    if (!dateStr || dateStr === '--') return '--';
+    try {
+        let parts = dateStr.split('/');
+        let dateObj;
+        if (parts.length === 3) {
+            dateObj = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
+        } else {
+            parts = dateStr.split('-');
+            if (parts.length === 3) dateObj = new Date(`${parts[0]}-${parts[1]}-${parts[2]}T12:00:00`);
+            else return dateStr;
+        }
+        if (isNaN(dateObj.getTime())) return dateStr;
+        const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        return `${days[dateObj.getDay()]} ${dateStr}`;
+    } catch(e) { return dateStr; }
+};
+
+const formatTurnosVisually = (turnosStr) => {
+    if (!turnosStr || turnosStr === 'Ninguno') return 'Ninguno';
+    return turnosStr.split('-').map(t => formatWithDay(t.trim())).join(' - ');
+};
+
+// =========================================================================
+// 🧩 COMPONENTE DE AGENDA (CON MOTOR DE SUMA INTELIGENTE)
+// =========================================================================
+function AgendaAdmin({ sucursales = [], transportistas = [] }) {
+    const [agendaData, setAgendaData] = useState([]);
+    const [selectedUsers, setSelectedUsers] = useState([]);
+    const [form, setForm] = useState({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
+    const [tempDate, setTempDate] = useState('');
+    const [tempPunto, setTempPunto] = useState('');
+    
+    // 🛡️ NUEVO: Modo Suma Inteligente Activado por Defecto
+    const [appendMode, setAppendMode] = useState(true);
+
+    const [calMonth, setCalMonth] = useState(new Date().getMonth());
+    const [calYear, setCalYear] = useState(new Date().getFullYear());
+    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+    useEffect(() => {
+        const unsub = onSnapshot(collection(db, "agenda_flota"), (snap) => {
+            setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+        return () => unsub();
+    }, []);
+
+    const handleAddUser = (e) => {
+        const val = e.target.value;
+        if (val === 'TODOS') {
+            setSelectedUsers(transportistas);
+        } else if (val && !selectedUsers.includes(val)) {
+            setSelectedUsers([...selectedUsers, val]);
+        }
+    };
+
+    const removeUser = (user) => {
+        setSelectedUsers(selectedUsers.filter(u => u !== user));
+    };
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        if (selectedUsers.length === 0) return alert("Selecciona al menos un transportista para asignar.");
+        
+        try {
+            await Promise.all(
+                selectedUsers.map(async (id) => {
+                    const currentUserData = agendaData.find(u => u.id === id) || {};
+                    const updateData = {};
+
+                    if (form.horario) updateData.horario = form.horario;
+                    if (form.zona) updateData.zona = form.zona;
+                    if (form.mantenimiento) updateData.mantenimiento = form.mantenimiento;
+
+                    // 🛡️ LÓGICA DE SUMA INTELIGENTE PARA PUNTOS
+                    if (form.puntos) {
+                        if (form.puntos.toUpperCase() === 'NINGUNO') {
+                            updateData.puntos = '';
+                        } else if (appendMode && currentUserData.puntos && currentUserData.puntos !== 'Ninguno') {
+                            const existing = currentUserData.puntos.split('/').map(s=>s.trim()).filter(Boolean);
+                            const incoming = form.puntos.split('/').map(s=>s.trim()).filter(Boolean);
+                            updateData.puntos = [...new Set([...existing, ...incoming])].join(' / ');
+                        } else {
+                            updateData.puntos = form.puntos;
+                        }
+                    }
+
+                    // 🛡️ LÓGICA DE SUMA INTELIGENTE PARA TURNOS Y AUTO-ORDENAMIENTO
+                    if (form.turnos) {
+                        if (form.turnos.toUpperCase() === 'NINGUNO') {
+                            updateData.turnos = 'Ninguno';
+                        } else if (appendMode && currentUserData.turnos && currentUserData.turnos !== 'Ninguno') {
+                            const existing = currentUserData.turnos.split('-').map(s=>s.trim()).filter(Boolean);
+                            const incoming = form.turnos.split('-').map(s=>s.trim()).filter(Boolean);
+                            const merged = [...new Set([...existing, ...incoming])].sort((a,b) => {
+                                const [da, ma, ya] = a.split('/');
+                                const [db, mb, yb] = b.split('/');
+                                return new Date(`${ya}-${ma}-${da}`) - new Date(`${yb}-${mb}-${db}`);
+                            });
+                            updateData.turnos = merged.join(' - ');
+                        } else {
+                            updateData.turnos = form.turnos;
+                        }
+                    }
+
+                    if (Object.keys(updateData).length > 0) {
+                        await setDoc(doc(db, "agenda_flota", id), updateData, { merge: true });
+                    }
+                })
+            );
+
+            alert(`¡Asignación guardada con éxito para ${selectedUsers.length} transportista(s)!`);
+            setForm({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
+            setSelectedUsers([]);
+        } catch (error) {
+            console.error("Error saving agenda:", error);
+            alert("Error al guardar en la base de datos.");
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if(window.confirm(`¿Eliminar completamente la agenda de ${id}?`)) {
+            await deleteDoc(doc(db, "agenda_flota", id));
+        }
+    };
+
+    const handleEdit = (item) => {
+        setSelectedUsers([item.id]);
+        setForm({
+            horario: item.horario || '',
+            zona: item.zona || '',
+            puntos: item.puntos || '',
+            turnos: item.turnos || '',
+            mantenimiento: item.mantenimiento || ''
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const addTurnoDate = () => {
+        if (!tempDate) return;
+        const [y, m, d] = tempDate.split('-');
+        const formattedDate = `${d}/${m}/${y}`;
+        
+        let currentTurnos = form.turnos && form.turnos !== 'Ninguno' ? form.turnos.split(' - ').map(t => t.trim()).filter(t => t) : [];
+        if (!currentTurnos.includes(formattedDate)) {
+            currentTurnos.push(formattedDate);
+            setForm({ ...form, turnos: currentTurnos.join(' - ') });
+        }
+        setTempDate('');
+    };
+
+    const clearTurnos = () => setForm({ ...form, turnos: '' });
+
+    const addPunto = () => {
+        if (!tempPunto) return;
+        let currentPuntos = form.puntos && form.puntos !== 'Ninguno' ? form.puntos.split(' / ').map(p => p.trim()).filter(p => p) : [];
+        if (!currentPuntos.includes(tempPunto)) {
+            currentPuntos.push(tempPunto);
+            setForm({ ...form, puntos: currentPuntos.join(' / ') });
+        }
+        setTempPunto('');
+    };
+
+    const clearPuntos = () => setForm({ ...form, puntos: '' });
+
+    const prevMonth = () => {
+        if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); }
+        else { setCalMonth(calMonth - 1); }
+    };
+    const nextMonth = () => {
+        if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); }
+        else { setCalMonth(calMonth + 1); }
+    };
+
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    const firstDay = new Date(calYear, calMonth, 1).getDay(); 
+    const blanks = Array.from({ length: firstDay }, (_, i) => i);
+    const calendarDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+    // 🛡️ NORMALIZADOR DE FECHAS PARA EL CALENDARIO (Soluciona 05/03 vs 5/3)
+    const normalizeDateStr = (str) => {
+        const parts = str.split('/');
+        if (parts.length === 3) return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+        return str;
+    };
+
+    const getTurnosForDay = (day) => {
+        const dd = String(day).padStart(2, '0');
+        const mm = String(calMonth + 1).padStart(2, '0');
+        const yy = calYear;
+        const targetDate = `${dd}/${mm}/${yy}`; 
+
+        let scheduled = [];
+        agendaData.forEach(user => {
+            if (user.turnos && user.turnos !== 'Ninguno') {
+                const dates = user.turnos.split('-').map(t => normalizeDateStr(t.trim()));
+                if (dates.includes(targetDate)) {
+                    scheduled.push(user.id.split(' ')[0]); 
+                }
+            }
+        });
+        return scheduled;
+    };
+
+    return (
+        <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            {/* 1. FORMULARIO DE ASIGNACIÓN */}
+            <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl">
+                <h3 className="text-xl font-black text-white mb-6 flex items-center gap-2"><Calendar className="text-blue-500"/> Asignación y Actualización de Horarios</h3>
+                
+                <form onSubmit={handleSave} className="space-y-6">
+                    <div className="bg-[#0B1120] p-5 rounded-2xl border border-blue-900/50 shadow-inner">
+                        <label className="text-[10px] font-bold text-blue-400 uppercase mb-2 flex items-center gap-1"><Users size={14}/> Transportistas a Actualizar</label>
+                        <select onChange={handleAddUser} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer mb-3" value="">
+                            <option value="">-- SELECCIONAR PARA AGREGAR AL GRUPO --</option>
+                            <option value="TODOS" className="font-black text-blue-400">AGREGAR A TODA LA FLOTA</option>
+                            {transportistas.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        <div className="flex flex-wrap gap-2">
+                            {selectedUsers.length === 0 ? (
+                                <p className="text-xs text-slate-600 italic">No has seleccionado a nadie.</p>
+                            ) : (
+                                selectedUsers.map(u => (
+                                    <span key={u} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 shadow-md">
+                                        {u} <X size={14} className="cursor-pointer hover:text-red-300" onClick={() => removeUser(u)}/>
+                                    </span>
+                                ))
+                            )}
+                            {selectedUsers.length > 1 && (
+                                <button type="button" onClick={()=>setSelectedUsers([])} className="text-[10px] text-red-400 hover:text-red-300 font-bold px-2">Limpiar Grupo</button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* MODO SUMA (ACTIVADO POR DEFECTO) */}
+                    <div className="bg-blue-900/10 border border-blue-800/40 p-3 rounded-xl flex items-center gap-3">
+                        <input type="checkbox" checked={appendMode} onChange={e => setAppendMode(e.target.checked)} className="w-5 h-5 accent-blue-600 cursor-pointer" id="appendModeToggle" />
+                        <label htmlFor="appendModeToggle" className="text-[10px] font-bold text-blue-300 cursor-pointer uppercase">
+                            MODO ACUMULATIVO: Sumar los días a las asignaciones existentes (Si lo apagas, reemplazará todo)
+                        </label>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Horario Base</label>
+                            <input value={form.horario} onChange={e=>setForm({...form, horario: e.target.value})} placeholder="Ej. 06:00 am - 03:00 pm (Dejar en blanco para no modificar)" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Zona Asignada</label>
+                            <input value={form.zona} onChange={e=>setForm({...form, zona: e.target.value})} placeholder="Ej. San Salvador Centro (Dejar en blanco para no modificar)" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-800 space-y-4 shadow-inner">
+                            <h4 className="text-xs font-bold text-slate-300 uppercase flex items-center gap-2"><MapPin size={14} className="text-indigo-400"/> Puntos / Sucursales</h4>
+                            <div className="flex items-end gap-2">
+                                <div className="flex-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Catálogo Oficial</label>
+                                    <select value={tempPunto} onChange={e => setTempPunto(e.target.value)} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer">
+                                        <option value="">-- ELEGIR SUCURSAL --</option>
+                                        {sucursales.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </div>
+                                <button type="button" onClick={addPunto} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-3 rounded-xl font-bold flex items-center shadow-md transition-all h-[46px] mt-auto"><Plus size={18}/></button>
+                            </div>
+                            <div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Ruta Armada</label>
+                                    {form.puntos && <button type="button" onClick={clearPuntos} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}
+                                </div>
+                                <textarea value={form.puntos} onChange={e=>setForm({...form, puntos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar la ruta a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/>
+                            </div>
+                        </div>
+
+                        <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-800 space-y-4 shadow-inner">
+                            <h4 className="text-xs font-bold text-slate-300 uppercase flex items-center gap-2"><Clock size={14} className="text-purple-400"/> Programación de Turnos</h4>
+                            <div className="flex items-end gap-2">
+                                <div className="flex-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Calendario</label>
+                                    <input type="date" value={tempDate} onChange={e => setTempDate(e.target.value)} style={{ colorScheme: 'dark' }} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer"/>
+                                </div>
+                                <button type="button" onClick={addTurnoDate} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-xl font-bold flex items-center shadow-md transition-all h-[46px] mt-auto"><Plus size={18}/></button>
+                            </div>
+                            <div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Fechas Asignadas</label>
+                                    {form.turnos && <button type="button" onClick={clearTurnos} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}
+                                </div>
+                                <textarea value={form.turnos} onChange={e=>setForm({...form, turnos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar los turnos a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Fecha Próx. Mantenimiento</label>
+                        <input type="date" value={form.mantenimiento} onChange={e=>setForm({...form, mantenimiento: e.target.value})} style={{ colorScheme: 'dark' }} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold cursor-pointer max-w-xs"/>
+                    </div>
+
+                    <button type="submit" className="w-full bg-green-600 hover:bg-green-500 text-white py-4 rounded-xl font-black uppercase shadow-lg flex items-center justify-center gap-2 transition-all">
+                        <Save size={18} /> Actualizar Información para el Grupo ({selectedUsers.length})
+                    </button>
+                </form>
+            </div>
+
+            {/* 2. EL NUEVO TABLERO VISUAL DEL CALENDARIO GIGANTE */}
+            <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-hidden mt-6 mb-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                    <div>
+                        <h3 className="text-xl font-black text-white flex items-center gap-2"><Calendar className="text-purple-500"/> Calendario Visual de Turnos</h3>
+                        <p className="text-xs text-slate-400 mt-1">Supervisa cómo están distribuidos los turnos de la flota en el mes.</p>
+                    </div>
+                    <div className="flex items-center gap-2 bg-[#0B1120] p-1.5 rounded-xl border border-slate-700">
+                        <button type="button" onClick={prevMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronLeft size={18}/></button>
+                        <span className="font-black text-white uppercase w-32 text-center text-sm">{monthNames[calMonth]} {calYear}</span>
+                        <button type="button" onClick={nextMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronRight size={18}/></button>
+                    </div>
+                </div>
+
+                <div className="overflow-x-auto custom-scrollbar pb-2">
+                    <div className="min-w-[700px]">
+                        <div className="grid grid-cols-7 gap-1 mb-2">
+                            {['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map(d => (
+                                <div key={d} className="text-center font-black text-[10px] text-slate-500 uppercase py-2 bg-[#0B1120] rounded-t-lg border-b border-slate-700">{d}</div>
+                            ))}
+                        </div>
+                        <div className="grid grid-cols-7 gap-1">
+                            {blanks.map(b => <div key={`blank-${b}`} className="min-h-[90px] bg-[#0B1120]/30 rounded-xl border border-slate-800/30"></div>)}
+                            {calendarDays.map(d => {
+                                const turnosForDay = getTurnosForDay(d);
+                                const isToday = new Date().getDate() === d && new Date().getMonth() === calMonth && new Date().getFullYear() === calYear;
+                                return (
+                                    <div key={d} className={cn("min-h-[90px] p-2 rounded-xl border flex flex-col gap-1 transition-colors hover:border-slate-600", isToday ? "bg-blue-900/10 border-blue-500/50" : "bg-[#0B1120] border-slate-800")}>
+                                        <span className={cn("text-[10px] font-black self-end px-1.5 rounded-sm", isToday ? "bg-blue-500 text-white" : "text-slate-500")}>{d}</span>
+                                        <div className="flex flex-col gap-1 overflow-y-auto max-h-[70px] custom-scrollbar">
+                                            {turnosForDay.map((name, i) => (
+                                                <span key={i} className="text-[9px] font-bold bg-purple-900/40 border border-purple-800/50 text-purple-300 px-1.5 py-0.5 rounded truncate" title={name}>{name}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 3. LA TABLA TRADICIONAL DE AGENDA */}
+            <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-x-auto">
+                <h3 className="font-bold text-white mb-4">HORARIO GLOBAL DE FLOTA (TABLA)</h3>
+                <table className="w-full text-left">
+                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg">
+                        <tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Horario</th><th className="px-4 py-3">Zona</th><th className="px-4 py-3 max-w-[200px]">Ruta Asignada</th><th className="px-4 py-3 max-w-[150px]">Turnos</th><th className="px-4 py-3">Mantenimiento</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr>
+                    </thead>
+                    <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
+                        {agendaData.map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-800/50">
+                                <td className="px-4 py-3 text-white">{item.id}</td>
+                                <td className="px-4 py-3 text-blue-400">{item.horario}</td>
+                                <td className="px-4 py-3">{item.zona}</td>
+                                <td className="px-4 py-3 truncate max-w-[200px]" title={item.puntos}>{item.puntos || '--'}</td>
+                                <td className="px-4 py-3 truncate max-w-[150px]" title={item.turnos}>{formatTurnosVisually(item.turnos)}</td>
+                                <td className="px-4 py-3 text-yellow-500">{formatWithDay(formatLocalDate(item.mantenimiento))}</td>
+                                <td className="px-4 py-3 flex justify-center gap-2">
+                                    <button onClick={() => handleEdit(item)} className="bg-slate-800 p-2 rounded-lg text-blue-400 hover:text-white transition-all"><Edit3 size={14}/></button>
+                                    <button onClick={() => handleDelete(item.id)} className="bg-slate-800 p-2 rounded-lg text-red-500 hover:text-white transition-all"><Trash2 size={14}/></button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+// =========================================================================
 
 export default function App() {
   const { currentUser } = useAuth();
@@ -127,10 +504,10 @@ function Dashboard() {
   const [imageFile, setImageFile] = useState(null); 
   const [isUploading, setIsUploading] = useState(false);
   const [isCompressing, setIsCompressing] = useState(false);
+
   const [form, setForm] = useState({ recolector: '', sucursal: '', area: '', tipo: '', hLlegada: '08', mLlegada: '00', pLlegada: 'AM', hSalida: '08', mSalida: '05', pSalida: 'AM', observaciones: '' });
   const [activeInput, setActiveInput] = useState(null);
 
-  // --- MEMORIAS DE CÁLCULO SEGURO (Moviendo esto arriba para evitar errores de ReferenceError) ---
   const transportistaOtData = useMemo(() => {
       if (!otData) return [];
       return otData.filter(d => {
@@ -228,9 +605,6 @@ function Dashboard() {
         }
     } else if (appMode === 'user' && currentUser?.email) {
         
-        // 🚀 SOLUCIÓN DEL CERO (ZONAS HORARIAS) 🚀
-        // Le pedimos a Firebase que nos mande registros desde hace 2 días para garantizar 
-        // que no se coma nada por culpa de la zona horaria. Luego el celular lo filtra a "Hoy".
         const fechaSegura = new Date();
         fechaSegura.setDate(fechaSegura.getDate() - 2); 
         fechaSegura.setHours(0,0,0,0);
@@ -304,6 +678,13 @@ function Dashboard() {
       try { await setDoc(doc(db, "configuraciones", "catalogos"), newCatalogs, { merge: true }); } catch (e) { alert("Error al eliminar del catálogo."); }
   };
 
+  const convertToMinutes = (h, m, p) => { let hour = parseInt(h); if (p === 'AM' && hour === 12) hour = 0; if (p === 'PM' && hour !== 12) hour += 12; return hour * 60 + parseInt(m); };
+  const getWait = () => { const startMins = convertToMinutes(form.hLlegada, form.mLlegada, form.pLlegada); const endMins = convertToMinutes(form.hSalida, form.mSalida, form.pSalida); return Math.max(0, endMins - startMins); };
+  const handleInput = (field, value) => { setForm(prev => ({ ...prev, [field]: field === 'recolector' ? value.toUpperCase() : value })); setActiveInput(field); };
+  
+  const compressImage = (file) => { return new Promise((resolve) => { const reader = new FileReader(); reader.readAsDataURL(file); reader.onload = (event) => { const img = new Image(); img.src = event.target.result; img.onload = () => { try { const canvas = document.createElement('canvas'); const MAX_WIDTH = 800; const scaleSize = MAX_WIDTH / img.width; canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height); canvas.toBlob((blob) => { if (blob) resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() })); else resolve(file); }, 'image/jpeg', 0.7); } catch(e) { resolve(file); } }; img.onerror = () => resolve(file); }; reader.onerror = () => resolve(file); }); };
+  const handleFile = async (e) => { const file = e.target.files[0]; if (file) { setIsCompressing(true); try { const compressedFile = await compressImage(file); setImageFile(compressedFile); const reader = new FileReader(); reader.onloadend = () => setImagePreview(reader.result); reader.readAsDataURL(compressedFile); } catch (e) { alert("Error al procesar la imagen"); } finally { setIsCompressing(false); } } };
+
   const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter(d => {
         if (!sysConfig.heInicio || !sysConfig.heFin) return true;
@@ -370,31 +751,17 @@ function Dashboard() {
           const getFuel = (y) => { let docs = fuelData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           const getMaint = (y) => { let docs = maintData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           
-          return { 
-              name: m, 
-              [`ef${y1}`]: isFutureY1 ? null : calcEf(ops1), 
-              [`ef${y2}`]: isFutureY2 ? null : calcEf(ops2), 
-              [`fuel${y1}`]: isFutureY1 ? null : parseFloat(getFuel(y1).toFixed(2)), 
-              [`fuel${y2}`]: isFutureY2 ? null : parseFloat(getFuel(y2).toFixed(2)), 
-              [`maint${y1}`]: isFutureY1 ? null : parseFloat(getMaint(y1).toFixed(2)), 
-              [`maint${y2}`]: isFutureY2 ? null : parseFloat(getMaint(y2).toFixed(2)) 
-          }
+          return { name: m, [`ef${y1}`]: isFutureY1 ? null : calcEf(ops1), [`ef${y2}`]: isFutureY2 ? null : calcEf(ops2), [`fuel${y1}`]: isFutureY1 ? null : parseFloat(getFuel(y1).toFixed(2)), [`fuel${y2}`]: isFutureY2 ? null : parseFloat(getFuel(y2).toFixed(2)), [`maint${y1}`]: isFutureY1 ? null : parseFloat(getMaint(y1).toFixed(2)), [`maint${y2}`]: isFutureY2 ? null : parseFloat(getMaint(y2).toFixed(2)) }
       });
       return { dataYoY, yCurrent: y1, yPrev: y2 };
   }, [liveData, csvData, fuelData, maintData, filterYear, filterUser]);
 
-  const convertToMinutes = (h, m, p) => { let hour = parseInt(h); if (p === 'AM' && hour === 12) hour = 0; if (p === 'PM' && hour !== 12) hour += 12; return hour * 60 + parseInt(m); };
-  const getWait = () => { const startMins = convertToMinutes(form.hLlegada, form.mLlegada, form.pLlegada); const endMins = convertToMinutes(form.hSalida, form.mSalida, form.pSalida); return Math.max(0, endMins - startMins); };
-  const handleInput = (field, value) => { setForm(prev => ({ ...prev, [field]: field === 'recolector' ? value.toUpperCase() : value })); setActiveInput(field); };
-  const compressImage = (file) => { return new Promise((resolve) => { const reader = new FileReader(); reader.readAsDataURL(file); reader.onload = (event) => { const img = new Image(); img.src = event.target.result; img.onload = () => { try { const canvas = document.createElement('canvas'); const MAX_WIDTH = 800; const scaleSize = MAX_WIDTH / img.width; canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height); canvas.toBlob((blob) => { if (blob) resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() })); else resolve(file); }, 'image/jpeg', 0.7); } catch(e) { resolve(file); } }; img.onerror = () => resolve(file); }; reader.onerror = () => resolve(file); }); };
-  const handleFile = async (e) => { const file = e.target.files[0]; if (file) { setIsCompressing(true); try { const compressedFile = await compressImage(file); setImageFile(compressedFile); const reader = new FileReader(); reader.onloadend = () => setImagePreview(reader.result); reader.readAsDataURL(compressedFile); } catch (e) { alert("Error al procesar la imagen"); } finally { setIsCompressing(false); } } };
   
   const userMetrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
     const targetUser = form.recolector;
     let userDocs = targetUser && targetUser.length > 2 ? data.filter(d => d.recolector === targetUser) : data;
     
-    // Filtro Exacto de Hoy usando la misma máscara (Indestructible)
     const todayStr = getStrictDateString(new Date()); 
     userDocs = userDocs.filter(d => getStrictDateString(d.createdAt) === todayStr);
     
@@ -431,34 +798,18 @@ function Dashboard() {
           const isMaintToday = miAgenda.mantenimiento === localTodayStr;
           const isMaintPast = miAgenda.mantenimiento && miAgenda.mantenimiento < localTodayStr;
 
-          const hasRegisteredMaint = maintData.some(m => {
-              return m.fecha >= miAgenda.mantenimiento;
-          });
+          const hasRegisteredMaint = maintData.some(m => m.fecha >= miAgenda.mantenimiento);
           
           if (!hasRegisteredMaint) {
               if (isMaintPast && !hiddenAlerts.includes('kpi_maint_past')) {
-                  alerts.push({
-                      id: 'kpi_maint_past',
-                      type: 'kpi_danger',
-                      title: '🔴 ALERTA DE KPI: Mantenimiento Vencido',
-                      msg: `Tu fecha de taller (${formatLocalDate(miAgenda.mantenimiento)}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`,
-                      tipo: 'info'
-                  });
+                  alerts.push({ id: 'kpi_maint_past', type: 'kpi_danger', title: '🔴 ALERTA DE KPI: Mantenimiento Vencido', msg: `Tu fecha de taller (${formatWithDay(formatLocalDate(miAgenda.mantenimiento))}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`, tipo: 'info' });
               }
               const maintId = `auto_maint_${localTodayStr}_${miAgenda.mantenimiento || ''}`;
               if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller asignado y registra el comprobante.' });
           }
 
           const turnosTxt = (miAgenda.turnos || '').toLowerCase();
-          const hasTurnoToday = 
-              turnosTxt.includes(todayName.toLowerCase()) || 
-              turnosTxt.includes(todayShortSlash) || 
-              turnosTxt.includes(todayShortDash) || 
-              turnosTxt.includes(todayFullSlash) || 
-              turnosTxt.includes(todayFullDash) ||
-              turnosTxt.includes(todayShortSlashUnp) ||
-              turnosTxt.includes(todayFullSlashUnp);
-
+          const hasTurnoToday = turnosTxt.includes(todayName.toLowerCase()) || turnosTxt.includes(todayShortSlash) || turnosTxt.includes(todayShortDash) || turnosTxt.includes(todayFullSlash) || turnosTxt.includes(todayFullDash) || turnosTxt.includes(todayShortSlashUnp) || turnosTxt.includes(todayFullSlashUnp);
           const turnoId = `auto_turno_${localTodayStr}_${miAgenda.turnos || ''}`;
           if (hasTurnoToday && !hiddenAlerts.includes(turnoId)) alerts.push({ id: turnoId, type: 'turno', title: '¡Turno Extra Hoy!', msg: 'Registra tus horas al finalizar.' });
       }
@@ -466,12 +817,7 @@ function Dashboard() {
       alertasData.forEach(alerta => {
           if (hiddenAlerts.includes(alerta.id)) return;
           if (alerta.para === 'Todos' || alerta.para === form.recolector) {
-              alerts.push({ 
-                  ...alerta, 
-                  type: 'admin_msg',
-                  title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso Global' : 'Mensaje Directo'),
-                  msg: alerta.mensaje 
-              });
+              alerts.push({ ...alerta, type: 'admin_msg', title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso Global' : 'Mensaje Directo'), msg: alerta.mensaje });
           }
       });
       return alerts;
@@ -479,21 +825,13 @@ function Dashboard() {
 
   const dismissAlert = async (alerta, replyText = '') => {
       if (alerta.tipo === 'confirm' && replyText) {
-          try { 
-              const alertRef = doc(db, "alertas_flota", alerta.id);
-              await updateDoc(alertRef, {
-                  respuestas: arrayUnion({ usuario: form.recolector, respuesta: replyText, fecha: new Date().toISOString() })
-              });
-          } catch(e) { console.error("Error al enviar respuesta", e); }
+          try { await updateDoc(doc(db, "alertas_flota", alerta.id), { respuestas: arrayUnion({ usuario: form.recolector, respuesta: replyText, fecha: new Date().toISOString() }) }); } catch(e) {}
       } else if (alerta.tipo === 'info' && alerta.para !== 'Todos') {
-          try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) { console.error(e); }
+          try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) {}
       }
-
       const newHidden = [...hiddenAlerts, alerta.id];
       setHiddenAlerts(newHidden);
-      if (currentUser && currentUser.email) {
-          localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
-      }
+      if (currentUser && currentUser.email) localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
   };
 
   const exportToCSV = () => { 
@@ -514,20 +852,7 @@ function Dashboard() {
         const workHours = splitSchedule(r.horarioTurno || ''); 
         const heStart = formatTime12(r.horaInicio); 
         const heEnd = formatTime12(r.horaFin); 
-        return { 
-            'ID': index + 1, 
-            'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 
-            'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, 
-            'Fecha': getStrictDateString(r.fecha), 
-            'Hora de trabajo Inicio': workHours.start, 
-            'Hora de trabajo Fin': workHours.end, 
-            'Horario de Horas extras Inicio': heStart, 
-            'Horario de Horas extras Fin': heEnd, 
-            'Horas extras': r.horasCalculadas, 
-            'Actividad Realizada / Observaciones': r.motivo || '', 
-            'HorarioTrabajo': r.horarioTurno || '', 
-            'HorarioHE': `${heStart} - ${heEnd}` 
-        }; 
+        return { 'ID': index + 1, 'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, 'Fecha': getStrictDateString(r.fecha), 'Hora de trabajo Inicio': workHours.start, 'Hora de trabajo Fin': workHours.end, 'Horario de Horas extras Inicio': heStart, 'Horario de Horas extras Fin': heEnd, 'Horas extras': r.horasCalculadas, 'Actividad Realizada / Observaciones': r.motivo || '', 'HorarioTrabajo': r.horarioTurno || '', 'HorarioHE': `${heStart} - ${heEnd}` }; 
     }); 
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); 
     const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); 
@@ -537,29 +862,80 @@ function Dashboard() {
   
   const downloadReport = () => {
     try {
-        let reportData = [];
-        let reportTitle = "";
+        const doc = new jsPDF();
+        const slate900 = [15, 23, 42]; const green500 = [34, 197, 94]; const orange500 = [249, 115, 22];
+        const dateStr = new Date().toLocaleDateString();
+
+        const drawHeader = (title, subtitle) => { 
+            doc.setFillColor(...slate900); doc.rect(0,0,210,40,'F'); doc.setFillColor(...green500); doc.circle(20, 20, 10, 'F'); doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 22); doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 18); doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA", 35, 24); doc.setTextColor(40); doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.text(title, 15, 55); doc.setFontSize(10); doc.setTextColor(100); doc.text(subtitle, 15, 61); 
+        };
 
         if (appMode === 'user') {
             const todayStr = getStrictDateString(new Date());
-            reportData = liveData.filter(d => d.recolector === form.recolector && getStrictDateString(d.createdAt) === todayStr);
-            reportTitle = `REPORTE DIARIO DE RUTA: ${form.recolector}`;
-        } else {
-            reportData = metrics.rows;
-            let titleParts = [];
-            if (filterUser !== 'all') titleParts.push(`USUARIO: ${filterUser}`);
-            if (filterSucursal !== 'all') titleParts.push(`SUCURSAL: ${filterSucursal}`);
-            if (filterSpecificDate) titleParts.push(`FECHA: ${getStrictDateString(filterSpecificDate)}`);
-            reportTitle = titleParts.length > 0 ? titleParts.join(" | ") : "REPORTE CONSOLIDADO GLOBAL";
+            const reportData = liveData.filter(d => d.recolector === form.recolector && getStrictDateString(d.createdAt) === todayStr);
+            if (reportData.length === 0) return alert("No hay datos para generar el reporte de hoy.");
+            
+            drawHeader(`REPORTE DIARIO DE RUTA: ${form.recolector}`, `Generado: ${dateStr} | Registros: ${reportData.length}`);
+            const rows = reportData.map(r => [ getStrictDateString(r.createdAt), r.sucursal, r.tipo, `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}`, `${r.hSalida}:${r.mSalida} ${r.pSalida}`, `${r.tiempo}m`, r.categoria ]);
+            autoTable(doc, { startY: 95, head: [['Fecha', 'Sucursal', 'Diligencia', 'Llegada', 'Salida', 'Espera', 'Tipo']], body: rows, headStyles: { fillColor: slate900 }, styles: { fontSize: 8 }, theme: 'striped' });
+            doc.save(`Recolekta_Reporte_Ruta_${form.recolector.replace(/\s+/g, '_')}.pdf`);
+            return;
         }
 
-        if (reportData.length === 0) return alert("No hay datos para generar el reporte con los filtros actuales.");
+        const currentSection = appMode === 'supervisor' ? supervisorSection : adminSection;
 
-        const doc = new jsPDF();
-        const slate900 = [15, 23, 42]; const green500 = [34, 197, 94]; const orange500 = [249, 115, 22];
-        const drawHeader = (title, subtitle) => { doc.setFillColor(...slate900); doc.rect(0,0,210,40,'F'); doc.setFillColor(...green500); doc.circle(20, 20, 10, 'F'); doc.setTextColor(255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("R", 17.5, 22); doc.setFontSize(22); doc.text("RECOLEKTA OS", 35, 18); doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("SISTEMA DE GESTIÓN LOGÍSTICA", 35, 24); doc.setTextColor(40); doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.text(title, 15, 55); doc.setFontSize(10); doc.setTextColor(100); doc.text(subtitle, 15, 61); };
+        if (currentSection === 'agenda') {
+            if (agendaData.length === 0) return alert("No hay horarios registrados.");
+            drawHeader("AGENDA GLOBAL DE FLOTA", `Generado: ${dateStr}`);
+            const rows = agendaData.map(a => [a.id, a.horario || '--', a.zona || '--', a.puntos || '--', formatTurnosVisually(a.turnos) || 'Ninguno', formatWithDay(formatLocalDate(a.mantenimiento))]);
+            autoTable(doc, { startY: 65, head: [['Transportista', 'Horario Base', 'Zona/Ruta', 'Puntos/Sucursales', 'Turnos Extra', 'Prox. Mantenimiento']], body: rows, headStyles: { fillColor: slate900 }, theme: 'grid', styles: { fontSize: 8 } });
+            doc.save("Recolekta_Agenda_Horarios.pdf");
+            return;
+        }
+
+        if (currentSection === 'combustible' || currentSection === 'fleet') {
+            let dataToExport = fuelData.filter(d => checkDate(d.fecha));
+            if (filterUser !== 'all') dataToExport = dataToExport.filter(d => (USUARIOS_EMAIL[d.usuario]||'') === filterUser);
+            if (dataToExport.length === 0) return alert("No hay datos de combustible con los filtros actuales.");
+            
+            drawHeader("CONTROL DE COMBUSTIBLE", `Generado: ${dateStr} | Filtro: ${filterUser !== 'all' ? filterUser : 'GLOBAL'}`);
+            const rows = dataToExport.map(r => [formatLocalDate(r.fecha), USUARIOS_EMAIL[r.usuario] || r.usuario, r.galones, `$${r.costo}`, r.kilometraje]);
+            autoTable(doc, { startY: 65, head: [['Fecha', 'Usuario', 'Galones', 'Costo Total', 'Km']], body: rows, headStyles: { fillColor: slate900 }, theme: 'striped' });
+            doc.save("Recolekta_Combustible.pdf");
+            return;
+        }
+
+        if (currentSection === 'taller') {
+            let dataToExport = maintData.filter(d => checkDate(d.fecha));
+            if (filterUser !== 'all') dataToExport = dataToExport.filter(d => (USUARIOS_EMAIL[d.usuario]||'') === filterUser);
+            if (dataToExport.length === 0) return alert("No hay datos de taller con los filtros actuales.");
+
+            drawHeader("CONTROL DE TALLER Y MANTENIMIENTO", `Generado: ${dateStr} | Filtro: ${filterUser !== 'all' ? filterUser : 'GLOBAL'}`);
+            const rows = dataToExport.map(r => [formatLocalDate(r.fecha), USUARIOS_EMAIL[r.usuario] || r.usuario, r.tipo, r.taller, r.descripcion || '--', `$${r.costo}`]);
+            autoTable(doc, { startY: 65, head: [['Fecha', 'Usuario', 'Tipo', 'Taller', 'Detalle', 'Costo']], body: rows, headStyles: { fillColor: slate900 }, theme: 'striped' });
+            doc.save("Recolekta_Mantenimiento.pdf");
+            return;
+        }
+
+        if (currentSection === 'hr') {
+            if (hrMetrics.rawData.length === 0) return alert("No hay horas extras en este periodo.");
+            drawHeader("NÓMINA DE HORAS EXTRAS", `Generado: ${dateStr} | ${formatLocalDate(sysConfig.heInicio)} al ${formatLocalDate(sysConfig.heFin)}`);
+            const rows = hrMetrics.rawData.map(r => [getStrictDateString(r.fecha), USUARIOS_EMAIL[r.usuario] || r.usuario, r.horaInicio, r.horaFin, `${r.horasCalculadas}h`, r.motivo]);
+            autoTable(doc, { startY: 65, head: [['Fecha', 'Colaborador', 'Inicio', 'Fin', 'Total Hrs', 'Motivo']], body: rows, headStyles: { fillColor: slate900 }, theme: 'striped' });
+            doc.save("Recolekta_Horas_Extras.pdf");
+            return;
+        }
+
+        const reportData = metrics.rows;
+        if (reportData.length === 0) return alert("No hay datos de operaciones para generar el reporte.");
         
-        drawHeader(reportTitle, `Generado: ${new Date().toLocaleDateString()} | Registros: ${reportData.length}`);
+        let titleParts = [];
+        if (filterUser !== 'all') titleParts.push(`USUARIO: ${filterUser}`);
+        if (filterSucursal !== 'all') titleParts.push(`SUCURSAL: ${filterSucursal}`);
+        if (filterSpecificDate) titleParts.push(`FECHA: ${getStrictDateString(filterSpecificDate)}`);
+        const reportTitle = titleParts.length > 0 ? titleParts.join(" | ") : "REPORTE CONSOLIDADO GLOBAL";
+
+        drawHeader(reportTitle, `Generado: ${dateStr} | Registros: ${reportData.length}`);
 
         const pItems = reportData.filter(d => isPrincipalData(d));
         const sItems = reportData.filter(d => !isPrincipalData(d));
@@ -573,24 +949,23 @@ function Dashboard() {
         doc.text(`Total Otras Diligencias: ${sItems.length}`, 120, 75);
         doc.text(`Promedio Espera (Otras): ${avgS} min`, 120, 81);
 
-        if (appMode === 'user' || filterSpecificDate) {
-            const rows = reportData.map(r => [
-                getStrictDateString(r.createdAt), r.sucursal, r.tipo, 
-                `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}`, `${r.hSalida}:${r.mSalida} ${r.pSalida}`, 
-                `${r.tiempo}m`, r.categoria
-            ]);
+        if (filterSpecificDate) {
+            const rows = reportData.map(r => [ getStrictDateString(r.createdAt), r.sucursal, r.tipo, `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}`, `${r.hSalida}:${r.mSalida} ${r.pSalida}`, `${r.tiempo}m`, r.categoria ]);
             autoTable(doc, { startY: 95, head: [['Fecha', 'Sucursal', 'Diligencia', 'Llegada', 'Salida', 'Espera', 'Tipo']], body: rows, headStyles: { fillColor: slate900 }, styles: { fontSize: 8 }, theme: 'striped' });
         } else {
-            const monthlyTableRows = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { const mDocs = reportData.filter(d => extractDateInfo(d.createdAt).month === i + 1); const mRecs = mDocs.filter(d => isPrincipalData(d)); const mDils = mDocs.filter(d => !isPrincipalData(d)); const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0; const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0; const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0; return [m, mRecs.length, `${mEf}%`, `${mAvgR}m`, mDils.length, `${mAvgD}m`]; }).filter(r => r[1] > 0 || r[4] > 0);
+            const monthlyTableRows = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { 
+                const mDocs = reportData.filter(d => extractDateInfo(d.createdAt).month === i + 1); 
+                const mRecs = mDocs.filter(d => isPrincipalData(d)); 
+                const mDils = mDocs.filter(d => !isPrincipalData(d)); 
+                const mEf = mRecs.length > 0 ? ((mRecs.filter(x => (x.tiempo||0) <= 5).length / mRecs.length) * 100).toFixed(1) : 0; 
+                const mAvgR = mRecs.length > 0 ? (mRecs.reduce((a,b)=>a+(b.tiempo||0),0)/mRecs.length).toFixed(1) : 0; 
+                const mAvgD = mDils.length > 0 ? (mDils.reduce((a,b)=>a+(b.tiempo||0),0)/mDils.length).toFixed(1) : 0; 
+                return [m, mRecs.length, `${mEf}%`, `${mAvgR}m`, mDils.length, `${mAvgD}m`]; 
+            }).filter(r => r[1] > 0 || r[4] > 0);
             autoTable(doc, { startY: 95, head: [['Mes', 'Recolecciones', 'Eficiencia %', 'T. Prom (Rec)', 'Diligencias', 'T. Prom (Dil)']], body: monthlyTableRows, headStyles: { fillColor: slate900, halign: 'center' }, theme: 'striped' });
         }
-        
-        doc.save(`Recolekta_Reporte_${appMode==='user'?form.recolector:'Filtrado'}.pdf`);
-
-    } catch (error) {
-        console.error("Error generating report", error);
-        alert("Error al generar el reporte.");
-    }
+        doc.save(`Recolekta_Reporte_Operaciones.pdf`);
+    } catch (error) { alert("Error al generar el reporte."); }
   };
 
   return (
@@ -605,12 +980,7 @@ function Dashboard() {
                     {editingItem.collectionName === 'registros_produccion' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Sucursal</label><input name="sucursal" value={editFormData.sucursal || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-400 uppercase">H. Llegada (01-12)</label><input name="hLlegada" value={editFormData.hLlegada || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">M. Llegada (00-59)</label><input name="mLlegada" value={editFormData.mLlegada || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div><div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-400 uppercase">H. Salida (01-12)</label><input name="hSalida" value={editFormData.hSalida || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">M. Salida (00-59)</label><input name="mSalida" value={editFormData.mSalida || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Observaciones</label><textarea name="observaciones" value={editFormData.observaciones || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-20 resize-none"/></div></>)}
                     {editingItem.collectionName === 'registros_combustible' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Galones</label><input name="galones" type="number" step="0.1" value={editFormData.galones || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Costo ($)</label><input name="costo" type="number" step="0.01" value={editFormData.costo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Kilometraje</label><input name="kilometraje" type="number" value={editFormData.kilometraje || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></>)}
                     {editingItem.collectionName === 'registros_mantenimiento' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Taller</label><input name="taller" value={editFormData.taller || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Costo ($)</label><input name="costo" type="number" step="0.01" value={editFormData.costo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Detalle</label><textarea name="descripcion" value={editFormData.descripcion || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-24 resize-none"/></div></>)}
-                    {editingItem.collectionName === 'registros_horas_extras' && (<>
-                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Fecha Real</label><input name="fecha" type="date" value={editFormData.fecha || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
-                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Hora Inicio</label><input name="horaInicio" type="time" value={editFormData.horaInicio || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
-                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Hora Fin</label><input name="horaFin" type="time" value={editFormData.horaFin || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
-                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Motivo</label><input name="motivo" value={editFormData.motivo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
-                    </>)}
+                    {editingItem.collectionName === 'registros_horas_extras' && (<><div><label className="text-[10px] font-bold text-slate-400 uppercase">Fecha Real</label><input name="fecha" type="date" value={editFormData.fecha || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Hora Inicio</label><input name="horaInicio" type="time" value={editFormData.horaInicio || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Hora Fin</label><input name="horaFin" type="time" value={editFormData.horaFin || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Motivo</label><input name="motivo" value={editFormData.motivo || ''} onChange={handleEditFormChange} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></>)}
                     <button onClick={handleUpdate} className="w-full py-4 bg-green-600 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-green-500 flex justify-center items-center gap-2"><CheckCircle2 size={18}/> Guardar Cambios</button>
                 </div>
             </div>
@@ -623,7 +993,7 @@ function Dashboard() {
                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white flex items-center gap-2"><Send size={20} className="text-blue-500"/> Enviar Aviso a Equipo</h3><button onClick={() => setShowAvisoModal(false)}><XCircle className="text-slate-500 hover:text-white" size={24}/></button></div>
                 <div className="space-y-4">
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Tipo de Aviso</label><select value={avisoForm.tipo} onChange={e=>setAvisoForm({...avisoForm, tipo: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="info">ℹ️ Informativo (Solo lectura)</option><option value="confirm">✅ Requiere Confirmación</option></select></div>
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Destinatario</label><select value={avisoForm.para} onChange={e=>setAvisoForm({...avisoForm, para: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="Todos">Toda la Flota (Global)</option>{(catalogs.transportistas || []).map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Destinatario</label><select value={avisoForm.para} onChange={e=>setAvisoForm({...avisoForm, para: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="Todos">Toda la Flota (Global)</option>{catalogs.transportistas.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Mensaje Corto</label><textarea value={avisoForm.mensaje} onChange={e=>setAvisoForm({...avisoForm, mensaje: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold h-24 resize-none" placeholder="Escribe el recordatorio o alerta aquí..."/></div>
                     <button onClick={async () => { if(!avisoForm.mensaje) return; await addDoc(collection(db, 'alertas_flota'), {...avisoForm, createdAt: new Date().toISOString()}); setAvisoForm({mensaje: '', para: 'Todos', tipo: 'info'}); alert("Aviso enviado a la plataforma."); }} className="w-full py-4 bg-blue-600 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-blue-500 flex items-center justify-center gap-2"><Send size={16}/> Enviar Mensaje</button>
                 </div>
@@ -945,8 +1315,8 @@ function Dashboard() {
                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-orange-500"/> Costo Operativo por Transportista ($)</h4><div className="h-60 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={fleetMetrics.chartData}><CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#64748b'}} interval={0} angle={-45} textAnchor="end" height={60} /><Tooltip cursor={{fill: '#1f2937'}} contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', color: '#fff'}} /><Legend verticalAlign="top" height={36} /><Bar dataKey="fuel" name="Combustible" stackId="a" fill="#ea580c" /><Bar dataKey="maint" name="Taller" stackId="a" fill="#eab308" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
                       <div className="space-y-4">
-                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden h-40"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Fuel size={14} className="text-orange-500"/> Últimas Cargas</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo Total</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{getStrictDateString(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
-                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden max-h-80"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Wrench size={14} className="text-yellow-500"/> Últimos Servicios</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{getStrictDateString(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
+                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden h-40"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Fuel size={14} className="text-orange-500"/> Últimas Cargas</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo Total</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
+                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden max-h-80"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Wrench size={14} className="text-yellow-500"/> Últimos Servicios</h4><div className="overflow-y-auto h-full pb-6"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">{maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
                       </div>
                    </div>
                 </div>
@@ -1038,13 +1408,13 @@ function Dashboard() {
                     <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">
                       {availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}
                    </select>
-                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all">Toda la Flota</option>{(catalogs.transportistas || []).map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
+                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Toda la Flota</option>{(catalogs.transportistas || []).map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
                    <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Año</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">Mes {m}</option>)}</select>
                   </div>
                   
                   <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                      <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-blue-500 transition-all flex-1 sm:flex-none"><Bell size={12}/> Aviso</button>
-                      <button onClick={() => downloadReport(null)} className="bg-white text-black px-4 py-3 md:py-2 rounded-xl text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center justify-center gap-1 flex-1 sm:flex-none"><Download size={12}/> PDF</button>
+                      <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-4 py-3 md:py-2 rounded-lg text-[9px] font-black uppercase hover:bg-blue-500 transition-all flex items-center gap-1 shadow-md"><Send size={12}/> AVISO</button>
+                      <button onClick={() => downloadReport()} className="bg-white text-black px-4 py-3 md:py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-1"><Download size={12}/> PDF</button>
                   </div>
                 </div>
              </div>
