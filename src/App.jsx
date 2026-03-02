@@ -17,7 +17,7 @@ import {
   ExternalLink, MessageSquare, BarChart3, FileSpreadsheet, User, Fuel, DollarSign, 
   Calendar, Wrench, Briefcase, Eye, Search, Filter, MapPin, Layers, ShieldCheck, 
   Loader2, Image as ImageIcon, Eraser, Edit, Trash2, X, Edit3, Save, RefreshCw, PieChart,
-  Bell, Send, XCircle, Check, Settings, Smartphone, ListChecks, Plus, ChevronLeft, ChevronRight, Users
+  Bell, Send, XCircle, Check, Settings, Smartphone, ListChecks, Plus, ChevronLeft, ChevronRight, Users, Printer
 } from 'lucide-react';
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend, LineChart, Line } from 'recharts';
@@ -96,7 +96,7 @@ const formatTurnosVisually = (turnosStr) => {
 };
 
 // =========================================================================
-// 🧩 COMPONENTE DE AGENDA (CON MOTOR DE SUMA INTELIGENTE)
+// 🧩 COMPONENTE DE AGENDA (CON CALENDARIO IMPRIMIBLE Y MANTENIMIENTOS)
 // =========================================================================
 function AgendaAdmin({ sucursales = [], transportistas = [] }) {
     const [agendaData, setAgendaData] = useState([]);
@@ -105,9 +105,7 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
     const [tempDate, setTempDate] = useState('');
     const [tempPunto, setTempPunto] = useState('');
     
-    // 🛡️ NUEVO: Modo Suma Inteligente Activado por Defecto
     const [appendMode, setAppendMode] = useState(true);
-
     const [calMonth, setCalMonth] = useState(new Date().getMonth());
     const [calYear, setCalYear] = useState(new Date().getFullYear());
     const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -128,14 +126,11 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
         }
     };
 
-    const removeUser = (user) => {
-        setSelectedUsers(selectedUsers.filter(u => u !== user));
-    };
+    const removeUser = (user) => setSelectedUsers(selectedUsers.filter(u => u !== user));
 
     const handleSave = async (e) => {
         e.preventDefault();
         if (selectedUsers.length === 0) return alert("Selecciona al menos un transportista para asignar.");
-        
         try {
             await Promise.all(
                 selectedUsers.map(async (id) => {
@@ -146,7 +141,6 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
                     if (form.zona) updateData.zona = form.zona;
                     if (form.mantenimiento) updateData.mantenimiento = form.mantenimiento;
 
-                    // 🛡️ LÓGICA DE SUMA INTELIGENTE PARA PUNTOS
                     if (form.puntos) {
                         if (form.puntos.toUpperCase() === 'NINGUNO') {
                             updateData.puntos = '';
@@ -159,7 +153,6 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
                         }
                     }
 
-                    // 🛡️ LÓGICA DE SUMA INTELIGENTE PARA TURNOS Y AUTO-ORDENAMIENTO
                     if (form.turnos) {
                         if (form.turnos.toUpperCase() === 'NINGUNO') {
                             updateData.turnos = 'Ninguno';
@@ -186,10 +179,7 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
             alert(`¡Asignación guardada con éxito para ${selectedUsers.length} transportista(s)!`);
             setForm({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
             setSelectedUsers([]);
-        } catch (error) {
-            console.error("Error saving agenda:", error);
-            alert("Error al guardar en la base de datos.");
-        }
+        } catch (error) { alert("Error al guardar en la base de datos."); }
     };
 
     const handleDelete = async (id) => {
@@ -200,13 +190,7 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
 
     const handleEdit = (item) => {
         setSelectedUsers([item.id]);
-        setForm({
-            horario: item.horario || '',
-            zona: item.zona || '',
-            puntos: item.puntos || '',
-            turnos: item.turnos || '',
-            mantenimiento: item.mantenimiento || ''
-        });
+        setForm({ horario: item.horario || '', zona: item.zona || '', puntos: item.puntos || '', turnos: item.turnos || '', mantenimiento: item.mantenimiento || '' });
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -214,7 +198,6 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
         if (!tempDate) return;
         const [y, m, d] = tempDate.split('-');
         const formattedDate = `${d}/${m}/${y}`;
-        
         let currentTurnos = form.turnos && form.turnos !== 'Ninguno' ? form.turnos.split(' - ').map(t => t.trim()).filter(t => t) : [];
         if (!currentTurnos.includes(formattedDate)) {
             currentTurnos.push(formattedDate);
@@ -222,8 +205,6 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
         }
         setTempDate('');
     };
-
-    const clearTurnos = () => setForm({ ...form, turnos: '' });
 
     const addPunto = () => {
         if (!tempPunto) return;
@@ -235,29 +216,21 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
         setTempPunto('');
     };
 
-    const clearPuntos = () => setForm({ ...form, puntos: '' });
-
-    const prevMonth = () => {
-        if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); }
-        else { setCalMonth(calMonth - 1); }
-    };
-    const nextMonth = () => {
-        if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); }
-        else { setCalMonth(calMonth + 1); }
-    };
+    const prevMonth = () => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else { setCalMonth(calMonth - 1); } };
+    const nextMonth = () => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else { setCalMonth(calMonth + 1); } };
 
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
     const firstDay = new Date(calYear, calMonth, 1).getDay(); 
     const blanks = Array.from({ length: firstDay }, (_, i) => i);
     const calendarDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-    // 🛡️ NORMALIZADOR DE FECHAS PARA EL CALENDARIO (Soluciona 05/03 vs 5/3)
     const normalizeDateStr = (str) => {
         const parts = str.split('/');
         if (parts.length === 3) return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
         return str;
     };
 
+    // 🔍 BUSCADOR DE TURNOS
     const getTurnosForDay = (day) => {
         const dd = String(day).padStart(2, '0');
         const mm = String(calMonth + 1).padStart(2, '0');
@@ -268,18 +241,34 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
         agendaData.forEach(user => {
             if (user.turnos && user.turnos !== 'Ninguno') {
                 const dates = user.turnos.split('-').map(t => normalizeDateStr(t.trim()));
-                if (dates.includes(targetDate)) {
-                    scheduled.push(user.id.split(' ')[0]); 
-                }
+                if (dates.includes(targetDate)) scheduled.push(user.id.split(' ')[0]); 
             }
         });
         return scheduled;
     };
 
+    // 🔍 NUEVO: BUSCADOR DE MANTENIMIENTOS
+    const getMaintForDay = (day) => {
+        const dd = String(day).padStart(2, '0');
+        const mm = String(calMonth + 1).padStart(2, '0');
+        const yy = calYear;
+        const targetDate = `${yy}-${mm}-${dd}`; // El mantenimiento se guarda como YYYY-MM-DD
+
+        let scheduled = [];
+        agendaData.forEach(user => {
+            if (user.mantenimiento === targetDate) {
+                scheduled.push(user.id.split(' ')[0]); 
+            }
+        });
+        return scheduled;
+    };
+
+    const handlePrint = () => { window.print(); };
+
     return (
         <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-            {/* 1. FORMULARIO DE ASIGNACIÓN */}
-            <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl">
+            {/* FORMULARIO DE ASIGNACIÓN (Se oculta al imprimir) */}
+            <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl print-hide">
                 <h3 className="text-xl font-black text-white mb-6 flex items-center gap-2"><Calendar className="text-blue-500"/> Asignación y Actualización de Horarios</h3>
                 
                 <form onSubmit={handleSave} className="space-y-6">
@@ -306,7 +295,6 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
                         </div>
                     </div>
 
-                    {/* MODO SUMA (ACTIVADO POR DEFECTO) */}
                     <div className="bg-blue-900/10 border border-blue-800/40 p-3 rounded-xl flex items-center gap-3">
                         <input type="checkbox" checked={appendMode} onChange={e => setAppendMode(e.target.checked)} className="w-5 h-5 accent-blue-600 cursor-pointer" id="appendModeToggle" />
                         <label htmlFor="appendModeToggle" className="text-[10px] font-bold text-blue-300 cursor-pointer uppercase">
@@ -341,7 +329,7 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
                             <div>
                                 <div className="flex justify-between items-center mb-1">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase">Ruta Armada</label>
-                                    {form.puntos && <button type="button" onClick={clearPuntos} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}
+                                    {form.puntos && <button type="button" onClick={() => setForm({ ...form, puntos: '' })} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}
                                 </div>
                                 <textarea value={form.puntos} onChange={e=>setForm({...form, puntos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar la ruta a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/>
                             </div>
@@ -359,7 +347,7 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
                             <div>
                                 <div className="flex justify-between items-center mb-1">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase">Fechas Asignadas</label>
-                                    {form.turnos && <button type="button" onClick={clearTurnos} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}
+                                    {form.turnos && <button type="button" onClick={() => setForm({ ...form, turnos: '' })} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}
                                 </div>
                                 <textarea value={form.turnos} onChange={e=>setForm({...form, turnos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar los turnos a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/>
                             </div>
@@ -377,39 +365,60 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
                 </form>
             </div>
 
-            {/* 2. EL NUEVO TABLERO VISUAL DEL CALENDARIO GIGANTE */}
-            <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-hidden mt-6 mb-6">
+            {/* 2. EL NUEVO TABLERO VISUAL (ESTE ES EL QUE SE IMPRIMIRÁ) */}
+            <div id="printable-calendar" className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-hidden mt-6 mb-6 print-bg-white print-border-gray print-text-black">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                     <div>
-                        <h3 className="text-xl font-black text-white flex items-center gap-2"><Calendar className="text-purple-500"/> Calendario Visual de Turnos</h3>
-                        <p className="text-xs text-slate-400 mt-1">Supervisa cómo están distribuidos los turnos de la flota en el mes.</p>
+                        <h3 className="text-xl font-black text-white flex items-center gap-2 print-text-black"><Calendar className="text-purple-500 print-hide"/> Calendario de Flota</h3>
+                        <p className="text-xs text-slate-400 mt-1 print-text-black">Turnos Extras (Morado) y Mantenimientos (Amarillo)</p>
                     </div>
-                    <div className="flex items-center gap-2 bg-[#0B1120] p-1.5 rounded-xl border border-slate-700">
-                        <button type="button" onClick={prevMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronLeft size={18}/></button>
-                        <span className="font-black text-white uppercase w-32 text-center text-sm">{monthNames[calMonth]} {calYear}</span>
-                        <button type="button" onClick={nextMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronRight size={18}/></button>
+                    
+                    <div className="flex items-center gap-3">
+                        <button onClick={handlePrint} className="print-hide bg-white text-black px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-2 shadow-md">
+                            <Printer size={14}/> Imprimir
+                        </button>
+                        
+                        <div className="flex items-center gap-2 bg-[#0B1120] p-1.5 rounded-xl border border-slate-700 print-hide">
+                            <button type="button" onClick={prevMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronLeft size={18}/></button>
+                            <span className="font-black text-white uppercase w-32 text-center text-sm">{monthNames[calMonth]} {calYear}</span>
+                            <button type="button" onClick={nextMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronRight size={18}/></button>
+                        </div>
+                        {/* Título de mes visible solo en impresión */}
+                        <div className="hidden print:block text-2xl font-black uppercase tracking-widest">{monthNames[calMonth]} {calYear}</div>
                     </div>
                 </div>
 
                 <div className="overflow-x-auto custom-scrollbar pb-2">
-                    <div className="min-w-[700px]">
+                    <div className="min-w-[700px] w-full">
                         <div className="grid grid-cols-7 gap-1 mb-2">
                             {['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map(d => (
-                                <div key={d} className="text-center font-black text-[10px] text-slate-500 uppercase py-2 bg-[#0B1120] rounded-t-lg border-b border-slate-700">{d}</div>
+                                <div key={d} className="text-center font-black text-[10px] text-slate-500 uppercase py-2 bg-[#0B1120] rounded-t-lg border-b border-slate-700 print-bg-gray print-text-black print-border-gray">{d}</div>
                             ))}
                         </div>
                         <div className="grid grid-cols-7 gap-1">
-                            {blanks.map(b => <div key={`blank-${b}`} className="min-h-[90px] bg-[#0B1120]/30 rounded-xl border border-slate-800/30"></div>)}
+                            {blanks.map(b => <div key={`blank-${b}`} className="min-h-[100px] bg-[#0B1120]/30 rounded-xl border border-slate-800/30 print-bg-gray print-border-gray"></div>)}
                             {calendarDays.map(d => {
                                 const turnosForDay = getTurnosForDay(d);
+                                const maintForDay = getMaintForDay(d); // 🔍 BUSCA LOS MANTENIMIENTOS
                                 const isToday = new Date().getDate() === d && new Date().getMonth() === calMonth && new Date().getFullYear() === calYear;
+                                
                                 return (
-                                    <div key={d} className={cn("min-h-[90px] p-2 rounded-xl border flex flex-col gap-1 transition-colors hover:border-slate-600", isToday ? "bg-blue-900/10 border-blue-500/50" : "bg-[#0B1120] border-slate-800")}>
-                                        <span className={cn("text-[10px] font-black self-end px-1.5 rounded-sm", isToday ? "bg-blue-500 text-white" : "text-slate-500")}>{d}</span>
-                                        <div className="flex flex-col gap-1 overflow-y-auto max-h-[70px] custom-scrollbar">
+                                    <div key={d} className={cn("min-h-[100px] p-2 rounded-xl border flex flex-col gap-1 transition-colors hover:border-slate-600 print-bg-white print-border-gray", isToday ? "bg-blue-900/10 border-blue-500/50" : "bg-[#0B1120] border-slate-800")}>
+                                        <span className={cn("text-[10px] font-black self-end px-1.5 rounded-sm", isToday ? "bg-blue-500 text-white" : "text-slate-500 print-text-black")}>{d}</span>
+                                        <div className="flex flex-col gap-1 overflow-y-auto max-h-[80px] custom-scrollbar print:max-h-none print:overflow-visible">
+                                            
+                                            {/* RENDERIZAR TURNOS EXTRAS (MORADO) */}
                                             {turnosForDay.map((name, i) => (
-                                                <span key={i} className="text-[9px] font-bold bg-purple-900/40 border border-purple-800/50 text-purple-300 px-1.5 py-0.5 rounded truncate" title={name}>{name}</span>
+                                                <span key={`t-${i}`} className="text-[9px] font-bold bg-purple-900/40 border border-purple-800/50 text-purple-300 px-1.5 py-0.5 rounded truncate print-badge-purple" title={`Turno: ${name}`}>{name}</span>
                                             ))}
+                                            
+                                            {/* RENDERIZAR MANTENIMIENTOS (AMARILLO) */}
+                                            {maintForDay.map((name, i) => (
+                                                <span key={`m-${i}`} className="text-[9px] font-bold bg-yellow-900/40 border border-yellow-800/50 text-yellow-500 px-1.5 py-0.5 rounded truncate flex items-center gap-1 print-badge-yellow" title={`Mantenimiento: ${name}`}>
+                                                    <Wrench size={8}/> {name}
+                                                </span>
+                                            ))}
+
                                         </div>
                                     </div>
                                 )
@@ -419,19 +428,19 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
                 </div>
             </div>
 
-            {/* 3. LA TABLA TRADICIONAL DE AGENDA */}
-            <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-x-auto">
-                <h3 className="font-bold text-white mb-4">HORARIO GLOBAL DE FLOTA (TABLA)</h3>
+            {/* 3. LA TABLA TRADICIONAL DE AGENDA (Se oculta al imprimir) */}
+            <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-x-auto print-hide">
+                <h3 className="font-bold text-white mb-4">HORARIO GLOBAL DE FLOTA (TABLA DETALLADA)</h3>
                 <table className="w-full text-left">
                     <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg">
-                        <tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Horario</th><th className="px-4 py-3">Zona</th><th className="px-4 py-3 max-w-[200px]">Ruta Asignada</th><th className="px-4 py-3 max-w-[150px]">Turnos</th><th className="px-4 py-3">Mantenimiento</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr>
+                        <tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Horario Base</th><th className="px-4 py-3">Zona / Ruta</th><th className="px-4 py-3 max-w-[200px]">Ruta Asignada</th><th className="px-4 py-3 max-w-[150px]">Turnos</th><th className="px-4 py-3">Mantenimiento</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr>
                     </thead>
                     <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
                         {agendaData.map((item) => (
                             <tr key={item.id} className="hover:bg-slate-800/50">
                                 <td className="px-4 py-3 text-white">{item.id}</td>
-                                <td className="px-4 py-3 text-blue-400">{item.horario}</td>
-                                <td className="px-4 py-3">{item.zona}</td>
+                                <td className="px-4 py-3 text-blue-400">{item.horario || '--'}</td>
+                                <td className="px-4 py-3">{item.zona || '--'}</td>
                                 <td className="px-4 py-3 truncate max-w-[200px]" title={item.puntos}>{item.puntos || '--'}</td>
                                 <td className="px-4 py-3 truncate max-w-[150px]" title={item.turnos}>{formatTurnosVisually(item.turnos)}</td>
                                 <td className="px-4 py-3 text-yellow-500">{formatWithDay(formatLocalDate(item.mantenimiento))}</td>
@@ -452,7 +461,39 @@ function AgendaAdmin({ sucursales = [], transportistas = [] }) {
 export default function App() {
   const { currentUser } = useAuth();
   if (!currentUser) return <LoginModule />;
-  return <Dashboard />;
+  
+  return (
+    <>
+      {/* 🖨️ ESTILOS GLOBALES DE IMPRESIÓN (Convierte el modo oscuro en modo papel) 🖨️ */}
+      <style>{`
+        @media print {
+            @page { size: landscape; margin: 10mm; }
+            body * { visibility: hidden; }
+            #printable-calendar, #printable-calendar * { visibility: visible; }
+            #printable-calendar {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100vw;
+                height: 100vh;
+                margin: 0;
+                padding: 20px;
+                background: white !important;
+                color: black !important;
+            }
+            .print-hide { display: none !important; }
+            .print-text-black { color: black !important; }
+            .print-border-gray { border-color: #cbd5e1 !important; border-width: 1px !important; border-style: solid !important; }
+            .print-bg-gray { background-color: #f1f5f9 !important; }
+            .print-bg-white { background-color: #ffffff !important; }
+            .print-badge-purple { background-color: #f3e8ff !important; color: #6b21a8 !important; border: 1px solid #d8b4fe !important; }
+            .print-badge-yellow { background-color: #fef9c3 !important; color: #a16207 !important; border: 1px solid #fde047 !important; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+      `}</style>
+      <Dashboard />
+    </>
+  );
 }
 
 function Dashboard() {
@@ -969,11 +1010,11 @@ function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-24" onClick={() => setActiveInput(null)}>
-      {viewingPhoto && <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4" onClick={() => setViewingPhoto(null)}><div className="relative max-w-4xl w-full flex flex-col items-center"><img src={viewingPhoto} className="max-h-[80vh] rounded-lg border border-white/20" alt="Evidencia" /><button className="mt-6 bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-xs">Cerrar</button></div></div>}
+    <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-24 print-bg-white" onClick={() => setActiveInput(null)}>
+      {viewingPhoto && <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 print-hide" onClick={() => setViewingPhoto(null)}><div className="relative max-w-4xl w-full flex flex-col items-center"><img src={viewingPhoto} className="max-h-[80vh] rounded-lg border border-white/20" alt="Evidencia" /><button className="mt-6 bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-xs">Cerrar</button></div></div>}
 
       {editingItem && (
-        <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm print-hide">
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white flex items-center gap-2"><Edit3 size={20} className="text-blue-500"/> Editar Registro</h3><button onClick={() => setEditingItem(null)}><X className="text-slate-500 hover:text-white" size={24}/></button></div>
                 <div className="space-y-4">
@@ -988,7 +1029,7 @@ function Dashboard() {
       )}
 
       {showAvisoModal && (
-        <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm print-hide">
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto custom-scrollbar">
                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white flex items-center gap-2"><Send size={20} className="text-blue-500"/> Enviar Aviso a Equipo</h3><button onClick={() => setShowAvisoModal(false)}><XCircle className="text-slate-500 hover:text-white" size={24}/></button></div>
                 <div className="space-y-4">
@@ -1029,7 +1070,7 @@ function Dashboard() {
         </div>
       )}
 
-      <nav className="bg-[#151F32] border-b border-slate-800 px-4 md:px-8 py-4 sticky top-0 z-50 flex justify-between items-center shadow-lg">
+      <nav className="bg-[#151F32] border-b border-slate-800 px-4 md:px-8 py-4 sticky top-0 z-50 flex justify-between items-center shadow-lg print-hide">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white border border-slate-700"><Bike size={18}/></div><h1 className="text-lg font-black tracking-tighter text-white">Recolekta <span className="text-green-500">OS</span></h1></div>
         <div className="flex items-center gap-3">
             <div className="hidden md:flex flex-col items-end"><span className="text-white text-[10px] font-bold uppercase tracking-widest">{currentUser.email}</span><span className="text-slate-500 text-[8px] uppercase">{appMode.toUpperCase()}</span></div>
@@ -1037,7 +1078,7 @@ function Dashboard() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto p-4 md:p-6">
+      <main className="max-w-7xl mx-auto p-4 md:p-6 print-p-0">
         {/* =========================================
             BLOQUE USUARIO (TRANSPORTISTA)
             ========================================= */}
@@ -1089,7 +1130,7 @@ function Dashboard() {
                     <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-white"><ClipboardList className="text-green-500"/> Registro de Ruta</h2>
                     <form onSubmit={async (e) => { e.preventDefault(); if(!imageFile) return alert("FOTO REQUERIDA"); if(getWait() === 0 && form.mLlegada !== form.mSalida) return alert("ERROR EN HORAS"); if (!(catalogs.transportistas || []).includes(form.recolector)) return alert("TRANSPORTISTA NO VÁLIDO"); if (!(catalogs.sucursales || []).includes(form.sucursal)) return alert("SUCURSAL NO VÁLIDA"); setIsUploading(true); try { const storageRef = ref(storage, `evidencias/${Date.now()}_${form.recolector.replace(/\s+/g, '_')}`); await uploadBytes(storageRef, imageFile); const photoURL = await getDownloadURL(storageRef); const isP = PRINCIPAL_KEYWORDS.some(k=>form.tipo.toLowerCase().includes(k)); await addDoc(collection(db, "registros_produccion"), { ...form, tiempo: getWait(), createdAt: new Date().toISOString(), categoria: isP ? "Principal" : "Secundaria", fotoData: photoURL, month: new Date().getMonth() + 1, usuarioEmail: currentUser.email }); alert("¡Registrado!"); setForm(prev => ({...prev, sucursal: '', observaciones: ''})); setImagePreview(null); setImageFile(null); } catch(e) { console.error(e); alert("Error al subir"); } finally { setIsUploading(false); } }} className="space-y-5">
                       <div className="relative"><label className="text-[10px] font-bold text-slate-400 ml-4 block uppercase mb-1">Responsable</label><div className="relative"><input type="text" className={cn("w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase text-slate-400 cursor-not-allowed")} value={form.recolector} disabled /><User size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500"/></div></div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-blue-500 text-slate-300" value={form.tipo} onChange={e => setForm({...form, tipo: e.target.value})} required><option value="">-- DILIGENCIA --</option>{(catalogs.diligencias || []).map(d => <option key={d} value={d}>{d}</option>)}</select><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-indigo-500 text-slate-300" value={form.area} onChange={e => setForm({...form, area: e.target.value})} required><option value="">-- ÁREA --</option>{(catalogs.areas || []).map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-blue-500 text-slate-300" value={form.tipo} onChange={e => setForm({...form, tipo: e.target.value})} required><option value="">-- DILIGENCIA --</option>{catalogs.diligencias.map(d => <option key={d} value={d}>{d}</option>)}</select><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-indigo-500 text-slate-300" value={form.area} onChange={e => setForm({...form, area: e.target.value})} required><option value="">-- ÁREA --</option>{catalogs.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
                       <div className="relative" onClick={e => e.stopPropagation()}><input type="text" placeholder="SUCURSAL..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none text-white placeholder-slate-600" value={form.sucursal} onChange={e => handleInput('sucursal', e.target.value)} onFocus={() => setActiveInput('sucursal')} required />{activeInput === 'sucursal' && form.sucursal.length > 0 && (<div className="absolute z-30 w-full mt-2 bg-[#1F2937] shadow-xl rounded-xl border border-slate-700 max-h-40 overflow-y-auto">{(catalogs.sucursales || []).filter(t=>t && typeof t === 'string' && t.toUpperCase().includes(form.sucursal.toUpperCase())).map(s => (<div key={s} onClick={() => { setForm({...form, sucursal: s}); setActiveInput(null); }} className="p-3 hover:bg-slate-700 cursor-pointer text-xs font-bold border-b border-slate-800 text-slate-300">{s}</div>))}</div>)}</div>
                       <div className="bg-[#0B1120] p-6 rounded-[2rem] text-white grid grid-cols-1 sm:grid-cols-2 gap-6 items-center shadow-inner border border-slate-800"><div className="space-y-4"><div className="flex flex-col items-center sm:items-start"><p className="text-[9px] font-bold text-green-400 uppercase tracking-widest mb-1">Llegada</p><div className="flex gap-1"><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.hLlegada} onChange={e=>setForm({...form, hLlegada:e.target.value})}>{Array.from({length: 12},(_,i)=>String(i+1).padStart(2,'0')).map(h=><option key={h}>{h}</option>)}</select><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.mLlegada} onChange={e=>setForm({...form, mLlegada:e.target.value})}>{Array.from({length: 60},(_,i)=>String(i).padStart(2,'0')).map(m=><option key={m}>{m}</option>)}</select><select className="bg-green-900 text-green-400 border border-green-700 p-2 rounded-lg font-bold text-[10px] w-14" value={form.pLlegada} onChange={e=>setForm({...form, pLlegada:e.target.value})}><option>AM</option><option>PM</option></select></div></div><div className="flex flex-col items-center sm:items-start"><p className="text-[9px] font-bold text-orange-400 uppercase tracking-widest mb-1">Salida</p><div className="flex gap-1"><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.hSalida} onChange={e=>setForm({...form, hSalida:e.target.value})}>{Array.from({length: 12},(_,i)=>String(i+1).padStart(2,'0')).map(h=><option key={h}>{h}</option>)}</select><select className="bg-slate-800 p-2 rounded-lg font-bold text-xs w-16 border border-slate-700" value={form.mSalida} onChange={e=>setForm({...form, mSalida:e.target.value})}>{Array.from({length: 60},(_,i)=>String(i).padStart(2,'0')).map(m=><option key={m}>{m}</option>)}</select><select className="bg-orange-900 text-orange-400 border border-orange-700 p-2 rounded-lg font-bold text-[10px] w-14" value={form.pSalida} onChange={e=>setForm({...form, pSalida:e.target.value})}><option>AM</option><option>PM</option></select></div></div></div><div className="text-center border-t sm:border-t-0 sm:border-l border-slate-800 pt-4 sm:pt-0 h-full flex flex-col justify-center"><p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Espera Calc.</p><h4 className={cn("text-5xl font-black", getWait() > 5 ? "text-orange-400" : "text-green-400")}>{getWait()}m</h4></div></div>
                       <textarea placeholder="OBSERVACIONES..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none transition-all text-white placeholder-slate-600 resize-none h-24" value={form.observaciones} onChange={e => setForm({...form, observaciones: e.target.value})} />
@@ -1123,9 +1164,10 @@ function Dashboard() {
         )}
 
         {appMode === 'admin' && (
-          <div className="space-y-6 md:space-y-8 animate-in fade-in">
+          <div className="space-y-6 md:space-y-8 animate-in fade-in print-p-0">
              
-             <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+             {/* HEADER ADMIN RESPONSIVO */}
+             <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 print-hide">
                 <div className="w-full xl:w-auto overflow-hidden">
                     <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-white mb-4 xl:mb-0">Centro de Control</h2>
                     <div className="flex gap-2 mt-0 xl:mt-4 bg-[#0B1120] p-1 rounded-xl w-full border border-slate-800 overflow-x-auto md:flex-wrap md:overflow-visible custom-scrollbar">
@@ -1234,7 +1276,7 @@ function Dashboard() {
              )}
 
              {adminSection === 'bi' && (
-                <div className="animate-in fade-in space-y-6">
+                <div className="animate-in fade-in space-y-6 print-hide">
                    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 flex justify-between items-center">
                        <div><h3 className="text-xl font-black text-white flex items-center gap-2"><PieChart className="text-indigo-500"/> Inteligencia de Negocios (YoY)</h3><p className="text-xs text-slate-400">Comparativa Anual Mensualizada ({biMetrics.yPrev} vs {biMetrics.yCurrent})</p></div>
                    </div>
@@ -1247,7 +1289,7 @@ function Dashboard() {
              )}
 
              {adminSection === 'ops' && (
-                <div className="animate-in fade-in">
+                <div className="animate-in fade-in print-hide">
                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="bg-[#151F32] p-4 md:p-6 rounded-[2rem] shadow-sm border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><TrendingUp className="text-indigo-500 w-16 h-16 md:w-24 md:h-24"/></div><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">{filterUser === 'all' ? 'VITAL (GLOBAL FLOTA)' : `VITAL (${filterUser})`}</p><div className="flex items-baseline gap-2"><h3 className="text-3xl md:text-4xl font-black text-white">{metrics.efP}%</h3><span className="text-xs font-bold text-slate-500">Eficiencia</span></div><div className="mt-4 flex gap-2"><span className="text-[10px] font-bold bg-indigo-900/30 text-indigo-400 px-3 py-1 rounded-full border border-indigo-900">Espera: {metrics.avgP}m</span><span className="text-[10px] font-bold bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700">Vol: {metrics.countP}</span></div></div>
                       <div className="bg-[#151F32] p-4 md:p-6 rounded-[2rem] shadow-sm border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><ClipboardList className="text-orange-500 w-16 h-16 md:w-24 md:h-24"/></div><p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">SECUNDARIO (ADMIN)</p><div className="flex items-baseline gap-2"><h3 className="text-3xl md:text-4xl font-black text-white">{metrics.efS}%</h3><span className="text-xs font-bold text-slate-500">Eficiencia</span></div><div className="mt-4 flex gap-2"><span className="text-[10px] font-bold bg-orange-900/30 text-orange-400 px-3 py-1 rounded-full border border-orange-900">Espera: {metrics.avgS}m</span><span className="text-[10px] font-bold bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700">Vol: {metrics.countS}</span></div></div>
@@ -1290,7 +1332,7 @@ function Dashboard() {
              )}
              
              {adminSection === 'fleet' && (
-                <div className="animate-in fade-in space-y-6">
+                <div className="animate-in fade-in space-y-6 print-hide">
                    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
                             <div className="p-3 bg-orange-900/30 rounded-xl text-orange-400"><Settings size={24}/></div>
@@ -1323,7 +1365,7 @@ function Dashboard() {
              )}
 
              {adminSection === 'hr' && (
-                <div className="animate-in fade-in space-y-6">
+                <div className="animate-in fade-in space-y-6 print-hide">
                    
                    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
@@ -1389,8 +1431,8 @@ function Dashboard() {
         )}
 
         {appMode === 'supervisor' && (
-           <div className="space-y-6 md:space-y-8 animate-in fade-in">
-             <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+           <div className="space-y-6 md:space-y-8 animate-in fade-in print-p-0">
+             <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 print-hide">
                 <div className="w-full xl:w-auto overflow-hidden">
                     <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-white mb-4 xl:mb-0 flex items-center gap-2"><Eye className="text-blue-500"/> Visor Operativo</h2>
                     <div className="flex gap-2 mt-0 xl:mt-4 bg-[#0B1120] p-1 rounded-xl w-full border border-slate-800 overflow-x-auto md:flex-wrap md:overflow-visible custom-scrollbar">
@@ -1408,7 +1450,7 @@ function Dashboard() {
                     <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">
                       {availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}
                    </select>
-                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Toda la Flota</option>{(catalogs.transportistas || []).map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
+                   <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all">Toda la Flota</option>{(catalogs.transportistas || []).map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
                    <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Año</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">Mes {m}</option>)}</select>
                   </div>
                   
@@ -1420,7 +1462,7 @@ function Dashboard() {
              </div>
              
              {supervisorSection === 'bitacora' && (
-                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
+                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto print-hide">
                    <table className="w-full text-left">
                       <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center rounded-r-lg">Foto</th></tr></thead>
                       <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
@@ -1428,7 +1470,14 @@ function Dashboard() {
                             <tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors">
                                 <td className="px-4 py-3 text-slate-300 font-bold">{getStrictDateString(r.createdAt)}</td>
                                 <td className="px-4 py-3 text-white">{r.recolector}</td>
-                                <td className="px-4 py-3">{r.sucursal}</td>
+                                <td className="px-4 py-3">
+                                    {r.sucursal}
+                                    {r.ubicacion && r.ubicacion.includes(',') && (
+                                        <a href={`https://www.google.com/maps/search/?api=1&query=${r.ubicacion}`} target="_blank" rel="noreferrer" className="text-blue-500 hover:text-blue-300 ml-2 inline-flex items-center" title="Ver en Google Maps">
+                                            <MapPin size={12} />
+                                        </a>
+                                    )}
+                                </td>
                                 <td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
                                 <td className="px-4 py-3 text-slate-500">{r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida || ''}` : '--'}</td>
                                 <td className={cn("px-4 py-3", r.tiempo > 5 ? "text-orange-400" : "text-green-400")}>{r.tiempo}m</td>
@@ -1443,7 +1492,7 @@ function Dashboard() {
              )}
 
              {supervisorSection === 'combustible' && (
-                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
+                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto print-hide">
                    <table className="w-full text-left">
                       <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo Total</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center rounded-r-lg">Ticket</th></tr></thead>
                       <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
@@ -1454,7 +1503,7 @@ function Dashboard() {
              )}
 
              {supervisorSection === 'taller' && (
-                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
+                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto print-hide">
                    <table className="w-full text-left">
                       <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center rounded-r-lg">Evidencia</th></tr></thead>
                       <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
@@ -1465,26 +1514,8 @@ function Dashboard() {
              )}
 
              {supervisorSection === 'agenda' && (
-                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto">
-                   <div className="mb-4">
-                        <h3 className="font-bold text-white">HORARIO GLOBAL DE FLOTA</h3>
-                        <p className="text-xs text-slate-500">Vista consolidada de horarios y mantenimientos.</p>
-                   </div>
-                   <table className="w-full text-left">
-                      <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Horario Base</th><th className="px-4 py-3">Zona / Ruta</th><th className="px-4 py-3">Puntos / Sucursales</th><th className="px-4 py-3">Turnos Extra</th><th className="px-4 py-3 rounded-r-lg">Prox. Mantenimiento</th></tr></thead>
-                      <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
-                         {agendaData.map((a, i) => (
-                             <tr key={i} className="hover:bg-slate-800/50">
-                                 <td className="px-4 py-3 text-white">{a.id}</td>
-                                 <td className="px-4 py-3 text-blue-400">{a.horario || '--'}</td>
-                                 <td className="px-4 py-3">{a.zona || '--'}</td>
-                                 <td className="px-4 py-3 italic">{a.puntos || '--'}</td>
-                                 <td className="px-4 py-3">{formatTurnosVisually(a.turnos)}</td>
-                                 <td className="px-4 py-3 text-yellow-500">{formatWithDay(formatLocalDate(a.mantenimiento))}</td>
-                             </tr>
-                         ))}
-                      </tbody>
-                   </table>
+                <div className="animate-in fade-in">
+                    <AgendaAdmin sucursales={catalogs.sucursales} transportistas={catalogs.transportistas} />
                 </div>
              )}
           </div>
