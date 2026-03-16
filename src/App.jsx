@@ -762,6 +762,7 @@ function Dashboard() {
   const handleFile = async (e) => { const file = e.target.files[0]; if (file) { setIsCompressing(true); try { const compressedFile = await compressImage(file); setImageFile(compressedFile); const reader = new FileReader(); reader.onloadend = () => setImagePreview(reader.result); reader.readAsDataURL(compressedFile); } catch (e) { alert("Error al procesar la imagen"); } finally { setIsCompressing(false); } } };
 
   const handleProfilePhotoUpload = async (e) => { const file = e.target.files[0]; if (!file) return; try { const compressed = await compressImage(file); const storageRef = ref(storage, `perfiles/${currentUser.email}`); await uploadBytes(storageRef, compressed); const url = await getDownloadURL(storageRef); await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { foto: url }, { merge: true }); alert("¡Foto de perfil actualizada con éxito!"); } catch (err) { alert("Error subiendo foto de perfil."); } };
+  const handleMotoPhotoUpload = async (e) => { const file = e.target.files[0]; if (!file) return; try { const compressed = await compressImage(file); const storageRef = ref(storage, `motos/${currentUser.email}`); await uploadBytes(storageRef, compressed); const url = await getDownloadURL(storageRef); await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { fotoMoto: url }, { merge: true }); alert("¡Foto de la herramienta de trabajo actualizada!"); } catch (err) { alert("Error subiendo foto de la moto."); } };
   const handleAssignCategory = async (email, newCategory) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { categoria: newCategory }, { merge: true }); } catch (e) {} };
   const handleAssignZone = async (email, newZone) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { zona: newZone }, { merge: true }); } catch (e) {} };
 
@@ -891,7 +892,7 @@ function Dashboard() {
         const miMeta = getMetaEspera(profile.zona);
         const onTime = recs.filter(x => (x.tiempo||0) <= miMeta).length; const delayed = recs.length - onTime; const ef = recs.length > 0 ? ((onTime / recs.length) * 100).toFixed(1) : 100;
         
-        return { name, email, eficiencia: parseFloat(ef), totalTrips: userDocs.length, totalMuestras: recs.length, onTime, delayed, foto: profile.foto || null, categoria: profile.categoria || 'Operador', zona: profile.zona || 'Sin Asignar' };
+        return { name, email, eficiencia: parseFloat(ef), totalTrips: userDocs.length, totalMuestras: recs.length, onTime, delayed, foto: profile.foto || null, fotoMoto: profile.fotoMoto || null, categoria: profile.categoria || 'Operador', zona: profile.zona || 'Sin Asignar' };
     }).sort((a,b) => b.eficiencia - a.eficiencia); return { transportistasStats: stats };
   }, [liveData, csvData, filterYear, filterMonth, catalogs.transportistas, perfilesUsuarios, appMode, filterZona]);
 
@@ -1033,17 +1034,90 @@ function Dashboard() {
     <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-24 print-bg-white" onClick={() => setActiveInput(null)}>
       {viewingPhoto && <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 print-hide" onClick={() => setViewingPhoto(null)}><div className="relative max-w-4xl w-full flex flex-col items-center"><img src={viewingPhoto} className="max-h-[80vh] rounded-lg border border-white/20" alt="Evidencia" /><button className="mt-6 bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-xs">Cerrar</button></div></div>}
 
-      {/* MODAL ADMIN */}
+     {/* MODAL ADMIN */}
       {selectedAdminProfile && (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm print-hide" onClick={() => setSelectedAdminProfile(null)}>
             <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-700 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                
+                {/* ENCABEZADO DEL MODAL */}
                 <div className="flex justify-between items-start mb-6">
-                    <div className="flex items-center gap-4"><div className="w-16 h-16 rounded-full border-2 border-slate-600 bg-black flex items-center justify-center overflow-hidden shadow-lg">{selectedAdminProfile.foto ? <img src={selectedAdminProfile.foto} className="w-full h-full object-cover"/> : <User size={24} className="text-slate-600"/>}</div><div><h3 className="text-xl font-black text-white uppercase leading-tight">{selectedAdminProfile.name}</h3><p className="text-[10px] text-slate-400 font-mono mb-2">{selectedAdminProfile.email || 'Sin correo vinculado'}</p><div className="flex gap-2"><span className={cn("text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest", selectedAdminProfile.categoria === 'Coordinador' ? "bg-yellow-900/50 text-yellow-400 border border-yellow-500" : selectedAdminProfile.categoria === 'Técnico' ? "bg-slate-700 text-slate-300 border border-slate-400" : "bg-orange-900/50 text-orange-400 border border-orange-500")}>{selectedAdminProfile.categoria}</span><span className="bg-indigo-900/50 text-indigo-400 border border-indigo-500 text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest flex items-center gap-1"><Globe size={10}/> {selectedAdminProfile.zona}</span></div></div></div><button onClick={() => setSelectedAdminProfile(null)} className="text-slate-500 hover:text-white bg-slate-800 rounded-full p-1"><X size={20}/></button>
+                    <div className="flex items-center gap-4">
+                        <div className="flex -space-x-4">
+                            <div className="w-16 h-16 rounded-full border-2 border-slate-600 bg-black flex items-center justify-center overflow-hidden shadow-lg z-10">
+                                {selectedAdminProfile.foto ? (
+                                    <img 
+                                        src={selectedAdminProfile.foto} 
+                                        onClick={() => setViewingPhoto(selectedAdminProfile.foto)} 
+                                        className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity" 
+                                        title="Ver foto de perfil"
+                                    />
+                                ) : (
+                                    <User size={24} className="text-slate-600"/>
+                                )}
+                            </div>
+                            <div className="w-16 h-16 rounded-full border-2 border-slate-700 bg-slate-900 flex items-center justify-center overflow-hidden shadow-lg relative">
+                                {selectedAdminProfile.fotoMoto ? (
+                                    <img 
+                                        src={selectedAdminProfile.fotoMoto} 
+                                        onClick={() => setViewingPhoto(selectedAdminProfile.fotoMoto)} 
+                                        className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity" 
+                                        title="Ver herramienta de trabajo"
+                                    />
+                                ) : (
+                                    <Bike size={20} className="text-slate-600"/>
+                                )}
+                            </div>
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-black text-white uppercase leading-tight">{selectedAdminProfile.name}</h3>
+                            <p className="text-[10px] text-slate-400 font-mono mb-2">{selectedAdminProfile.email || 'Sin correo vinculado'}</p>
+                            <div className="flex gap-2">
+                                {/* SOLUCIÓN ASIMETRÍA: inline-flex, items-center y leading-none aplicados */}
+                                <span className={cn("inline-flex items-center justify-center text-[9px] font-black px-2.5 py-1.5 rounded-full uppercase tracking-widest leading-none", selectedAdminProfile.categoria === 'Coordinador' ? "bg-yellow-900/50 text-yellow-400 border border-yellow-500" : selectedAdminProfile.categoria === 'Técnico' ? "bg-slate-700 text-slate-300 border border-slate-400" : "bg-orange-900/50 text-orange-400 border border-orange-500")}>
+                                    {selectedAdminProfile.categoria}
+                                </span>
+                                <span className="bg-indigo-900/50 text-indigo-400 border border-indigo-500 text-[9px] font-black px-2.5 py-1.5 rounded-full uppercase tracking-widest inline-flex items-center justify-center gap-1 leading-none">
+                                    <Globe size={10}/> {selectedAdminProfile.zona}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <button onClick={() => setSelectedAdminProfile(null)} className="text-slate-500 hover:text-white bg-slate-800 rounded-full p-1">
+                        <X size={20}/>
+                    </button>
                 </div>
+                
+                {/* GRAFICA DE EFICIENCIA */}
                 <div className="bg-[#0B1120] rounded-[2rem] p-6 border border-slate-700 shadow-inner flex flex-col items-center justify-center relative mb-4">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest absolute top-4">Eficiencia Vital (Periodo Filtrado)</h4><div className="mt-8 -mb-4 w-full flex justify-center"><PieChart width={200} height={100}><Pie data={[{ value: selectedAdminProfile.eficiencia, fill: selectedAdminProfile.eficiencia >= 95 ? '#10b981' : selectedAdminProfile.eficiencia >= 80 ? '#f59e0b' : '#ef4444' },{ value: 100 - selectedAdminProfile.eficiencia, fill: '#1f2937' }]} cx={100} cy={100} startAngle={180} endAngle={0} innerRadius={70} outerRadius={95} dataKey="value" stroke="none" /></PieChart></div><div className="text-center z-10"><span className={cn("text-4xl font-black", selectedAdminProfile.eficiencia >= 95 ? "text-green-400" : selectedAdminProfile.eficiencia >= 80 ? "text-yellow-400" : "text-red-400")}>{selectedAdminProfile.eficiencia}%</span></div>
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest absolute top-4">Eficiencia Vital (Periodo Filtrado)</h4>
+                    <div className="mt-8 -mb-4 w-full flex justify-center">
+                        <PieChart width={200} height={100}>
+                            <Pie data={[{ value: selectedAdminProfile.eficiencia, fill: selectedAdminProfile.eficiencia >= 95 ? '#10b981' : selectedAdminProfile.eficiencia >= 80 ? '#f59e0b' : '#ef4444' },{ value: 100 - selectedAdminProfile.eficiencia, fill: '#1f2937' }]} cx={100} cy={100} startAngle={180} endAngle={0} innerRadius={70} outerRadius={95} dataKey="value" stroke="none" />
+                        </PieChart>
+                    </div>
+                    <div className="text-center z-10">
+                        <span className={cn("text-4xl font-black", selectedAdminProfile.eficiencia >= 95 ? "text-green-400" : selectedAdminProfile.eficiencia >= 80 ? "text-yellow-400" : "text-red-400")}>
+                            {selectedAdminProfile.eficiencia}%
+                        </span>
+                    </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3"><div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 text-center shadow-sm"><p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Muestras a Tiempo</p><span className="text-2xl font-black text-green-400">{selectedAdminProfile.onTime}</span></div><div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 text-center shadow-sm"><p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Muestras con Demora</p><span className={cn("text-2xl font-black", selectedAdminProfile.delayed > 0 ? "text-red-400" : "text-slate-300")}>{selectedAdminProfile.delayed}</span></div><div className="col-span-2 bg-indigo-900/20 p-4 rounded-xl border border-indigo-800/40 flex justify-between items-center shadow-sm"><span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Total Diligencias (Todo tipo)</span><span className="text-xl font-black text-white">{selectedAdminProfile.totalTrips}</span></div></div>
+                
+                {/* ESTADÍSTICAS */}
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 text-center shadow-sm">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Muestras a Tiempo</p>
+                        <span className="text-2xl font-black text-green-400">{selectedAdminProfile.onTime}</span>
+                    </div>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 text-center shadow-sm">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Muestras con Demora</p>
+                        <span className={cn("text-2xl font-black", selectedAdminProfile.delayed > 0 ? "text-red-400" : "text-slate-300")}>{selectedAdminProfile.delayed}</span>
+                    </div>
+                    <div className="col-span-2 bg-indigo-900/20 p-4 rounded-xl border border-indigo-800/40 flex justify-between items-center shadow-sm">
+                        <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Total Diligencias (Todo tipo)</span>
+                        <span className="text-xl font-black text-white">{selectedAdminProfile.totalTrips}</span>
+                    </div>
+                </div>
+                
             </div>
         </div>
       )}
@@ -1201,11 +1275,14 @@ function Dashboard() {
                  <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] shadow-xl border border-slate-800 relative overflow-hidden animate-in zoom-in-95 duration-200">
                     <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 to-rose-400"></div>
                     <div className="flex flex-col md:flex-row items-center md:items-start gap-6 mb-8 border-b border-slate-800 pb-8">
-                        <div className="relative group"><div className="w-28 h-28 rounded-full border-4 border-slate-700 overflow-hidden bg-[#0B1120] flex items-center justify-center shadow-2xl">{userProfile.foto ? <img src={userProfile.foto} alt="Perfil" className="w-full h-full object-cover" /> : <User size={48} className="text-slate-500" />}</div><label className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"><UploadCloud size={20} className="text-white mb-1"/><span className="text-[8px] font-black uppercase text-white tracking-widest text-center leading-tight">Subir<br/>Foto</span><input type="file" className="hidden" accept="image/*" onChange={handleProfilePhotoUpload} /></label></div>
+                        <div className="flex gap-4">
+                            <div className="relative group"><div className="w-28 h-28 rounded-full border-4 border-slate-700 overflow-hidden bg-[#0B1120] flex items-center justify-center shadow-2xl">{userProfile.foto ? <img src={userProfile.foto} alt="Perfil" className="w-full h-full object-cover" /> : <User size={48} className="text-slate-500" />}</div><label className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"><UploadCloud size={20} className="text-white mb-1"/><span className="text-[8px] font-black uppercase text-white tracking-widest text-center leading-tight">Subir<br/>Perfil</span><input type="file" className="hidden" accept="image/*" onChange={handleProfilePhotoUpload} /></label></div>
+                            <div className="relative group"><div className="w-28 h-28 rounded-2xl border-4 border-slate-700 overflow-hidden bg-[#0B1120] flex items-center justify-center shadow-2xl">{userProfile.fotoMoto ? <img src={userProfile.fotoMoto} alt="Moto" className="w-full h-full object-cover" /> : <Bike size={48} className="text-slate-500" />}</div><label className="absolute inset-0 bg-black/60 rounded-2xl flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"><Camera size={20} className="text-white mb-1"/><span className="text-[8px] font-black uppercase text-white tracking-widest text-center leading-tight">Subir<br/>Moto</span><input type="file" className="hidden" accept="image/*" onChange={handleMotoPhotoUpload} /></label></div>
+                        </div>
                         <div className="flex-1 text-center md:text-left">
                             <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-1">{form.recolector}</h2><p className="text-xs font-bold text-slate-500 mb-2">{currentUser.email}</p>
                             <div className="flex items-center gap-2 justify-center md:justify-start">
-                                <div onClick={cycleCategory} className={cn("inline-flex items-center gap-2 px-4 py-2 rounded-xl border-2 cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95", userProfile.categoria === 'Coordinador' ? "bg-yellow-900/40 border-yellow-500 text-yellow-400" : userProfile.categoria === 'Técnico' ? "bg-slate-700/50 border-slate-400 text-slate-300" : "bg-orange-900/40 border-orange-600 text-orange-400")}>{userProfile.categoria === 'Coordinador' ? <Award size={20}/> : userProfile.categoria === 'Técnico' ? <ShieldCheck size={20}/> : <Star size={20}/>}<span className="font-black uppercase text-xs tracking-widest">{userProfile.categoria || 'Operador'}</span></div>
+                                <div className={cn("inline-flex items-center gap-2 px-4 py-2 rounded-xl border-2 shadow-lg", userProfile.categoria === 'Coordinador' ? "bg-yellow-900/40 border-yellow-500 text-yellow-400" : userProfile.categoria === 'Técnico' ? "bg-slate-700/50 border-slate-400 text-slate-300" : "bg-orange-900/40 border-orange-600 text-orange-400")}>{userProfile.categoria === 'Coordinador' ? <Award size={20}/> : userProfile.categoria === 'Técnico' ? <ShieldCheck size={20}/> : <Star size={20}/>}<span className="font-black uppercase text-xs tracking-widest">{userProfile.categoria || 'Operador'}</span></div>
                                 <div className="bg-indigo-900/50 border border-indigo-600 text-indigo-400 px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2"><Map size={16}/><span className="font-black uppercase text-xs tracking-widest">{userProfile.zona || 'Sin Asignar'}</span></div>
                             </div>
                         </div>
