@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 // --- 1. IMPORTACIONES ---
 import { useAuth } from './context/AuthContext';
 import LoginModule from './components/LoginModule';
@@ -31,6 +31,8 @@ import { twMerge } from 'tailwind-merge';
 const cn = (...inputs) => twMerge(clsx(inputs));
 
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/mnoeanaliza/recolekta-os/refs/heads/main/Datos.csv";
+// Carga diferida del Mapa
+const RutaOptimizada = lazy(() => import('./components/RutaOptimizada'));
 
 // MAPEO DE CORREOS
 export const USUARIOS_EMAIL = {
@@ -129,7 +131,7 @@ function SmallGauge({ value, size = 60 }) {
 // =========================================================================
 // 🧩 COMPONENTE DE AGENDA
 // =========================================================================
-function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContext = "El Salvador" }) {
+function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContext = "El Salvador", readOnly = false }) {
     const [agendaData, setAgendaData] = useState([]);
     const [selectedUsers, setSelectedUsers] = useState([]);
     const [form, setForm] = useState({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
@@ -141,7 +143,6 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
     const [calYear, setCalYear] = useState(new Date().getFullYear());
     const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
-    // Extraer arrays de contexto
     const transportistas = transportistasObj[countryContext] || [];
     const sucursales = sucursalesObj[countryContext] || [];
 
@@ -154,11 +155,8 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
 
     const handleAddUser = (e) => {
         const val = e.target.value;
-        if (val === 'TODOS') {
-            setSelectedUsers(transportistas);
-        } else if (val && !selectedUsers.includes(val)) {
-            setSelectedUsers([...selectedUsers, val]);
-        }
+        if (val === 'TODOS') setSelectedUsers(transportistas);
+        else if (val && !selectedUsers.includes(val)) setSelectedUsers([...selectedUsers, val]);
     };
 
     const removeUser = (user) => setSelectedUsers(selectedUsers.filter(u => u !== user));
@@ -171,7 +169,6 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                 selectedUsers.map(async (id) => {
                     const currentUserData = agendaData.find(u => u.id === id) || {};
                     const updateData = {};
-
                     if (form.horario) updateData.horario = form.horario;
                     if (form.zona) updateData.zona = form.zona;
                     if (form.mantenimiento) updateData.mantenimiento = form.mantenimiento;
@@ -198,50 +195,31 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                             updateData.turnos = merged.join(' - ');
                         } else updateData.turnos = form.turnos;
                     }
-
-                    if (Object.keys(updateData).length > 0) {
-                        await setDoc(doc(db, "agenda_flota", id), updateData, { merge: true });
-                    }
+                    if (Object.keys(updateData).length > 0) await setDoc(doc(db, "agenda_flota", id), updateData, { merge: true });
                 })
             );
-
             alert(`¡Asignación guardada con éxito para ${selectedUsers.length} transportista(s)!`);
             setForm({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
             setSelectedUsers([]);
         } catch (error) { alert("Error al guardar en la base de datos."); }
     };
 
-    const handleDelete = async (id) => {
-        if(window.confirm(`¿Eliminar completamente la agenda de ${id}?`)) {
-            await deleteDoc(doc(db, "agenda_flota", id));
-        }
-    };
-
-    const handleEdit = (item) => {
-        setSelectedUsers([item.id]);
-        setForm({ horario: item.horario || '', zona: item.zona || '', puntos: item.puntos || '', turnos: item.turnos || '', mantenimiento: item.mantenimiento || '' });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+    const handleDelete = async (id) => { if(window.confirm(`¿Eliminar completamente la agenda de ${id}?`)) await deleteDoc(doc(db, "agenda_flota", id)); };
+    const handleEdit = (item) => { setSelectedUsers([item.id]); setForm({ horario: item.horario || '', zona: item.zona || '', puntos: item.puntos || '', turnos: item.turnos || '', mantenimiento: item.mantenimiento || '' }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
     const addTurnoDate = () => {
         if (!tempDate) return;
         const [y, m, d] = tempDate.split('-');
         const formattedDate = `${d}/${m}/${y}`;
         let currentTurnos = form.turnos && form.turnos !== 'Ninguno' ? form.turnos.split(' - ').map(t => t.trim()).filter(t => t) : [];
-        if (!currentTurnos.includes(formattedDate)) {
-            currentTurnos.push(formattedDate);
-            setForm({ ...form, turnos: currentTurnos.join(' - ') });
-        }
+        if (!currentTurnos.includes(formattedDate)) { currentTurnos.push(formattedDate); setForm({ ...form, turnos: currentTurnos.join(' - ') }); }
         setTempDate('');
     };
 
     const addPunto = () => {
         if (!tempPunto) return;
         let currentPuntos = form.puntos && form.puntos !== 'Ninguno' ? form.puntos.split(' / ').map(p => p.trim()).filter(p => p) : [];
-        if (!currentPuntos.includes(tempPunto)) {
-            currentPuntos.push(tempPunto);
-            setForm({ ...form, puntos: currentPuntos.join(' / ') });
-        }
+        if (!currentPuntos.includes(tempPunto)) { currentPuntos.push(tempPunto); setForm({ ...form, puntos: currentPuntos.join(' / ') }); }
         setTempPunto('');
     };
 
@@ -253,40 +231,19 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
     const blanks = Array.from({ length: firstDay }, (_, i) => i);
     const calendarDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-    const normalizeDateStr = (str) => {
-        const parts = str.split('/');
-        if (parts.length === 3) return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
-        return str;
-    };
+    const normalizeDateStr = (str) => { const parts = str.split('/'); if (parts.length === 3) return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`; return str; };
 
     const getTurnosForDay = (day) => {
-        const dd = String(day).padStart(2, '0');
-        const mm = String(calMonth + 1).padStart(2, '0');
-        const yy = calYear;
-        const targetDate = `${dd}/${mm}/${yy}`; 
-
+        const targetDate = `${String(day).padStart(2, '0')}/${String(calMonth + 1).padStart(2, '0')}/${calYear}`; 
         let scheduled = [];
-        agendaData.forEach(user => {
-            if (transportistas.includes(user.id) && user.turnos && user.turnos !== 'Ninguno') {
-                const dates = user.turnos.split('-').map(t => normalizeDateStr(t.trim()));
-                if (dates.includes(targetDate)) scheduled.push(user.id.split(' ')[0]); 
-            }
-        });
+        agendaData.forEach(user => { if (transportistas.includes(user.id) && user.turnos && user.turnos !== 'Ninguno') { const dates = user.turnos.split('-').map(t => normalizeDateStr(t.trim())); if (dates.includes(targetDate)) scheduled.push(user.id.split(' ')[0]); } });
         return scheduled;
     };
 
     const getMaintForDay = (day) => {
-        const dd = String(day).padStart(2, '0');
-        const mm = String(calMonth + 1).padStart(2, '0');
-        const yy = calYear;
-        const targetDate = `${yy}-${mm}-${dd}`; 
-
+        const targetDate = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`; 
         let scheduled = [];
-        agendaData.forEach(user => {
-            if (transportistas.includes(user.id) && user.mantenimiento === targetDate) {
-                scheduled.push(user.id.split(' ')[0]); 
-            }
-        });
+        agendaData.forEach(user => { if (transportistas.includes(user.id) && user.mantenimiento === targetDate) scheduled.push(user.id.split(' ')[0]); });
         return scheduled;
     };
 
@@ -294,155 +251,96 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
 
     return (
         <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl print-hide">
-                <h3 className="text-xl font-black text-white mb-6 flex items-center gap-2"><Calendar className="text-blue-500"/> Asignación y Actualización de Horarios</h3>
-                <form onSubmit={handleSave} className="space-y-6">
-                    <div className="bg-[#0B1120] p-5 rounded-2xl border border-blue-900/50 shadow-inner">
-                        <label className="text-[10px] font-bold text-blue-400 uppercase mb-2 flex items-center gap-1"><Users size={14}/> Transportistas de {countryContext}</label>
-                        <select onChange={handleAddUser} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer mb-3" value="">
-                            <option value="">-- SELECCIONAR PARA AGREGAR AL GRUPO --</option>
-                            <option value="TODOS" className="font-black text-blue-400">AGREGAR A TODOS ({countryContext})</option>
-                            {transportistas.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                        <div className="flex flex-wrap gap-2">
-                            {selectedUsers.length === 0 ? (
-                                <p className="text-xs text-slate-600 italic">No has seleccionado a nadie.</p>
-                            ) : (
-                                selectedUsers.map(u => (
-                                    <span key={u} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 shadow-md">
-                                        {u} <X size={14} className="cursor-pointer hover:text-red-300" onClick={() => removeUser(u)}/>
-                                    </span>
-                                ))
-                            )}
-                            {selectedUsers.length > 1 && (
-                                <button type="button" onClick={()=>setSelectedUsers([])} className="text-[10px] text-red-400 hover:text-red-300 font-bold px-2">Limpiar Grupo</button>
-                            )}
-                        </div>
-                    </div>
-                    <div className="bg-blue-900/10 border border-blue-800/40 p-3 rounded-xl flex items-center gap-3">
-                        <input type="checkbox" checked={appendMode} onChange={e => setAppendMode(e.target.checked)} className="w-5 h-5 accent-blue-600 cursor-pointer" id="appendModeToggle" />
-                        <label htmlFor="appendModeToggle" className="text-[10px] font-bold text-blue-300 cursor-pointer uppercase">
-                            MODO ACUMULATIVO: Sumar los días a las asignaciones existentes
-                        </label>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase">Horario Base</label>
-                            <input value={form.horario} onChange={e=>setForm({...form, horario: e.target.value})} placeholder="Ej. 06:00 am - 03:00 pm" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/>
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase">Zona Asignada</label>
-                            <input value={form.zona} onChange={e=>setForm({...form, zona: e.target.value})} placeholder="Ej. San Salvador Centro" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-800 space-y-4 shadow-inner">
-                            <h4 className="text-xs font-bold text-slate-300 uppercase flex items-center gap-2"><MapPin size={14} className="text-indigo-400"/> Puntos / Sucursales ({countryContext})</h4>
-                            <div className="flex items-end gap-2">
-                                <div className="flex-1">
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Catálogo Oficial</label>
-                                    <select value={tempPunto} onChange={e => setTempPunto(e.target.value)} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer">
-                                        <option value="">-- ELEGIR SUCURSAL --</option>
-                                        {sucursales.map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                </div>
-                                <button type="button" onClick={addPunto} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-3 rounded-xl font-bold flex items-center shadow-md transition-all h-[46px] mt-auto"><Plus size={18}/></button>
-                            </div>
-                            <div>
-                                <div className="flex justify-between items-center mb-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Ruta Armada</label>
-                                    {form.puntos && <button type="button" onClick={() => setForm({ ...form, puntos: '' })} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}
-                                </div>
-                                <textarea value={form.puntos} onChange={e=>setForm({...form, puntos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar la ruta a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/>
+            {/* 1. OCULTAMOS EL FORMULARIO SI ES SOLO LECTURA (SUPERVISOR) */}
+            {!readOnly && (
+                <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl print-hide">
+                    <h3 className="text-xl font-black text-white mb-6 flex items-center gap-2"><Calendar className="text-blue-500"/> Asignación y Actualización de Horarios</h3>
+                    <form onSubmit={handleSave} className="space-y-6">
+                        <div className="bg-[#0B1120] p-5 rounded-2xl border border-blue-900/50 shadow-inner">
+                            <label className="text-[10px] font-bold text-blue-400 uppercase mb-2 flex items-center gap-1"><Users size={14}/> Transportistas de {countryContext}</label>
+                            <select onChange={handleAddUser} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer mb-3" value="">
+                                <option value="">-- SELECCIONAR PARA AGREGAR AL GRUPO --</option>
+                                <option value="TODOS" className="font-black text-blue-400">AGREGAR A TODOS ({countryContext})</option>
+                                {transportistas.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                            <div className="flex flex-wrap gap-2">
+                                {selectedUsers.length === 0 ? (<p className="text-xs text-slate-600 italic">No has seleccionado a nadie.</p>) : (selectedUsers.map(u => (<span key={u} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 shadow-md">{u} <X size={14} className="cursor-pointer hover:text-red-300" onClick={() => removeUser(u)}/></span>)))}
+                                {selectedUsers.length > 1 && (<button type="button" onClick={()=>setSelectedUsers([])} className="text-[10px] text-red-400 hover:text-red-300 font-bold px-2">Limpiar Grupo</button>)}
                             </div>
                         </div>
-                        <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-800 space-y-4 shadow-inner">
-                            <h4 className="text-xs font-bold text-slate-300 uppercase flex items-center gap-2"><Clock size={14} className="text-purple-400"/> Programación de Turnos</h4>
-                            <div className="flex items-end gap-2">
-                                <div className="flex-1">
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Calendario</label>
-                                    <input type="date" value={tempDate} onChange={e => setTempDate(e.target.value)} style={{ colorScheme: 'dark' }} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer"/>
-                                </div>
-                                <button type="button" onClick={addTurnoDate} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-xl font-bold flex items-center shadow-md transition-all h-[46px] mt-auto"><Plus size={18}/></button>
+                        <div className="bg-blue-900/10 border border-blue-800/40 p-3 rounded-xl flex items-center gap-3"><input type="checkbox" checked={appendMode} onChange={e => setAppendMode(e.target.checked)} className="w-5 h-5 accent-blue-600 cursor-pointer" id="appendModeToggle" /><label htmlFor="appendModeToggle" className="text-[10px] font-bold text-blue-300 cursor-pointer uppercase">MODO ACUMULATIVO: Sumar los días a las asignaciones existentes</label></div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-[10px] font-bold text-slate-400 uppercase">Horario Base</label><input value={form.horario} onChange={e=>setForm({...form, horario: e.target.value})} placeholder="Ej. 06:00 am - 03:00 pm" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Zona Asignada</label><input value={form.zona} onChange={e=>setForm({...form, zona: e.target.value})} placeholder="Ej. San Salvador Centro" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-800 space-y-4 shadow-inner">
+                                <h4 className="text-xs font-bold text-slate-300 uppercase flex items-center gap-2"><MapPin size={14} className="text-indigo-400"/> Puntos / Sucursales ({countryContext})</h4>
+                                <div className="flex items-end gap-2"><div className="flex-1"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Catálogo Oficial</label><select value={tempPunto} onChange={e => setTempPunto(e.target.value)} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer"><option value="">-- ELEGIR SUCURSAL --</option>{sucursales.map(s => <option key={s} value={s}>{s}</option>)}</select></div><button type="button" onClick={addPunto} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-3 rounded-xl font-bold flex items-center shadow-md transition-all h-[46px] mt-auto"><Plus size={18}/></button></div>
+                                <div><div className="flex justify-between items-center mb-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Ruta Armada</label>{form.puntos && <button type="button" onClick={() => setForm({ ...form, puntos: '' })} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}</div><textarea value={form.puntos} onChange={e=>setForm({...form, puntos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar la ruta a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/></div>
                             </div>
-                            <div>
-                                <div className="flex justify-between items-center mb-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Fechas Asignadas</label>
-                                    {form.turnos && <button type="button" onClick={() => setForm({ ...form, turnos: '' })} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}
-                                </div>
-                                <textarea value={form.turnos} onChange={e=>setForm({...form, turnos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar los turnos a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/>
+                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-800 space-y-4 shadow-inner">
+                                <h4 className="text-xs font-bold text-slate-300 uppercase flex items-center gap-2"><Clock size={14} className="text-purple-400"/> Programación de Turnos</h4>
+                                <div className="flex items-end gap-2"><div className="flex-1"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Calendario</label><input type="date" value={tempDate} onChange={e => setTempDate(e.target.value)} style={{ colorScheme: 'dark' }} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer"/></div><button type="button" onClick={addTurnoDate} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-xl font-bold flex items-center shadow-md transition-all h-[46px] mt-auto"><Plus size={18}/></button></div>
+                                <div><div className="flex justify-between items-center mb-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Fechas Asignadas</label>{form.turnos && <button type="button" onClick={() => setForm({ ...form, turnos: '' })} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}</div><textarea value={form.turnos} onChange={e=>setForm({...form, turnos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar los turnos a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/></div>
                             </div>
                         </div>
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase">Fecha Próx. Mantenimiento</label>
-                        <input type="date" value={form.mantenimiento} onChange={e=>setForm({...form, mantenimiento: e.target.value})} style={{ colorScheme: 'dark' }} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold cursor-pointer max-w-xs"/>
-                    </div>
-                    <button type="submit" className="w-full bg-green-600 hover:bg-green-500 text-white py-4 rounded-xl font-black uppercase shadow-lg flex items-center justify-center gap-2 transition-all">
-                        <Save size={18} /> Actualizar Información para el Grupo ({selectedUsers.length})
-                    </button>
-                </form>
-            </div>
-
-            <div id="printable-calendar" className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-hidden mt-6 mb-6 print-bg-white print-border-gray print-text-black">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                    <div>
-                        <h3 className="text-xl font-black text-white flex items-center gap-2 print-text-black"><Calendar className="text-purple-500 print-hide"/> Calendario de Flota ({countryContext})</h3>
-                        <p className="text-xs text-slate-400 mt-1 print-text-black">Turnos Extras (Morado) y Mantenimientos (Amarillo)</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <button onClick={handlePrint} className="print-hide bg-white text-black px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-2 shadow-md">
-                            <Printer size={14}/> Imprimir
-                        </button>
-                        <div className="flex items-center gap-2 bg-[#0B1120] p-1.5 rounded-xl border border-slate-700 print-hide">
-                            <button type="button" onClick={prevMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronLeft size={18}/></button>
-                            <span className="font-black text-white uppercase w-32 text-center text-sm">{monthNames[calMonth]} {calYear}</span>
-                            <button type="button" onClick={nextMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronRight size={18}/></button>
-                        </div>
-                        <div className="hidden print:block text-2xl font-black uppercase tracking-widest">{monthNames[calMonth]} {calYear}</div>
-                    </div>
+                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Fecha Próx. Mantenimiento</label><input type="date" value={form.mantenimiento} onChange={e=>setForm({...form, mantenimiento: e.target.value})} style={{ colorScheme: 'dark' }} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold cursor-pointer max-w-xs"/></div>
+                        <button type="submit" className="w-full bg-green-600 hover:bg-green-500 text-white py-4 rounded-xl font-black uppercase shadow-lg flex items-center justify-center gap-2 transition-all"><Save size={18} /> Actualizar Información para el Grupo ({selectedUsers.length})</button>
+                    </form>
                 </div>
+            )}
 
-                <div className="overflow-x-auto custom-scrollbar pb-2">
-                    <div className="min-w-[700px] w-full">
-                        <div className="grid grid-cols-7 gap-1 mb-2">
-                            {['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map(d => (
-                                <div key={d} className="text-center font-black text-[10px] text-slate-500 uppercase py-2 bg-[#0B1120] rounded-t-lg border-b border-slate-700 print-bg-gray print-text-black print-border-gray">{d}</div>
-                            ))}
+            {/* 2. 🔥 OCULTAMOS EL CALENDARIO VISUAL SI ES SOLO LECTURA (SUPERVISOR) 🔥 */}
+            {!readOnly && (
+                <div id="printable-calendar" className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-hidden mt-6 mb-6 print-bg-white print-border-gray print-text-black">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                        <div>
+                            <h3 className="text-xl font-black text-white flex items-center gap-2 print-text-black"><Calendar className="text-purple-500 print-hide"/> Calendario de Flota ({countryContext})</h3>
+                            <p className="text-xs text-slate-400 mt-1 print-text-black">Turnos Extras (Morado) y Mantenimientos (Amarillo)</p>
                         </div>
-                        <div className="grid grid-cols-7 gap-1">
-                            {blanks.map(b => <div key={`blank-${b}`} className="min-h-[100px] bg-[#0B1120]/30 rounded-xl border border-slate-800/30 print-bg-gray print-border-gray"></div>)}
-                            {calendarDays.map(d => {
-                                const turnosForDay = getTurnosForDay(d);
-                                const maintForDay = getMaintForDay(d); 
-                                const isToday = new Date().getDate() === d && new Date().getMonth() === calMonth && new Date().getFullYear() === calYear;
-                                
-                                return (
-                                    <div key={d} className={cn("min-h-[100px] p-2 rounded-xl border flex flex-col gap-1 transition-colors hover:border-slate-600 print-bg-white print-border-gray", isToday ? "bg-blue-900/10 border-blue-500/50" : "bg-[#0B1120] border-slate-800")}>
-                                        <span className={cn("text-[10px] font-black self-end px-1.5 rounded-sm", isToday ? "bg-blue-500 text-white" : "text-slate-500 print-text-black")}>{d}</span>
-                                        <div className="flex flex-col gap-1 overflow-y-auto max-h-[80px] custom-scrollbar print:max-h-none print:overflow-visible">
-                                            {turnosForDay.map((name, i) => (
-                                                <span key={`t-${i}`} className="text-[9px] font-bold bg-purple-900/40 border border-purple-800/50 text-purple-300 px-1.5 py-0.5 rounded truncate print-badge-purple" title={`Turno: ${name}`}>{name}</span>
-                                            ))}
-                                            {maintForDay.map((name, i) => (
-                                                <span key={`m-${i}`} className="text-[9px] font-bold bg-yellow-900/40 border border-yellow-800/50 text-yellow-500 px-1.5 py-0.5 rounded truncate flex items-center gap-1 print-badge-yellow" title={`Mantenimiento: ${name}`}>
-                                                    <Wrench size={8}/> {name}
-                                                </span>
-                                            ))}
+                        <div className="flex items-center gap-3">
+                            <button onClick={handlePrint} className="print-hide bg-white text-black px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-2 shadow-md"><Printer size={14}/> Imprimir</button>
+                            <div className="flex items-center gap-2 bg-[#0B1120] p-1.5 rounded-xl border border-slate-700 print-hide"><button type="button" onClick={prevMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronLeft size={18}/></button><span className="font-black text-white uppercase w-32 text-center text-sm">{monthNames[calMonth]} {calYear}</span><button type="button" onClick={nextMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronRight size={18}/></button></div>
+                            <div className="hidden print:block text-2xl font-black uppercase tracking-widest">{monthNames[calMonth]} {calYear}</div>
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto custom-scrollbar pb-2">
+                        <div className="min-w-[700px] w-full">
+                            <div className="grid grid-cols-7 gap-1 mb-2">{['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map(d => (<div key={d} className="text-center font-black text-[10px] text-slate-500 uppercase py-2 bg-[#0B1120] rounded-t-lg border-b border-slate-700 print-bg-gray print-text-black print-border-gray">{d}</div>))}</div>
+                            <div className="grid grid-cols-7 gap-1">
+                                {blanks.map(b => <div key={`blank-${b}`} className="min-h-[100px] bg-[#0B1120]/30 rounded-xl border border-slate-800/30 print-bg-gray print-border-gray"></div>)}
+                                {calendarDays.map(d => {
+                                    const turnosForDay = getTurnosForDay(d); const maintForDay = getMaintForDay(d); const isToday = new Date().getDate() === d && new Date().getMonth() === calMonth && new Date().getFullYear() === calYear;
+                                    return (
+                                        <div key={d} className={cn("min-h-[100px] p-2 rounded-xl border flex flex-col gap-1 transition-colors hover:border-slate-600 print-bg-white print-border-gray", isToday ? "bg-blue-900/10 border-blue-500/50" : "bg-[#0B1120] border-slate-800")}>
+                                            <span className={cn("text-[10px] font-black self-end px-1.5 rounded-sm", isToday ? "bg-blue-500 text-white" : "text-slate-500 print-text-black")}>{d}</span>
+                                            <div className="flex flex-col gap-1 overflow-y-auto max-h-[80px] custom-scrollbar print:max-h-none print:overflow-visible">
+                                                {turnosForDay.map((name, i) => (<span key={`t-${i}`} className="text-[9px] font-bold bg-purple-900/40 border border-purple-800/50 text-purple-300 px-1.5 py-0.5 rounded truncate print-badge-purple" title={`Turno: ${name}`}>{name}</span>))}
+                                                {maintForDay.map((name, i) => (<span key={`m-${i}`} className="text-[9px] font-bold bg-yellow-900/40 border border-yellow-800/50 text-yellow-500 px-1.5 py-0.5 rounded truncate flex items-center gap-1 print-badge-yellow" title={`Mantenimiento: ${name}`}><Wrench size={8}/> {name}</span>))}
+                                            </div>
                                         </div>
-                                    </div>
-                                )
-                            })}
+                                    )
+                                })}
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            )}
 
+            {/* TABLA GLOBAL DE HORARIOS (ESTO SÍ LO VERÁ EL SUPERVISOR) */}
             <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-x-auto print-hide">
                 <h3 className="font-bold text-white mb-4">HORARIO GLOBAL DE FLOTA ({countryContext})</h3>
                 <table className="w-full text-left">
                     <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg">
-                        <tr><th className="px-4 py-3 rounded-l-lg">Transportista</th><th className="px-4 py-3">Horario Base</th><th className="px-4 py-3">Zona / Ruta</th><th className="px-4 py-3 max-w-[200px]">Ruta Asignada</th><th className="px-4 py-3 max-w-[150px]">Turnos</th><th className="px-4 py-3">Mantenimiento</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr>
+                        <tr>
+                            <th className="px-4 py-3 rounded-l-lg">Transportista</th>
+                            <th className="px-4 py-3">Horario Base</th>
+                            <th className="px-4 py-3">Zona / Ruta</th>
+                            <th className="px-4 py-3 max-w-[200px]">Ruta Asignada</th>
+                            <th className="px-4 py-3 max-w-[150px]">Turnos</th>
+                            <th className="px-4 py-3">Mantenimiento</th>
+                            {/* 3. OCULTAMOS COLUMNA DE ACCIONES SI ES SUPERVISOR */}
+                            {!readOnly && <th className="px-4 py-3 text-center rounded-r-lg">Acciones</th>}
+                        </tr>
                     </thead>
                     <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
                         {agendaData.filter(item => transportistas.includes(item.id)).map((item) => (
@@ -453,10 +351,13 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                                 <td className="px-4 py-3 truncate max-w-[200px]" title={item.puntos}>{item.puntos || '--'}</td>
                                 <td className="px-4 py-3 truncate max-w-[150px]" title={item.turnos}>{formatTurnosVisually(item.turnos)}</td>
                                 <td className="px-4 py-3 text-yellow-500">{formatWithDay(formatLocalDate(item.mantenimiento))}</td>
-                                <td className="px-4 py-3 flex justify-center gap-2">
-                                    <button onClick={() => handleEdit(item)} className="bg-slate-800 p-2 rounded-lg text-blue-400 hover:text-white transition-all"><Edit3 size={14}/></button>
-                                    <button onClick={() => handleDelete(item.id)} className="bg-slate-800 p-2 rounded-lg text-red-500 hover:text-white transition-all"><Trash2 size={14}/></button>
-                                </td>
+                                {/* 4. OCULTAMOS BOTONES SI ES SUPERVISOR */}
+                                {!readOnly && (
+                                    <td className="px-4 py-3 flex justify-center gap-2">
+                                        <button onClick={() => handleEdit(item)} className="bg-slate-800 p-2 rounded-lg text-blue-400 hover:text-white transition-all"><Edit3 size={14}/></button>
+                                        <button onClick={() => handleDelete(item.id)} className="bg-slate-800 p-2 rounded-lg text-red-500 hover:text-white transition-all"><Trash2 size={14}/></button>
+                                    </td>
+                                )}
                             </tr>
                         ))}
                     </tbody>
@@ -494,19 +395,75 @@ function Dashboard() {
   const [supervisorSection, setSupervisorSection] = useState('bitacora'); 
   const [dataSource, setDataSource] = useState('live'); 
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
-  
   const [liveData, setLiveData] = useState([]);
+  const [resumenesMensualesNube, setResumenesMensualesNube] = useState({});
+  // 🔥 CONTROL DE PAGINACIÓN REAL
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+
+  // 🔥 BOTÓN MÁGICO: FUERZA A LA NUBE A RECALCULAR TODO EL MES HISTÓRICO
+const handleSyncToCloud = async () => {
+      if(!window.confirm("🚀 ¿Forzar actualización de velocímetros? La PC subirá los cálculos exactos a la base de datos.")) return;
+      
+      try {
+          let count = 0;
+          // 1. Obtenemos a todos los transportistas de tu catálogo
+          const transportistas = Object.values(catalogs.transportistas || {}).flat();
+
+          // 2. Calculamos los datos de los 5,443 viajes que ya tienes en pantalla
+          for (const nombre of transportistas) {
+              const email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === nombre);
+              if (!email) continue;
+
+              const profile = perfilesUsuarios[email] || {};
+              const miMeta = getMetaEspera(profile.zona);
+
+              // Filtramos los viajes específicos de este transportista
+              const userDocs = liveData.filter(d => d.recolector === nombre);
+
+              let vitalesTotal = 0;
+              let vitalesA_Tiempo = 0;
+              let secundariasTotal = 0;
+
+              userDocs.forEach(viaje => {
+                  if (isPrincipalData(viaje)) {
+                      vitalesTotal++;
+                      if ((viaje.tiempo || 0) <= miMeta) vitalesA_Tiempo++;
+                  } else {
+                      secundariasTotal++;
+                  }
+              });
+
+              let eficiencia = 100;
+              if (vitalesTotal > 0) eficiencia = parseFloat(((vitalesA_Tiempo / vitalesTotal) * 100).toFixed(1));
+
+              // 3. Subimos la respuesta correcta directamente al perfil del usuario
+              await setDoc(doc(db, "usuarios_perfiles", email), {
+                  eficienciaNube: eficiencia,
+                  vitalesNube: vitalesTotal,
+                  secundariasNube: secundariasTotal,
+                  ultimaAuditoria: new Date().toISOString()
+              }, { merge: true });
+
+              count++;
+          }
+          
+          alert(`¡Sincronización Perfecta! ✅ Se actualizaron los velocímetros de ${count} transportistas al instante.`);
+      } catch(e) { 
+          console.error(e);
+          alert("Error al sincronizar. Revisa la consola."); 
+      }
+  };
+  const [queryLimit, setQueryLimit] = useState(50); // 🔥 Control de Paginación Serverless
   const [fuelData, setFuelData] = useState([]); 
   const [maintData, setMaintData] = useState([]); 
   const [otData, setOtData] = useState([]); 
   const [csvData, setCsvData] = useState([]); 
   const [agendaData, setAgendaData] = useState([]); 
   const [alertasData, setAlertasData] = useState([]);
-  
   const [userProfile, setUserProfile] = useState({ foto: null, categoria: 'Operador', zona: 'Sin Asignar' });
   const [perfilesUsuarios, setPerfilesUsuarios] = useState({}); 
   const [selectedAdminProfile, setSelectedAdminProfile] = useState(null);
-
   const [catalogs, setCatalogs] = useState(DEFAULT_CATALOGS);
   const [catalogCountry, setCatalogCountry] = useState("El Salvador");
   const [newCatalogItems, setNewCatalogItems] = useState({ transportistas: '', sucursales: '', areas: '', diligencias: '', zonas: '' });
@@ -544,6 +501,27 @@ function Dashboard() {
   const [isGettingGps, setIsGettingGps] = useState(false);
   const [transitTimeMins, setTransitTimeMins] = useState(0); 
   const [previousGps, setPreviousGps] = useState(null);
+  const [mapaModalData, setMapaModalData] = useState(null);
+
+  const abrirMapaDeRuta = () => {
+      if (filterUser === 'all' || !filterSpecificDate) {
+          return alert("⚠️ Selecciona un Transportista específico y un Día Exacto en los filtros superiores para ver su ruta trazada.");
+      }
+      
+      const targetDate = getStrictDateString(filterSpecificDate);
+      const userTrips = liveData.filter(d => d.recolector === filterUser && getStrictDateString(d.createdAt) === targetDate && d.ubicacion && d.ubicacion !== 'Sin GPS');
+      
+      if (userTrips.length === 0) return alert("El transportista no registró coordenadas GPS ese día.");
+
+      userTrips.sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+      const points = userTrips.map(t => {
+          const [lat, lng] = t.ubicacion.split(',').map(Number);
+          return { lat, lng, name: t.sucursal, time: `${t.hLlegada}:${t.mLlegada} ${t.pLlegada}` };
+      });
+
+      setMapaModalData({ transportista: filterUser, fecha: targetDate, points });
+  };
 
   useEffect(() => {
       let interval;
@@ -574,6 +552,11 @@ function Dashboard() {
                   setIsOperating(true);
                   setIsGettingGps(false);
 
+                  // 🔥 AUTO-ESTATUS: Si inicia operación, lo pasamos a "En Ruta" automáticamente
+                  if (currentUser?.email) {
+                      setDoc(doc(db, "usuarios_perfiles", currentUser.email), { estatus: 'En Ruta' }, { merge: true }).catch(e=>{});
+                  }
+
                   // 🏍️ LÓGICA DE CHECKPOINT Y FILTRO DE ALMUERZO
                   const todayStr = getStrictDateString(now);
                   const userTripsToday = liveData.filter(d => d.recolector === form.recolector && getStrictDateString(d.createdAt) === todayStr);
@@ -584,7 +567,7 @@ function Dashboard() {
                       const lastTripTime = new Date(lastTrip.createdAt);
                       const diffMins = Math.floor((now.getTime() - lastTripTime.getTime()) / 60000);
                       
-                      if (diffMins > 90) {
+                      if (diffMins > 60) {
                           setTransitTimeMins(0);
                           setPreviousGps(null);
                       } else {
@@ -645,7 +628,7 @@ function Dashboard() {
             }).filter(r => r.recolector !== ''); setCsvData(mapped); }
     });
 
-    let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas, unsubAgenda, unsubConfig, unsubCatalogs, unsubAllProfiles;
+    let unsubOps, unsubFuel, unsubMaint, unsubOt, unsubAlertas, unsubAgenda, unsubConfig, unsubCatalogs, unsubAllProfiles, unsubSummaries;
     unsubConfig = onSnapshot(doc(db, "configuraciones", "general"), (snap) => { if(snap.exists()) setSysConfig(snap.data()); });
 
     unsubCatalogs = onSnapshot(doc(db, "configuraciones", "catalogos"), (snap) => {
@@ -659,31 +642,54 @@ function Dashboard() {
     });
 
     unsubAgenda = onSnapshot(collection(db, "agenda_flota"), (snap) => setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    
+    // 🌨️ ESCUCHA LOS RESÚMENES DE LA NUBE PARA LA GRÁFICA ANUAL GLOBAL
+    unsubSummaries = onSnapshot(collection(db, "resumenes_operativos"), (snap) => {
+        let res = {}; snap.forEach(doc => { res[doc.id] = doc.data(); });
+        setResumenesMensualesNube(res);
+    });
 
     if (appMode === 'admin' || appMode === 'supervisor') {
         unsubAllProfiles = onSnapshot(collection(db, "usuarios_perfiles"), (snap) => { const profilesMap = {}; snap.docs.forEach(doc => { profilesMap[doc.id] = doc.data(); }); setPerfilesUsuarios(profilesMap); });
 
-        if (dataSource === 'live') {
-            const today = new Date(); const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString(); const startOfMonthStr = startOfMonthISO.substring(0, 10);
+ const currentMonthNum = new Date().getMonth() + 1;
+        const currentYearStr = new Date().getFullYear().toString();
+        
+        const isHistorical = filterYear !== currentYearStr || (filterMonth !== 'all' && parseInt(filterMonth) !== currentMonthNum);
+
+        if (!isHistorical) {
+            // MODO EN VIVO (Mes actual)
+            const today = new Date(); 
+            const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString(); 
+            const startOfMonthStr = startOfMonthISO.substring(0, 10);
+            
             unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfMonthISO), orderBy("createdAt", "desc")), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
             unsubFuel = onSnapshot(query(collection(db, "registros_combustible"), where("fecha", ">=", startOfMonthStr)), (snap) => setFuelData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
             unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startOfMonthStr)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
             unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("fecha", ">=", startOfMonthStr)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
             unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(20)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         } else {
+            // MODO HISTÓRICO AUTOMÁTICO (Tu jefe seleccionó un mes pasado)
             const fetchHistory = async () => {
                 setIsFetchingHistory(true);
                 try {
                     let sStr, eStr;
-                    if (filterMonth === 'all') { sStr = `${filterYear}-01-01`; eStr = `${parseInt(filterYear) + 1}-01-01`; } 
-                    else { const m = String(filterMonth).padStart(2, '0'); sStr = `${filterYear}-${m}-01`; const nextM = filterMonth == 12 ? 1 : parseInt(filterMonth) + 1; const nextY = filterMonth == 12 ? parseInt(filterYear) + 1 : filterYear; eStr = `${nextY}-${String(nextM).padStart(2, '0')}-01`; }
+                    if (filterMonth === 'all') { 
+                        sStr = `${filterYear}-01-01`; eStr = `${parseInt(filterYear) + 1}-01-01`; 
+                    } else { 
+                        const m = String(filterMonth).padStart(2, '0'); sStr = `${filterYear}-${m}-01`; 
+                        const nextM = filterMonth == 12 ? 1 : parseInt(filterMonth) + 1; 
+                        const nextY = filterMonth == 12 ? parseInt(filterYear) + 1 : filterYear; 
+                        eStr = `${nextY}-${String(nextM).padStart(2, '0')}-01`; 
+                    }
                     const snapOps = await getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", sStr), where("createdAt", "<", eStr))); setLiveData(snapOps.docs.map(d => ({ id: d.id, ...d.data() })));
                     const sStrShort = sStr.substring(0, 10); const eStrShort = eStr.substring(0, 10);
                     const snapFuel = await getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
                     const snapMaint = await getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
                     const snapOt = await getDocs(query(collection(db, "registros_horas_extras"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setOtData(snapOt.docs.map(d => ({ id: d.id, ...d.data() })));
                 } catch (error) { console.error(error); } finally { setIsFetchingHistory(false); }
-            }; fetchHistory();
+            }; 
+            fetchHistory();
         }
     } else if (appMode === 'user' && currentUser?.email) {
         const today = new Date(); const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
@@ -692,18 +698,22 @@ function Dashboard() {
         unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("usuario", "==", currentUser.email)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(10)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     }
-    return () => { if(unsubOps) unsubOps(); if(unsubFuel) unsubFuel(); if(unsubMaint) unsubMaint(); if(unsubOt) unsubOt(); if(unsubAlertas) unsubAlertas(); if(unsubAgenda) unsubAgenda(); if(unsubConfig) unsubConfig(); if(unsubCatalogs) unsubCatalogs(); if(unsubAllProfiles) unsubAllProfiles(); };
+    return () => { if(unsubOps) unsubOps(); if(unsubFuel) unsubFuel(); if(unsubMaint) unsubMaint(); if(unsubOt) unsubOt(); if(unsubAlertas) unsubAlertas(); if(unsubAgenda) unsubAgenda(); if(unsubConfig) unsubConfig(); if(unsubCatalogs) unsubCatalogs(); if(unsubAllProfiles) unsubAllProfiles(); if(unsubSummaries) unsubSummaries(); };
   }, [dataSource, filterYear, filterMonth, appMode, currentUser, form.recolector]); 
 
   const getUserZone = (emailOrName) => { let email = emailOrName; if (email && !email.includes('@')) email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === emailOrName); return perfilesUsuarios[email]?.zona || 'Sin Asignar'; };
   
-  // ⏱️ EL CEREBRO: LÍMITES DE TIEMPO DINÁMICOS POR ZONA
+  // ⏱️ EL CEREBRO: LÍMITES DE TIEMPO DINÁMICOS POR ZONA (VINCULADO AL PANEL ADMIN)
   const getMetaEspera = (zonaStr) => {
-      if (!zonaStr) return 5;
+      const metaMetro = Number(sysConfig.metaMetro || 5);
+      const metaInterior = Number(sysConfig.metaInterior || 10);
+      const metaFrontera = Number(sysConfig.metaFrontera || 20);
+
+      if (!zonaStr) return metaMetro;
       const z = zonaStr.toLowerCase();
-      if (z.includes('oriente') || z.includes('occidente')) return 15;
-      if (z.includes('guatemala') || z.includes('honduras') || z.includes('costa rica')) return 20;
-      return 5; // Zona Metropolitana
+      if (z.includes('oriente') || z.includes('occidente')) return metaInterior;
+      if (z.includes('guatemala') || z.includes('honduras') || z.includes('costa rica')) return metaFrontera;
+      return metaMetro;
   };
 
   const isUserInFilterZone = (emailOrName, filterVal) => { if (filterVal === 'all') return true; const userZone = getUserZone(emailOrName); if (filterVal === 'El Salvador') return userZone.startsWith('El Salvador'); return userZone === filterVal; };
@@ -765,23 +775,36 @@ function Dashboard() {
   const handleMotoPhotoUpload = async (e) => { const file = e.target.files[0]; if (!file) return; try { const compressed = await compressImage(file); const storageRef = ref(storage, `motos/${currentUser.email}`); await uploadBytes(storageRef, compressed); const url = await getDownloadURL(storageRef); await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { fotoMoto: url }, { merge: true }); alert("¡Foto de la herramienta de trabajo actualizada!"); } catch (err) { alert("Error subiendo foto de la moto."); } };
   const handleAssignCategory = async (email, newCategory) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { categoria: newCategory }, { merge: true }); } catch (e) {} };
   const handleAssignZone = async (email, newZone) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { zona: newZone }, { merge: true }); } catch (e) {} };
-
-  const gamificationStats = useMemo(() => {
+const gamificationStats = useMemo(() => {
       const currentMonth = new Date().getMonth() + 1; const currentYear = new Date().getFullYear().toString();
-      const allUserOps = [...liveData, ...csvData].filter(d => { const dateInfo = extractDateInfo(d.createdAt); return dateInfo.month === currentMonth && dateInfo.year === currentYear && d.recolector === form.recolector; });
+      
+      // 🔥 CORRECCIÓN: Ahora el perfil SOLO lee la Base de Datos en Vivo (Firebase) igual que el Admin.
+      // Le quitamos el "...csvData"
+      const allUserOps = liveData.filter(d => { const dateInfo = extractDateInfo(d.createdAt); return dateInfo.month === currentMonth && dateInfo.year === currentYear && d.recolector === form.recolector; });
+      
       const recs = allUserOps.filter(d => isPrincipalData(d)); 
+      const secundarias = allUserOps.filter(d => !isPrincipalData(d));
       
       const miMeta = getMetaEspera(userProfile.zona);
       const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= miMeta).length / recs.length) * 100).toFixed(1) : 100;
       
-      const userOt = otData.filter(d => { const dateInfo = extractDateInfo(d.fecha); return dateInfo.month === currentMonth && dateInfo.year === currentYear && (USUARIOS_EMAIL[d.usuario] || d.usuario) === form.recolector; });
+      const userOt = otData.filter(d => { 
+          if (sysConfig?.heInicio && sysConfig?.heFin) {
+              return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin && (USUARIOS_EMAIL[d.usuario] || d.usuario) === form.recolector;
+          }
+          const dateInfo = extractDateInfo(d.fecha); return dateInfo.month === currentMonth && dateInfo.year === currentYear && (USUARIOS_EMAIL[d.usuario] || d.usuario) === form.recolector; 
+      });
       const totalOT = userOt.reduce((acc, curr) => acc + parseFloat(String(curr.horasCalculadas).replace(',','.') || 0), 0);
-      return { eficiencia: parseFloat(ef), totalOps: allUserOps.length, totalOT: totalOT.toFixed(1) };
-  }, [liveData, csvData, otData, form.recolector, userProfile.zona]);
-
-  const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
-
-  const hrMetrics = useMemo(() => {
+      
+      return { 
+          eficiencia: parseFloat(ef), 
+          totalOps: allUserOps.length, 
+          totalOT: totalOT.toFixed(1),
+          totalSecundarias: secundarias.length 
+      };
+  }, [liveData, otData, form.recolector, userProfile.zona, sysConfig]);
+const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
+ const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
     if (filterZona !== 'all') filteredOt = filteredOt.filter(d => isUserInFilterZone(d.usuario, filterZona)); if (filterUser !== 'all') filteredOt = filteredOt.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser);
     const totalHoras = filteredOt.reduce((acc, curr) => { const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; return acc + hrs; }, 0);
@@ -800,38 +823,59 @@ function Dashboard() {
     return { totalFuelCost: totalFuelCost.toFixed(2), totalGalones: totalGalones.toFixed(2), totalMaintCost: totalMaintCost.toFixed(2), chartData };
   }, [fuelData, maintData, filterMonth, filterUser, filterYear, filterZona, perfilesUsuarios]);
 
-  const metrics = useMemo(() => {
+const metrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
     let filtered = data.filter(d => checkDate(d.createdAt));
     if (filterZona !== 'all') filtered = filtered.filter(d => isUserInFilterZone(d.recolector, filterZona));
     if (filterUser !== 'all') filtered = filtered.filter(d => d.recolector === filterUser);
     if (filterSucursal !== 'all') filtered = filtered.filter(d => d.sucursal === filterSucursal);
     if (filterSpecificDate) { const targetDate = getStrictDateString(filterSpecificDate); filtered = filtered.filter(d => getStrictDateString(d.createdAt) === targetDate); }
-
-    const pItems = filtered.filter(d => isPrincipalData(d)); const sItems = filtered.filter(d => !isPrincipalData(d));
-    
-    // Función que evalúa la eficiencia basándose en la meta dinámica del usuario
+    const pItems = filtered.filter(d => isPrincipalData(d)); const sItems = filtered.filter(d => !isPrincipalData(d));   
     const calcEf = (arr) => arr.length > 0 ? ((arr.filter(x => (x.tiempo||0) <= getMetaEspera(getUserZone(x.recolector))).length / arr.length) * 100).toFixed(1) : 0;
     const calcAvg = (arr) => arr.length > 0 ? (arr.reduce((a,b)=>a+(b.tiempo||0),0)/arr.length).toFixed(1) : 0;
-    
     const currYear = new Date().getFullYear().toString();
     const currMonth = new Date().getMonth() + 1;
-
     const monthlyData = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => { 
-        const mNum = i + 1;
-        const isFuture = (filterYear === currYear && mNum > currMonth) || (parseInt(filterYear) > parseInt(currYear));
-        const mDocs = data.filter(d => { const { year, month } = extractDateInfo(d.createdAt); return year === filterYear && month === mNum; }); 
-        const finalDocs = filterUser === 'all' ? mDocs : mDocs.filter(d => d.recolector === filterUser); 
-        const mRecs = finalDocs.filter(d => isPrincipalData(d)); 
-        const efVal = isFuture ? null : (finalDocs.length > 0 ? parseFloat(calcEf(mRecs)) : 0); 
-        return { name: m, ef: efVal, count: finalDocs.length }; 
-    }); 
+            const mNum = i + 1;
+            const mesIndexStr = mNum.toString().padStart(2, '0');
+            const documentId = `${filterYear}-${mesIndexStr}`; // Ej: "2026-02"
+            const isFuture = (filterYear === currYear && mNum > currMonth) || (parseInt(filterYear) > parseInt(currYear));
+            
+            // 1. Si seleccionó un mes específico, aplanamos visualmente los demás
+            if (filterMonth !== 'all' && mNum !== parseInt(filterMonth)) {
+                return { name: m, ef: 0, count: 0 };
+            }
+            // 2. Extraemos los datos locales de la memoria de la PC
+            const mDocs = data.filter(d => { const { year, month } = extractDateInfo(d.createdAt); return year === filterYear && month === mNum; }); 
+            const finalDocs = filterUser === 'all' ? mDocs : mDocs.filter(d => d.recolector === filterUser); 
+            const mRecs = finalDocs.filter(d => isPrincipalData(d)); 
+
+            let efVal = 0;
+            let countVal = 0;
+
+            // 🔥 EL MOTOR HÍBRIDO PERFECTO 🔥
+            if (finalDocs.length > 0) {
+                // A) Si la PC sí descargó los registros de este mes (Ej. al seleccionar "Mes 2")
+                efVal = isFuture ? null : parseFloat(calcEf(mRecs));
+                countVal = finalDocs.length;
+            } else if (filterUser === 'all') {
+                // B) Si la PC NO tiene los datos (Ej. al seleccionar "Año" en Vivo), lee de la Nube
+                const resumen = resumenesMensualesNube[documentId];
+                efVal = isFuture ? null : (resumen ? parseFloat(resumen.eficienciaGlobal) : 0);
+                countVal = resumen ? resumen.totalViajesMes : 0;
+            } else {
+                efVal = isFuture ? null : 0;
+            }
+
+            return { name: m, ef: efVal, count: countVal }; 
+        });
     
     const sucursalStats = filtered.reduce((acc, curr) => { if(!curr.sucursal || curr.sucursal === 'N/A' || curr.sucursal === 'Ruta Externa') return acc; acc[curr.sucursal] = acc[curr.sucursal] || { totalTime: 0, count: 0 }; acc[curr.sucursal].totalTime += (curr.tiempo || 0); acc[curr.sucursal].count += 1; return acc; }, {});
     const topSucursales = Object.entries(sucursalStats).map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) })).sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
     
     return { total: filtered.length, efP: calcEf(pItems), avgP: calcAvg(pItems), countP: pItems.length, efS: calcEf(sItems), avgS: calcAvg(sItems), countS: sItems.length, monthlyData, topSucursales, rows: filtered };
-  }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal, filterZona, perfilesUsuarios]);
+  // 🔥 EL CANDADO CORREGIDO: Faltaba incluir resumenesMensualesNube en la lista de aquí abajo 👇
+  }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal, filterZona, perfilesUsuarios, resumenesMensualesNube]);
 
   const regionalMetrics = useMemo(() => {
       const data = filterYear === '2025' ? csvData : liveData; const filteredData = data.filter(d => checkDate(d.createdAt)); const stats = {};
@@ -848,15 +892,27 @@ function Dashboard() {
           if (zonaCompleta !== pais) { stats[zonaCompleta].total += 1; if (isP) { stats[zonaCompleta].vitales += 1; if(isOnTime) stats[zonaCompleta].onTime += 1; } else { stats[zonaCompleta].secundarias += 1; } }
       });
       const results = Object.values(stats).map(s => ({ ...s, eficiencia: s.vitales > 0 ? parseFloat(((s.onTime / s.vitales) * 100).toFixed(1)) : 0 }));
-      return { paises: results.filter(r => r.tipo === 'pais').sort((a,b) => b.eficiencia - a.eficiencia), zonas: results.filter(r => r.tipo === 'zona').sort((a,b) => b.eficiencia - a.eficiencia) };
+      
+      // 🔥 FILTRO BI: Ocultamos el "limbo" de Sin Asignar para que la gerencia solo vea países reales
+      return { 
+          paises: results.filter(r => r.tipo === 'pais' && r.nombre !== 'Sin Asignar').sort((a,b) => b.eficiencia - a.eficiencia), 
+          zonas: results.filter(r => r.tipo === 'zona' && r.nombre !== 'Sin Asignar').sort((a,b) => b.eficiencia - a.eficiencia) 
+      }; 
   }, [liveData, csvData, filterYear, filterMonth, perfilesUsuarios]);
 
-  const biMetrics = useMemo(() => {
+const biMetrics = useMemo(() => {
       const y1 = filterYear; const y2 = (parseInt(filterYear) - 1).toString(); const allOps = [...liveData, ...csvData]; const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
       const currYear = new Date().getFullYear().toString(); const currMonth = new Date().getMonth() + 1;
 
       const dataYoY = months.map((m, i) => {
-          const mNum = i + 1; const isFutureY1 = (y1 === currYear && mNum > currMonth) || (parseInt(y1) > parseInt(currYear)); const isFutureY2 = (y2 === currYear && mNum > currMonth) || (parseInt(y2) > parseInt(currYear));
+          const mNum = i + 1; 
+          const mesIndexStr = mNum.toString().padStart(2, '0');
+          const docIdY1 = `${y1}-${mesIndexStr}`;
+          const docIdY2 = `${y2}-${mesIndexStr}`;
+
+          const isFutureY1 = (y1 === currYear && mNum > currMonth) || (parseInt(y1) > parseInt(currYear)); 
+          const isFutureY2 = (y2 === currYear && mNum > currMonth) || (parseInt(y2) > parseInt(currYear));
+          
           const getOps = (y) => { let docs = allOps.filter(d => { const info = extractDateInfo(d.createdAt); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.recolector, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => x.recolector === filterUser); return docs; };
           const ops1 = getOps(y1); const ops2 = getOps(y2); 
           const calcEf = (docs) => { const recs = docs.filter(d => isPrincipalData(d)); if(recs.length === 0) return 0; return parseFloat(((recs.filter(x => (x.tiempo||0) <= getMetaEspera(getUserZone(x.recolector))).length / recs.length) * 100).toFixed(1)); };
@@ -864,9 +920,45 @@ function Dashboard() {
           const getFuel = (y) => { let docs = fuelData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           const getMaint = (y) => { let docs = maintData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           
-          return { name: m, [`ef${y1}`]: isFutureY1 ? null : calcEf(ops1), [`ef${y2}`]: isFutureY2 ? null : calcEf(ops2), [`fuel${y1}`]: isFutureY1 ? null : parseFloat(getFuel(y1).toFixed(2)), [`fuel${y2}`]: isFutureY2 ? null : parseFloat(getFuel(y2).toFixed(2)), [`maint${y1}`]: isFutureY1 ? null : parseFloat(getMaint(y1).toFixed(2)), [`maint${y2}`]: isFutureY2 ? null : parseFloat(getMaint(y2).toFixed(2)) }
+          // 🔥 EL SÚPER MOTOR HÍBRIDO (Eficiencia + Finanzas + CSV Local) 🔥
+          let efY1 = 0; let efY2 = 0;
+          let fuelY1 = 0; let fuelY2 = 0;
+          let maintY1 = 0; let maintY2 = 0;
+
+          if (filterUser === 'all' && filterZona === 'all') {
+              const resY1 = resumenesMensualesNube[docIdY1] || {};
+              const resY2 = resumenesMensualesNube[docIdY2] || {};
+              
+              // Si el resumen de la Nube tiene el dato, lo usa. Si no, lo calcula localmente.
+              efY1 = isFutureY1 ? null : (resY1.eficienciaGlobal !== undefined ? parseFloat(resY1.eficienciaGlobal) : calcEf(ops1));
+              efY2 = isFutureY2 ? null : (resY2.eficienciaGlobal !== undefined ? parseFloat(resY2.eficienciaGlobal) : calcEf(ops2));
+              
+              fuelY1 = isFutureY1 ? null : (resY1.gastoCombustible !== undefined ? parseFloat(resY1.gastoCombustible) : getFuel(y1));
+              fuelY2 = isFutureY2 ? null : (resY2.gastoCombustible !== undefined ? parseFloat(resY2.gastoCombustible) : getFuel(y2));
+              
+              maintY1 = isFutureY1 ? null : (resY1.gastoMantenimiento !== undefined ? parseFloat(resY1.gastoMantenimiento) : getMaint(y1));
+              maintY2 = isFutureY2 ? null : (resY2.gastoMantenimiento !== undefined ? parseFloat(resY2.gastoMantenimiento) : getMaint(y2));
+          } else {
+              // Si se filtra por usuario o zona específica, SIEMPRE calcula localmente con precisión quirúrgica
+              efY1 = isFutureY1 ? null : calcEf(ops1);
+              efY2 = isFutureY2 ? null : calcEf(ops2);
+              fuelY1 = isFutureY1 ? null : getFuel(y1);
+              fuelY2 = isFutureY2 ? null : getFuel(y2);
+              maintY1 = isFutureY1 ? null : getMaint(y1);
+              maintY2 = isFutureY2 ? null : getMaint(y2);
+          }
+          
+          return { 
+              name: m, 
+              [`ef${y1}`]: efY1, 
+              [`ef${y2}`]: efY2, 
+              [`fuel${y1}`]: fuelY1 !== null ? parseFloat(fuelY1.toFixed(2)) : null, 
+              [`fuel${y2}`]: fuelY2 !== null ? parseFloat(fuelY2.toFixed(2)) : null, 
+              [`maint${y1}`]: maintY1 !== null ? parseFloat(maintY1.toFixed(2)) : null, 
+              [`maint${y2}`]: maintY2 !== null ? parseFloat(maintY2.toFixed(2)) : null 
+          }
       }); return { dataYoY, yCurrent: y1, yPrev: y2 };
-  }, [liveData, csvData, fuelData, maintData, filterYear, filterUser, filterZona, perfilesUsuarios]);
+  }, [liveData, csvData, fuelData, maintData, filterYear, filterUser, filterZona, perfilesUsuarios, resumenesMensualesNube]);
 
   const userMetrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
@@ -878,22 +970,48 @@ function Dashboard() {
     const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= getMetaEspera(userProfile.zona)).length / recs.length) * 100).toFixed(1) : 0;
     return { ef: ef, count: userDocs.length, label: targetUser && targetUser.length > 2 ? targetUser.split(' ')[0] : 'HOY' };
   }, [liveData, csvData, form.recolector, filterYear, userProfile.zona]);
-
-  const adminDashboardMetrics = useMemo(() => {
+const adminDashboardMetrics = useMemo(() => {
     if (appMode !== 'admin' && appMode !== 'supervisor') return { transportistasStats: [] };
-    const data = filterYear === '2025' ? csvData : liveData; const filteredData = data.filter(d => checkDate(d.createdAt));
+    const data = filterYear === '2025' ? csvData : liveData; 
+    const filteredData = data.filter(d => checkDate(d.createdAt));
+    const todayStr = getStrictDateString(new Date());
     let activeTransportistas = []; Object.values(catalogs.transportistas || {}).forEach(list => activeTransportistas.push(...list));
     const transportistasInZone = activeTransportistas.filter(name => isUserInFilterZone(name, filterZona));
 
     const stats = transportistasInZone.map(name => {
-        const userDocs = filteredData.filter(d => d.recolector === name); const recs = userDocs.filter(d => isPrincipalData(d));
-        const email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === name); const profile = perfilesUsuarios[email] || {};
+        const userDocs = filteredData.filter(d => d.recolector === name); 
+        const recs = userDocs.filter(d => isPrincipalData(d));
+        const sItems = userDocs.filter(d => !isPrincipalData(d));
+        const email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === name); 
+        const profile = perfilesUsuarios[email] || {};
         
         const miMeta = getMetaEspera(profile.zona);
-        const onTime = recs.filter(x => (x.tiempo||0) <= miMeta).length; const delayed = recs.length - onTime; const ef = recs.length > 0 ? ((onTime / recs.length) * 100).toFixed(1) : 100;
-        
-        return { name, email, eficiencia: parseFloat(ef), totalTrips: userDocs.length, totalMuestras: recs.length, onTime, delayed, foto: profile.foto || null, fotoMoto: profile.fotoMoto || null, categoria: profile.categoria || 'Operador', zona: profile.zona || 'Sin Asignar' };
-    }).sort((a,b) => b.eficiencia - a.eficiencia); return { transportistasStats: stats };
+        const onTime = recs.filter(x => (x.tiempo||0) <= miMeta).length; 
+        const delayed = recs.length - onTime; 
+        const ef = recs.length > 0 ? ((onTime / recs.length) * 100).toFixed(1) : 100;
+
+        // 🔥 JOYAS DE LA CORONA: CÁLCULO DE ESTATUS Y CHISMOSO EN VIVO 🔥
+// ⏱️ CÁLCULO DEL CHISMOSO ANTI-TRAMPAS
+        const userDocsToday = userDocs.filter(d => getStrictDateString(d.createdAt) === todayStr).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+        let minutosInactivo = null;
+        if (userDocsToday.length > 0) {
+            const ultimoRegistro = new Date(userDocsToday[0].createdAt);
+            minutosInactivo = Math.floor((new Date() - ultimoRegistro) / 60000);
+        }
+
+        return { 
+            name, email, eficiencia: parseFloat(ef), totalTrips: userDocs.length, 
+            totalMuestras: recs.length, secundarias: sItems.length,
+            onTime, delayed, foto: profile.foto || null, fotoMoto: profile.fotoMoto || null, 
+            categoria: profile.categoria || 'Operador', zona: profile.zona || 'Sin Asignar', 
+            estatus: profile.estatus || 'Inactivo', minutosInactivo 
+        };
+    }).sort((a,b) => {
+        // Ordenamos para que los inactivos/peligro aparezcan de primeros en la pantalla
+        if (b.isDanger !== a.isDanger) return b.isDanger ? 1 : -1;
+        return b.eficiencia - a.eficiencia;
+    }); 
+    return { transportistasStats: stats };
   }, [liveData, csvData, filterYear, filterMonth, catalogs.transportistas, perfilesUsuarios, appMode, filterZona]);
 
   const userAlerts = useMemo(() => {
@@ -927,7 +1045,7 @@ function Dashboard() {
       const newHidden = [...hiddenAlerts, alerta.id]; setHiddenAlerts(newHidden);
       if (currentUser && currentUser.email) localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
   };
-
+  
   const exportToCSV = () => { 
     if (!metrics.rows || metrics.rows.length === 0) return alert("No hay datos"); 
     const csvRows = metrics.rows.map(r => ({ Fecha: getStrictDateString(r.createdAt), Transportista: r.recolector, Sucursal: r.sucursal, Diligencia: r.tipo, Area: r.area || 'N/A', Categoria: r.categoria, Entrada: r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}` : '', Salida: r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida}` : '', Espera_Minutos: r.tiempo, Observaciones: r.observaciones || '', Foto_URL: r.fotoData || '' })); 
@@ -1033,6 +1151,31 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-[#0B1120] text-slate-200 font-sans pb-24 print-bg-white" onClick={() => setActiveInput(null)}>
       {viewingPhoto && <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 print-hide" onClick={() => setViewingPhoto(null)}><div className="relative max-w-4xl w-full flex flex-col items-center"><img src={viewingPhoto} className="max-h-[80vh] rounded-lg border border-white/20" alt="Evidencia" /><button className="mt-6 bg-white text-black px-6 py-3 rounded-full font-bold uppercase text-xs">Cerrar</button></div></div>}
+
+
+     {/* MODAL DEL MAPA DE RUTAS (LAZY LOADED) */}
+      {mapaModalData && (
+        <div className="fixed inset-0 z-[200] bg-black/90 flex flex-col items-center justify-center p-4 print-hide backdrop-blur-sm" onClick={() => setMapaModalData(null)}>
+            <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-700 w-full max-w-5xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 className="text-2xl font-black text-white flex items-center gap-2"><Map className="text-blue-500"/> Trazado Óptimo de Ruta Real</h3>
+                        <p className="text-slate-400 text-sm">Transportista: <span className="text-white font-bold">{mapaModalData.transportista}</span> | Fecha: <span className="text-white font-bold">{mapaModalData.fecha}</span></p>
+                    </div>
+                    <button onClick={() => setMapaModalData(null)} className="bg-slate-800 text-slate-400 hover:text-white p-2 rounded-full transition-colors"><X size={24}/></button>
+                </div>
+                
+                <Suspense fallback={<div className="h-[500px] flex items-center justify-center text-blue-400 bg-[#0B1120] rounded-2xl"><Loader2 className="animate-spin" size={48}/></div>}>
+                    <RutaOptimizada puntos={mapaModalData.points} />
+                </Suspense>
+
+                <div className="mt-4 flex items-center justify-center gap-4 text-[10px] text-slate-500 font-bold uppercase tracking-widest bg-[#0B1120] p-3 rounded-xl border border-slate-800">
+                    <span className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-500 rounded-full"></div> Polilínea (Calle Real)</span>
+                    <span className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-300 rounded-sm"></div> Checkpoints (Sucursal)</span>
+                </div>
+            </div>
+        </div>
+      )}
 
      {/* MODAL ADMIN */}
       {selectedAdminProfile && (
@@ -1163,7 +1306,6 @@ function Dashboard() {
             </div>
         </div>
       )}
-
       <nav className="bg-[#151F32] border-b border-slate-800 px-4 md:px-8 py-4 sticky top-0 z-50 flex justify-between items-center shadow-lg print-hide">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white border border-slate-700"><Bike size={18}/></div><h1 className="text-lg font-black tracking-tighter text-white">Recolekta <span className="text-green-500">OS</span></h1></div>
         <div className="flex items-center gap-3">
@@ -1171,7 +1313,6 @@ function Dashboard() {
             <button onClick={logout} className="bg-red-900/20 text-red-400 border border-red-900/50 px-4 py-2 rounded-lg text-[10px] font-black uppercase hover:bg-red-600 hover:text-white transition-all">Salir</button>
         </div>
       </nav>
-
       <main className="max-w-7xl mx-auto p-4 md:p-6 print-p-0">
         {appMode === 'user' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
@@ -1197,7 +1338,24 @@ function Dashboard() {
               {userView === 'ruta' ? (
                  <div className="bg-[#151F32] p-6 md:p-10 rounded-[2rem] shadow-xl border border-slate-800 relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-500 to-emerald-400"></div>
-                    <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-white"><ClipboardList className="text-green-500"/> Registro de Ruta</h2>
+                    
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4 border-b border-slate-800 pb-4">
+                        <h2 className="text-xl font-black flex items-center gap-3 text-white"><ClipboardList className="text-green-500"/> Registro de Ruta</h2>
+                        {/* 🔥 SELECTOR INTELIGENTE DE ESTATUS */}
+                        <div className="flex items-center gap-2 bg-[#0B1120] p-1.5 rounded-xl border border-slate-700 shadow-inner">
+                            <div className={cn("w-2.5 h-2.5 rounded-full ml-2", (userProfile.estatus === 'Standby') ? "bg-green-500 animate-pulse" : (userProfile.estatus === 'En Ruta') ? "bg-blue-500" : "bg-slate-500")}></div>
+                            <select 
+                                value={userProfile.estatus || 'Inactivo'} 
+                                onChange={async (e) => await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { estatus: e.target.value }, { merge: true })}
+                                className={cn("bg-transparent text-[10px] font-black uppercase outline-none cursor-pointer pr-2", (userProfile.estatus === 'Standby') ? "text-green-400" : (userProfile.estatus === 'En Ruta') ? "text-blue-400" : "text-slate-500")}
+                            >
+                                <option value="Inactivo" className="bg-slate-900 text-slate-400">⚫ OFFLINE / FIN DE TURNO</option>
+                                <option value="Esperando Asignacion de Ruta" className="bg-slate-900 text-green-400">🟢 DISPONIBLE (SEDE)</option>
+                                <option value="En Ruta" className="bg-slate-900 text-blue-400">🔵 EN RUTA</option>
+                                <option value="Almuerzo" className="bg-slate-900 text-yellow-400">🟡 HORA DE ALMUERZO</option>
+                            </select>
+                        </div>
+                    </div>
                     <form onSubmit={async (e) => { 
                         e.preventDefault(); 
                         if(!isOperating) return alert("Debes INICIAR LA OPERACIÓN primero.");
@@ -1210,15 +1368,12 @@ function Dashboard() {
                             let h = now.getHours(); let m = String(now.getMinutes()).padStart(2, '0'); let p = h >= 12 ? 'PM' : 'AM';
                             h = h % 12; h = h ? h : 12; h = String(h).padStart(2, '0');
                             const finalForm = { ...form, hSalida: h, mSalida: m, pSalida: p };
-
                             const storageRef = ref(storage, `evidencias/${Date.now()}_${form.recolector.replace(/\s+/g, '_')}`); 
                             await uploadBytes(storageRef, imageFile); 
                             const photoURL = await getDownloadURL(storageRef); 
                             const isP = PRINCIPAL_KEYWORDS.some(k=>form.tipo.toLowerCase().includes(k)); 
-                            
                             const safeTransit = isNaN(Number(transitTimeMins)) || transitTimeMins === null ? 0 : Number(transitTimeMins);
                             const safeWait = isNaN(Number(liveWaitMins)) || liveWaitMins === null ? 0 : Number(liveWaitMins);
-
                             await addDoc(collection(db, "registros_produccion"), { 
                                 ...finalForm, 
                                 tiempo: safeWait, 
@@ -1231,8 +1386,8 @@ function Dashboard() {
                                 ubicacion: gpsLocation || 'Sin GPS',
                                 ubicacionAnterior: previousGps || null
                             }); 
-                            
                             alert("¡Operación y Recorrido Registrados Exitosamente! ✅"); 
+                           //await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { estatusLive: "DISPONIBLE", ultimaActividad: new Date().toISOString() }, { merge: true }).catch(()=>{});
                             setForm(prev => ({...prev, sucursal: '', observaciones: ''})); 
                             setImagePreview(null); setImageFile(null); setIsOperating(false); setOperationStartTime(null); setLiveWaitMins(0); setGpsLocation(null); setTransitTimeMins(0); setPreviousGps(null);
                         } catch(e) { console.error(e); alert("Error de conexión al enviar."); } finally { setIsUploading(false); } 
@@ -1288,10 +1443,57 @@ function Dashboard() {
                         </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="bg-[#0B1120] rounded-[2rem] p-6 border border-slate-700 shadow-inner flex flex-col items-center justify-center relative"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest absolute top-6">Eficiencia del Mes</h4><div className="mt-8 -mb-10 w-full flex justify-center"><PieChart width={220} height={120}><Pie data={[{ value: gamificationStats.eficiencia, fill: gamificationStats.eficiencia >= 95 ? '#10b981' : gamificationStats.eficiencia >= 80 ? '#f59e0b' : '#ef4444' }, { value: 100 - gamificationStats.eficiencia, fill: '#1f2937' }]} cx={110} cy={110} startAngle={180} endAngle={0} innerRadius={80} outerRadius={110} dataKey="value" stroke="none" /></PieChart></div><div className="text-center z-10"><span className={cn("text-5xl font-black", gamificationStats.eficiencia >= 95 ? "text-green-400" : gamificationStats.eficiencia >= 80 ? "text-yellow-400" : "text-red-400")}>{gamificationStats.eficiencia}%</span><p className="text-[9px] font-bold text-slate-500 uppercase mt-1">Tu Meta es 95%</p></div></div>
-                        <div className="space-y-4"><div className="bg-purple-900/20 border border-purple-800/40 p-4 rounded-2xl flex items-center justify-between"><div className="flex items-center gap-3"><div className="p-3 bg-purple-600 rounded-xl text-white shadow-lg"><Clock size={20}/></div><div><h4 className="text-[10px] font-black text-purple-400 uppercase">Horas Extras (Mes)</h4><p className="text-xs text-slate-300 font-bold">Acumuladas y aprobadas</p></div></div><span className="text-2xl font-black text-white">{gamificationStats.totalOT}h</span></div><div className="bg-blue-900/20 border border-blue-800/40 p-4 rounded-2xl flex items-center justify-between"><div className="flex items-center gap-3"><div className="p-3 bg-blue-600 rounded-xl text-white shadow-lg"><Target size={20}/></div><div><h4 className="text-[10px] font-black text-blue-400 uppercase">Total Viajes (Mes)</h4><p className="text-xs text-slate-300 font-bold">Recolecciones y Entregas</p></div></div><span className="text-2xl font-black text-white">{gamificationStats.totalOps}</span></div></div>
+                        {/* GRÁFICA DE PASTEL (Izquierda) */}
+                        <div className="bg-[#0B1120] rounded-[2rem] p-6 border border-slate-700 shadow-inner flex flex-col items-center justify-center relative">
+                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest absolute top-6">Eficiencia del Mes</h4>
+                            <div className="mt-8 -mb-10 w-full flex justify-center">
+                                <PieChart width={220} height={120}>
+                                    <Pie data={[{ value: gamificationStats.eficiencia, fill: gamificationStats.eficiencia >= 95 ? '#10b981' : gamificationStats.eficiencia >= 80 ? '#f59e0b' : '#ef4444' }, { value: 100 - gamificationStats.eficiencia, fill: '#1f2937' }]} cx={110} cy={110} startAngle={180} endAngle={0} innerRadius={80} outerRadius={110} dataKey="value" stroke="none" />
+                                </PieChart>
+                            </div>
+                            <div className="text-center z-10">
+                                <span className={cn("text-5xl font-black", gamificationStats.eficiencia >= 95 ? "text-green-400" : gamificationStats.eficiencia >= 80 ? "text-yellow-400" : "text-red-400")}>{gamificationStats.eficiencia}%</span>
+                                <p className="text-[9px] font-bold text-slate-500 uppercase mt-1">Tu Meta es 95%</p>
+                            </div>
+                        </div>
+
+                        {/* LAS 3 TARJETAS (Derecha) */}
+                        <div className="space-y-4">
+                            {/* 🔥 1. HORAS EXTRAS (CORTE OFICIAL) 🔥 */}
+                            <div className="bg-purple-900/20 border border-purple-800/40 p-4 rounded-2xl flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-3 bg-purple-600 rounded-xl text-white shadow-lg"><Clock size={20}/></div>
+                                    <div>
+                                        <h4 className="text-[10px] font-black text-purple-400 uppercase">Horas Extras (Corte)</h4>
+                                        <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">
+                                            {sysConfig.heInicio ? `${formatLocalDate(sysConfig.heInicio)} al ${formatLocalDate(sysConfig.heFin)}` : 'Sin fechas definidas'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <span className="text-2xl font-black text-white">{gamificationStats.totalOT}h</span>
+                            </div>
+
+                            {/* 🔥 2. TOTAL VIAJES 🔥 */}
+                            <div className="bg-blue-900/20 border border-blue-800/40 p-4 rounded-2xl flex items-center justify-between">
+                                <div className="flex items-center gap-3"><div className="p-3 bg-blue-600 rounded-xl text-white shadow-lg"><Target size={20}/></div><div><h4 className="text-[10px] font-black text-blue-400 uppercase">Total Viajes (Mes)</h4><p className="text-xs text-slate-300 font-bold">Recolecciones y Entregas</p></div></div>
+                                <span className="text-2xl font-black text-white">{gamificationStats.totalOps}</span>
+                            </div>
+                            {/* 🔥 3. META DE SECUNDARIAS 🔥 */}
+                            <div className="bg-indigo-900/20 border border-indigo-800/40 p-4 rounded-2xl">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-3"><div className="p-2 bg-indigo-600 rounded-xl text-white shadow-lg"><ListChecks size={16}/></div><div><h4 className="text-[10px] font-black text-indigo-400 uppercase">Meta Secundarias</h4><p className="text-[9px] text-slate-400 font-bold uppercase">Mínimo {sysConfig.metaSecundarias || 60} al mes</p></div></div>
+                                    <span className="text-xl font-black text-white">
+                                        {gamificationStats.totalSecundarias || 0}
+                                        <span className="text-sm text-slate-500"> / {sysConfig.metaSecundarias || 60}</span>
+                                    </span>
+                                </div>
+                                <div className="w-full bg-slate-900 rounded-full h-2.5 border border-slate-700 overflow-hidden">
+                                    <div className={cn("h-2.5 rounded-full transition-all duration-1000", (gamificationStats.totalSecundarias || 0) >= Number(sysConfig.metaSecundarias || 60) ? "bg-green-500" : "bg-indigo-500")} style={{ width: `${Math.min(((gamificationStats.totalSecundarias || 0) / Number(sysConfig.metaSecundarias || 60)) * 100, 100)}%` }}></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                 </div>
+                </div>
               ) : (<div className="space-y-4"><button onClick={() => setUserView('mantenimiento')} className="w-full bg-yellow-600/90 border-b-4 border-yellow-800 text-white py-4 rounded-2xl font-black uppercase shadow-xl hover:bg-yellow-500 transition-all flex items-center justify-center gap-3"><div className="bg-black/20 p-2 rounded-full"><Wrench size={20}/></div><span>Registrar Mantenimiento</span></button><ScheduleModule currentUser={currentUser} userName={USUARIOS_EMAIL[currentUser.email] || currentUser.email} /></div>)}
               </div>
               <div className="space-y-6">
@@ -1304,7 +1506,6 @@ function Dashboard() {
               </div>
            </div>
         )}
-
         {appMode === 'admin' && (
           <div className="space-y-6 md:space-y-8 animate-in fade-in print-p-0">
              <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 print-hide">
@@ -1337,13 +1538,13 @@ function Dashboard() {
                       <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-blue-500 transition-all flex-1 sm:flex-none"><Bell size={14}/> Aviso</button>
                       <button onClick={exportToCSV} className="bg-green-600 text-white px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-green-700 transition-all flex-1 sm:flex-none"><FileSpreadsheet size={14}/> Excel</button>
                       <button onClick={() => downloadReport()} className="bg-white text-black px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-slate-200 transition-all flex-1 sm:flex-none"><Download size={14}/> PDF</button>
-                      <button onClick={() => setDataSource(dataSource === 'live' ? 'historical' : 'live')} className={cn("px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 flex-1 sm:flex-none", dataSource==='live'?"bg-slate-700 text-white":"bg-indigo-600 text-white")} disabled={isFetchingHistory}>{isFetchingHistory ? <Loader2 size={14} className="animate-spin" /> : dataSource === 'live' ? <Database size={14}/> : <RefreshCw size={14}/>} <span className="hidden sm:inline">{isFetchingHistory ? '...' : dataSource === 'live' ? 'Histórico DB' : 'Vivo'}</span></button>
+                    {isFetchingHistory && <span className="text-[10px] text-blue-400 font-bold uppercase flex items-center gap-2 animate-pulse"><Loader2 size={14} className="animate-spin"/> Descargando Historial...</span>}
                   </div>
                 </div>
              </div>
-
              {adminSection === 'catalogos' && (
                 <div className="animate-in fade-in space-y-8">
+                   {/* 1. GESTIÓN DE USUARIOS */}
                    <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden">
                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 to-violet-500"></div>
                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
@@ -1379,7 +1580,8 @@ function Dashboard() {
                                </tbody>
                            </table>
                        </div>
-                   </div>
+                   </div>               
+                   {/* 2. EDITOR DE CATÁLOGOS */}
                    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl">
                        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
                            <h3 className="text-xl font-black text-white flex items-center gap-2"><ListChecks className="text-blue-500"/> Editor de Catálogos</h3>
@@ -1392,6 +1594,18 @@ function Dashboard() {
                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700"><h4 className="text-xs font-bold text-slate-300 uppercase mb-4">Tipos de Diligencia ({catalogCountry})</h4><div className="flex gap-2"><input type="text" value={newCatalogItems.diligencias} onChange={e=>setNewCatalogItems({...newCatalogItems, diligencias: e.target.value})} className="flex-1 p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white text-[10px]"/><button onClick={() => handleAddCatalogItem('diligencias')} className="bg-green-600 px-4 rounded-xl text-white"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2 mt-4">{(catalogs.diligencias[catalogCountry] || []).map(item => (<span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] flex items-center gap-2">{item} <X size={12} className="cursor-pointer text-slate-500" onClick={() => handleRemoveCatalogItem('diligencias', item)}/></span>))}</div></div>
                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700"><h4 className="text-xs font-bold text-slate-300 uppercase mb-4">Áreas ({catalogCountry})</h4><div className="flex gap-2"><input type="text" value={newCatalogItems.areas} onChange={e=>setNewCatalogItems({...newCatalogItems, areas: e.target.value})} className="flex-1 p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white text-[10px]"/><button onClick={() => handleAddCatalogItem('areas')} className="bg-orange-600 px-4 rounded-xl text-white"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2 mt-4">{(catalogs.areas[catalogCountry] || []).map(item => (<span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] flex items-center gap-2">{item} <X size={12} className="cursor-pointer hover:text-red-400" onClick={() => handleRemoveCatalogItem('areas', item)}/></span>))}</div></div>
                        </div>
+                   </div>
+                   
+                   {/* 3. NUEVO PANEL: CONFIGURACIÓN DE METAS (KPIs) */}
+                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl">
+                       <h3 className="text-xl font-black text-white flex items-center gap-2 mb-6 border-b border-slate-800 pb-4"><Target className="text-green-500"/> Configuración de Metas Operativas (KPIs)</h3>
+                       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                           <div><label className="text-[10px] font-bold text-slate-400 uppercase">Min. Espera (Metro)</label><input type="number" value={sysConfig.metaMetro || 5} onChange={e=>setSysConfig({...sysConfig, metaMetro: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
+                           <div><label className="text-[10px] font-bold text-slate-400 uppercase">Min. Espera (Interior)</label><input type="number" value={sysConfig.metaInterior || 10} onChange={e=>setSysConfig({...sysConfig, metaInterior: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
+                           <div><label className="text-[10px] font-bold text-slate-400 uppercase">Min. Espera (Frontera)</label><input type="number" value={sysConfig.metaFrontera || 20} onChange={e=>setSysConfig({...sysConfig, metaFrontera: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
+                           <div><label className="text-[10px] font-bold text-slate-400 uppercase">Meta Secundarias (Mes)</label><input type="number" value={sysConfig.metaSecundarias || 60} onChange={e=>setSysConfig({...sysConfig, metaSecundarias: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
+                       </div>
+                       <button onClick={handleSaveConfig} className="mt-6 w-full md:w-auto bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase transition-all shadow-md flex items-center justify-center gap-2"><Save size={16}/> Aplicar Nuevas Metas Globales</button>
                    </div>
                 </div>
              )}
@@ -1415,17 +1629,46 @@ function Dashboard() {
                    </div>
                 </div>
              )}
-
              {adminSection === 'ops' && (
                 <div className="animate-in fade-in print-hide">
                    <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden mb-6">
                        <h3 className="text-xl font-black text-white flex items-center gap-3 mb-6"><PieChartIcon className="text-green-500"/> Estado Visual de Eficiencia Individual</h3>
-                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-4">
+                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                            {adminDashboardMetrics.transportistasStats.map(stat => (
-                               <div key={stat.name} onClick={() => setSelectedAdminProfile(stat)} className="bg-[#0B1120] p-4 rounded-2xl border border-slate-700 flex flex-col items-center justify-between gap-3 text-center cursor-pointer hover:border-slate-500 hover:bg-slate-800/50 transition-all">
-                                   <span className="text-[10px] font-black text-white uppercase">{stat.name.split(' ')[0]}</span>
-                                   <SmallGauge value={stat.eficiencia} size={60} />
-                                   <span className="text-[8px] font-bold text-slate-500 uppercase italic">{stat.totalTrips} viajes</span>
+                               <div key={stat.name} onClick={() => setSelectedAdminProfile(stat)} className={cn("bg-[#0B1120] p-4 rounded-2xl border flex flex-col items-center justify-between gap-2 text-center cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg", stat.isDanger ? "border-red-500/50 shadow-md shadow-red-900/20" : "border-slate-700 hover:border-slate-500")}>
+                                   
+                                   {/* 🔥 ESTATUS BADGE Y CHISMOSO 🔥 */}
+                                   <div className="w-full flex justify-between items-center mb-1">
+                                       <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded-md tracking-widest", stat.estatus === 'EN RUTA' ? "bg-green-900/50 text-green-400" : stat.estatus === 'INACTIVO' ? "bg-red-900/50 text-red-400" : stat.estatus === 'DESCONECTADO' ? "bg-slate-800 text-slate-400" : "bg-orange-900/50 text-orange-400")}>
+                                           {stat.estatus}
+                                       </span>
+                                       {stat.inactivoMin > 0 && (
+                                           <span className={cn("text-[10px] font-black flex items-center gap-1", stat.isDanger ? "text-red-400 animate-pulse" : "text-slate-500")}>
+                                               <Clock size={12}/> {stat.inactivoMin}m
+                                           </span>
+                                       )}
+                                   </div>
+
+                                   <span className="text-[11px] font-black text-white uppercase truncate w-full">{stat.name.split(' ')[0]} {stat.name.split(' ')[1] || ''}</span>
+                                   
+                                   <SmallGauge value={stat.eficiencia} size={70} />
+                                   
+                                   {/* 🔥 BARRA DE DILIGENCIAS SECUNDARIAS 🔥 */}
+                                   <div className="w-full mt-2">
+                                       <div className="flex justify-between text-[8px] font-bold text-slate-500 mb-1">
+                                           <span>VITALES: {stat.totalMuestras}</span>
+                                           <span>SECUNDARIAS: {stat.secundarias}</span>
+                                       </div>
+                                       <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
+                                           <div style={{width: `${stat.totalTrips > 0 ? (stat.totalMuestras/stat.totalTrips)*100 : 0}%`}} className="bg-green-500 h-full"></div>
+                                           <div style={{width: `${stat.totalTrips > 0 ? (stat.secundarias/stat.totalTrips)*100 : 0}%`}} className="bg-orange-500 h-full"></div>
+                                       </div>
+                                   </div>
+                                   
+                                   {/* 🔥 ÚLTIMO PUNTO VISITADO 🔥 */}
+                                   <span className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1 mt-1 truncate w-full justify-center">
+                                       <MapPin size={10}/> {stat.ultimaUbicacion || 'SIN RECORRIDO HOY'}
+                                   </span>
                                </div>
                            ))}
                        </div>
@@ -1437,7 +1680,7 @@ function Dashboard() {
                    </div>
                    <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 mt-6">
                       <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><TrendingUp size={16} className="text-green-500"/> Evolución Anual de Eficiencia (%)</h4>
-                      <p className="text-[9px] text-slate-500 mb-2 italic">💡 Usa el filtro "Mes: Año" y haz clic en "Histórico DB" para ver la gráfica completa.</p>
+                      <p className="text-[9px] text-slate-500 mb-2 italic">💡 Resumen global anual leído al instante desde la Nube.</p>
                       <div className="h-60 w-full">
                          <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={metrics.monthlyData}>
@@ -1452,10 +1695,15 @@ function Dashboard() {
                       </div>
                    </div>
                    <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6 mt-6">
-                      <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-6 flex items-center gap-2"><ShieldCheck className="text-green-500" size={18}/> Bitácora de Operación Reciente (Detalle)</h4>
-                      <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center">Foto</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
-                        <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
-                            {metrics.rows.slice(0, 100).map((r, i) => (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+    <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest flex items-center gap-2"><ShieldCheck className="text-green-500" size={18}/> Bitácora de Operación Reciente (Detalle)</h4>
+    <div className="flex gap-2">
+        <button onClick={handleSyncToCloud} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 shadow-lg" title="Forzar Robot a leer todo el mes"><RefreshCw size={14}/> Sincronizar Nube</button>
+        <button onClick={abrirMapaDeRuta} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 shadow-lg"><Map size={14}/> Ver Mapa de Ruta Diaria</button>
+    </div></div>
+    <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center">Foto</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
+    <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
+    {metrics.rows.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((r, i) => (
                                 <tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors">
                                     <td className="px-4 py-3 text-slate-300 font-bold">{getStrictDateString(r.createdAt)}</td>
                                     <td className="px-4 py-3 text-white">{r.recolector}</td>
@@ -1478,33 +1726,93 @@ function Dashboard() {
                                 </tr>
                             ))}
                         </tbody>
-                    </table></div>
+                    </table>
+                    {/* 🔥 CONTROLES DE PAGINACIÓN REAL */}
+                    <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between print-hide">
+                            <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">
+                                Mostrando {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, metrics.rows.length)} de {metrics.rows.length} viajes
+                            </span>
+                            <div className="flex gap-2">
+                                <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
+                                    <ChevronLeft size={14} /> Anterior
+                                </button>
+                                <span className="bg-[#0B1120] text-slate-300 px-4 py-2 rounded-lg text-[10px] font-black border border-slate-700">
+                                    Pág. {currentPage} de {Math.ceil(metrics.rows.length / itemsPerPage) || 1}
+                                </span>
+                                <button onClick={() => setCurrentPage(prev => prev + 1)} disabled={currentPage >= Math.ceil(metrics.rows.length / itemsPerPage)} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
+                                    Siguiente <ChevronRight size={14} />
+                                </button>
+                            </div>
+                       </div>
+                    </div>
                    </div>
                 </div>
              )}
-             
-             {adminSection === 'fleet' && (
+         {adminSection === 'fleet' && (
                 <div className="animate-in fade-in space-y-6 print-hide">
+                   
+                   {/* 1. CORTE OPERATIVO */}
                    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-3"><div className="p-3 bg-orange-900/30 rounded-xl text-orange-400"><Settings size={24}/></div><div><h3 className="text-sm font-black text-white uppercase">Corte Operativo de Flota (Combustible/Taller)</h3><p className="text-[10px] text-slate-400">Define el periodo activo para tu presupuesto.</p></div></div>
                         <div className="flex gap-2 w-full md:w-auto"><input type="date" value={sysConfig.flotaInicio || ''} onChange={e=>setSysConfig({...sysConfig, flotaInicio: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><input type="date" value={sysConfig.flotaFin || ''} onChange={e=>setSysConfig({...sysConfig, flotaFin: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><button onClick={handleSaveConfig} className="bg-orange-600 hover:bg-orange-500 text-white px-4 rounded-xl font-bold text-[10px] uppercase transition-all shadow-md">Fijar</button></div>
                    </div>
+
+                   {/* 2. KPI CARDS (Dólares y Galones) */}
                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><DollarSign size={80} className="text-green-500"/></div><p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">COMB. (MES)</p><h3 className="text-3xl font-black text-white">${fleetMetrics.totalFuelCost}</h3></div>
                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><Wrench size={80} className="text-yellow-500"/></div><p className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mb-2">TALLER (MES)</p><h3 className="text-3xl font-black text-white">${fleetMetrics.totalMaintCost}</h3></div>
                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><Fuel size={80} className="text-orange-500"/></div><p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-2">GALONES</p><h3 className="text-3xl font-black text-white">{fleetMetrics.totalGalones}</h3></div>
                       <div className="bg-[#0B1120] p-6 rounded-[2rem] border border-slate-800 flex flex-col justify-center"><p className="text-[10px] font-bold text-slate-500 uppercase">GASTO TOTAL FLOTA</p><h3 className="text-3xl font-black text-white">${(parseFloat(fleetMetrics.totalFuelCost) + parseFloat(fleetMetrics.totalMaintCost)).toFixed(2)}</h3></div>
                    </div>
-                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-orange-500"/> Costo Operativo por Transportista ($)</h4><div className="h-60 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={fleetMetrics.chartData}><CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#64748b'}} interval={0} angle={-45} textAnchor="end" height={60} /><Tooltip cursor={{fill: '#1f2937'}} contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', color: '#fff'}} /><Legend verticalAlign="top" height={36} /><Bar dataKey="fuel" name="Combustible" stackId="a" fill="#ea580c" /><Bar dataKey="maint" name="Taller" stackId="a" fill="#eab308" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
-                      <div className="space-y-4">
-                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden h-40"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Fuel size={14} className="text-orange-500"/> Últimas Cargas de Combustible</h4><div className="overflow-y-auto h-full pb-6 custom-scrollbar"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800 custom-scrollbar">{fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
-                          <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 overflow-hidden max-h-80"><h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2"><Wrench size={14} className="text-yellow-500"/> Últimos Servicios de Taller</h4><div className="overflow-y-auto h-full pb-6 custom-scrollbar"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-[10px] text-slate-400 divide-y divide-slate-800 custom-scrollbar">{maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).slice(0,20).map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div></div>
-                      </div>
+
+                   {/* 3. GRÁFICA A ANCHO COMPLETO */}
+                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl">
+                        <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-orange-500"/> Costo Operativo por Transportista ($)</h4>
+                        <div className="h-72 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={fleetMetrics.chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/>
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#64748b'}} interval={0} angle={-45} textAnchor="end" height={60} />
+                                    <Tooltip cursor={{fill: '#1f2937'}} contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', color: '#fff'}} />
+                                    <Legend verticalAlign="top" height={36} />
+                                    <Bar dataKey="fuel" name="Combustible" stackId="a" fill="#ea580c" />
+                                    <Bar dataKey="maint" name="Taller" stackId="a" fill="#eab308" radius={[4, 4, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
                    </div>
+
+                   {/* 4. TABLAS LADO A LADO LIBERADAS (Mes completo) */}
+                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        {/* TABLA COMBUSTIBLE */}
+                        <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 flex flex-col h-[400px]">
+                            <h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2 shrink-0"><Fuel size={14} className="text-orange-500"/> Cargas de Combustible</h4>
+                            <div className="overflow-y-auto h-full pb-2 custom-scrollbar">
+                                <table className="w-full text-left relative">
+                                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] sticky top-0 z-10 shadow-sm"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
+                                    <tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">
+                                        {fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        {/* TABLA TALLER */}
+                        <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 flex flex-col h-[400px]">
+                            <h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2 shrink-0"><Wrench size={14} className="text-yellow-500"/> Servicios de Taller</h4>
+                            <div className="overflow-y-auto h-full pb-2 custom-scrollbar">
+                                <table className="w-full text-left relative">
+                                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] sticky top-0 z-10 shadow-sm"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
+                                    <tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">
+                                        {maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                   </div>
+                   
                 </div>
              )}
-
              {adminSection === 'hr' && (
                 <div className="animate-in fade-in space-y-6 print-hide">
                    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
@@ -1526,15 +1834,34 @@ function Dashboard() {
                 </div>
              )}
 
-             {adminSection === 'agenda' && (
+            {adminSection === 'agenda' && (
                 <div className="animate-in fade-in print-hide">
-                    <div className="bg-[#151F32] p-4 rounded-xl border border-slate-800 mb-6 flex items-center justify-between shadow-sm"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Globe size={14}/> Contexto Operativo:</span><select value={catalogCountry} onChange={e=>setCatalogCountry(e.target.value)} className="bg-[#0B1120] text-blue-400 text-xs font-black uppercase px-4 py-2 rounded-lg outline-none border border-slate-700 cursor-pointer shadow-inner">{catalogs.paises.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                    <div className="bg-[#151F32] p-4 rounded-xl border border-slate-800 mb-6 flex flex-col md:flex-row items-center justify-between shadow-sm gap-4">
+                        <div className="flex items-center gap-4 w-full md:w-auto">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Globe size={14}/> Contexto Operativo:</span>
+                            <select value={catalogCountry} onChange={e=>setCatalogCountry(e.target.value)} className="bg-[#0B1120] text-blue-400 text-xs font-black uppercase px-4 py-2 rounded-lg outline-none border border-slate-700 cursor-pointer shadow-inner">
+                                {catalogs.paises.map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
+                        </div>
+                        
+                        {/* 🔥 EL INTERRUPTOR MAESTRO DE PUBLICACIÓN 🔥 */}
+                        <div className="flex items-center gap-3 w-full md:w-auto bg-[#0B1120] p-2 rounded-xl border border-slate-700">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Visibilidad en App:</span>
+                            <button 
+                                onClick={async () => {
+                                    try { await setDoc(doc(db, "configuraciones", "general"), { agendaPublicada: !(sysConfig.agendaPublicada !== false) }, { merge: true }); } catch (e) { alert("Error de conexión"); }
+                                }} 
+                                className={cn("px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all shadow-md", sysConfig.agendaPublicada !== false ? "bg-green-600 hover:bg-green-500 text-white" : "bg-red-600 hover:bg-red-500 text-white")}
+                            >
+                                {sysConfig.agendaPublicada !== false ? '👁️ PÚBLICA (VISIBLE)' : '🙈 OCULTA (EN EDICIÓN)'}
+                            </button>
+                        </div>
+                    </div>
                     <AgendaAdmin sucursalesObj={catalogs.sucursales} transportistasObj={catalogs.transportistas} countryContext={catalogCountry} />
                 </div>
              )}
           </div>
         )}
-
         {appMode === 'supervisor' && (
            <div className="space-y-6 md:space-y-8 animate-in fade-in print-p-0">
              <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 print-hide">
@@ -1562,14 +1889,61 @@ function Dashboard() {
                 </div>
              </div>
              
-             {supervisorSection === 'bitacora' && (
-                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto print-hide">
-                   <table className="w-full text-left">
-                      <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center rounded-r-lg">Foto</th></tr></thead>
-                      <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800 overflow-y-auto h-full custom-scrollbar">
-                         {metrics.rows.slice(0, 100).map((r, i) => (<tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors"><td className="px-4 py-3 text-slate-300 font-bold">{getStrictDateString(r.createdAt)}</td><td className="px-4 py-3 text-white">{r.recolector}</td><td className="px-4 py-3"><div className="flex flex-col"><span className="font-bold text-white">{r.sucursal}</span>{r.tiempoTransito > 0 && (<span className="text-[9px] text-blue-400 font-bold flex items-center gap-1 mt-0.5" title="Tiempo de viaje desde la última parada"><Bike size={10}/> Tránsito: {r.tiempoTransito}m</span>)}{r.ubicacion && r.ubicacion !== 'Sin GPS' && (<a href={r.ubicacionAnterior ? `https://www.google.com/maps/dir/?api=1&origin=${r.ubicacionAnterior}&destination=${r.ubicacion}` : `https://www.google.com/maps/search/?api=1&query=${r.ubicacion}`} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 text-[9px] font-bold mt-0.5" title="Ver en mapa real"><MapPin size={10} /> {r.ubicacionAnterior ? 'Ver Ruta Trazada' : 'Ver Ubicación'}</a>)}</div></td><td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td><td className="px-4 py-3 text-slate-500">{r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida || ''}` : '--'}</td><td className={cn("px-4 py-3", r.tiempo > 5 ? "text-orange-400" : "text-green-400")}>{r.tiempo}m</td><td className="px-4 py-3 text-center"><span className={cn("px-2 py-0.5 rounded-md text-[9px] border font-bold uppercase", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300":"bg-orange-900/30 border-orange-900 text-orange-300")}>{r.categoria === "Principal" ? "Vital" : "Secundaria"}</span></td><td className="px-4 py-3 text-xs italic text-slate-500 truncate max-w-[150px]" title={r.observaciones}>{r.observaciones || '--'}</td><td className="px-4 py-3 text-center">{r.fotoData && r.fotoData.startsWith('http') ? <a href={r.fotoData} target="_blank" rel="noreferrer" className="inline-flex justify-center items-center bg-blue-900/30 text-blue-400 w-8 h-8 rounded-lg border border-blue-900"><ExternalLink size={14}/></a> : r.fotoData ? <img src={r.fotoData} className="w-8 h-8 rounded-lg object-cover cursor-pointer border border-slate-600 hover:border-white transition-all" onClick={()=>setViewingPhoto(r.fotoData)} alt="evidencia"/> : <span className="text-slate-700">-</span>}</td></tr>))}
-                      </tbody>
-                   </table>
+            {supervisorSection === 'bitacora' && (
+                <div className="space-y-6">
+                    <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 print-hide">
+                        <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-4 flex items-center gap-2"><Users className="text-blue-500" size={18}/> Monitor de Estatus en Vivo</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                            {adminDashboardMetrics.transportistasStats.map(stat => (
+                             <div key={stat.name} className={cn("px-3 py-2 rounded-xl flex items-center gap-3 border shadow-sm transition-all", stat.estatus === 'Standby' ? "bg-green-900/20 border-green-500/50" : stat.estatus === 'En Ruta' ? "bg-blue-900/20 border-blue-500/30" : stat.estatus === 'Almuerzo' ? "bg-yellow-900/20 border-yellow-500/50" : "bg-slate-800/40 border-slate-700")}>
+                                    <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", stat.estatus === 'Standby' ? "bg-green-500 animate-pulse" : stat.estatus === 'En Ruta' ? "bg-blue-500" : stat.estatus === 'Almuerzo' ? "bg-yellow-500" : "bg-slate-600")}></div>
+                                    <div className="flex flex-col flex-1">
+                                        <span className={cn("text-[10px] font-black uppercase leading-tight", stat.estatus === 'Inactivo' ? "text-slate-500" : "text-white")}>{stat.name.split(' ')[0]}</span>
+                                        <span className={cn("text-[8px] font-bold uppercase px-1.5 py-0.5 rounded-md w-fit mt-0.5", stat.estatus === 'Standby' ? "bg-green-600 text-white" : stat.estatus === 'En Ruta' ? "bg-blue-600 text-white" : stat.estatus === 'Almuerzo' ? "bg-yellow-600 text-black" : "bg-slate-700 text-slate-400")}>
+                                            {stat.estatus === 'Standby' ? 'DISPONIBLE' : stat.estatus === 'En Ruta' ? 'EN RUTA' : stat.estatus === 'Almuerzo' ? 'ALMORZANDO' : 'INACTIVO'}
+                                        </span>
+                                    </div>
+                                    
+                                    {/* ⏱️ EL CHISMOSO: Solo aparece en ruta, ignorando la hora de almuerzo */}
+                                    {stat.estatus === 'En Ruta' && stat.minutosInactivo !== null && (
+                                        <div className="text-right">
+                                            <p className="text-[7px] text-slate-500 uppercase font-bold leading-none mb-0.5">Últ. Parada</p>
+                                            <span className={cn("text-[9px] font-mono font-black", stat.minutosInactivo >= 60 ? "text-red-400 animate-pulse" : "text-blue-300")}>
+                                                {stat.minutosInactivo > 120 ? '+2 hrs' : `${stat.minutosInactivo}m`}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* TABLA DE BITÁCORA ORIGINAL */}
+                    <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto print-hide">
+                       <table className="w-full text-left">
+                          <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center rounded-r-lg">Foto</th></tr></thead>
+                          <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800 overflow-y-auto h-full custom-scrollbar">
+                             {metrics.rows.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((r, i) => (<tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors"><td className="px-4 py-3 text-slate-300 font-bold">{getStrictDateString(r.createdAt)}</td><td className="px-4 py-3 text-white">{r.recolector}</td><td className="px-4 py-3"><div className="flex flex-col"><span className="font-bold text-white">{r.sucursal}</span>{r.tiempoTransito > 0 && (<span className="text-[9px] text-blue-400 font-bold flex items-center gap-1 mt-0.5" title="Tiempo de viaje desde la última parada"><Bike size={10}/> Tránsito: {r.tiempoTransito}m</span>)}{r.ubicacion && r.ubicacion !== 'Sin GPS' && (<a href={r.ubicacionAnterior ? `https://www.google.com/maps/dir/?api=1&origin=${r.ubicacionAnterior}&destination=${r.ubicacion}` : `https://www.google.com/maps/search/?api=1&query=${r.ubicacion}`} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 text-[9px] font-bold mt-0.5" title="Ver en mapa real"><MapPin size={10} /> {r.ubicacionAnterior ? 'Ver Ruta Trazada' : 'Ver Ubicación'}</a>)}</div></td><td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td><td className="px-4 py-3 text-slate-500">{r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida || ''}` : '--'}</td><td className={cn("px-4 py-3", r.tiempo > 5 ? "text-orange-400" : "text-green-400")}>{r.tiempo}m</td><td className="px-4 py-3 text-center"><span className={cn("px-2 py-0.5 rounded-md text-[9px] border font-bold uppercase", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300":"bg-orange-900/30 border-orange-900 text-orange-300")}>{r.categoria === "Principal" ? "Vital" : "Secundaria"}</span></td><td className="px-4 py-3 text-xs italic text-slate-500 truncate max-w-[150px]" title={r.observaciones}>{r.observaciones || '--'}</td><td className="px-4 py-3 text-center">{r.fotoData && r.fotoData.startsWith('http') ? <a href={r.fotoData} target="_blank" rel="noreferrer" className="inline-flex justify-center items-center bg-blue-900/30 text-blue-400 w-8 h-8 rounded-lg border border-blue-900"><ExternalLink size={14}/></a> : r.fotoData ? <img src={r.fotoData} className="w-8 h-8 rounded-lg object-cover cursor-pointer border border-slate-600 hover:border-white transition-all" onClick={()=>setViewingPhoto(r.fotoData)} alt="evidencia"/> : <span className="text-slate-700">-</span>}</td></tr>))}
+                          </tbody>
+                       </table>
+                       {/* 🔥 CONTROLES DE PAGINACIÓN REAL */}
+                       <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between print-hide">
+                            <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">
+                                Mostrando {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, metrics.rows.length)} de {metrics.rows.length} viajes
+                            </span>
+                            <div className="flex gap-2">
+                                <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
+                                    <ChevronLeft size={14} /> Anterior
+                                </button>
+                                <span className="bg-[#0B1120] text-slate-300 px-4 py-2 rounded-lg text-[10px] font-black border border-slate-700">
+                                    Pág. {currentPage} de {Math.ceil(metrics.rows.length / itemsPerPage) || 1}
+                                </span>
+                                <button onClick={() => setCurrentPage(prev => prev + 1)} disabled={currentPage >= Math.ceil(metrics.rows.length / itemsPerPage)} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
+                                    Siguiente <ChevronRight size={14} />
+                                </button>
+                            </div>
+                       </div>
+                    </div>
                 </div>
              )}
 
@@ -1603,7 +1977,8 @@ function Dashboard() {
                             {catalogs.paises.map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
                     </div>
-                    <AgendaAdmin sucursalesObj={catalogs.sucursales} transportistasObj={catalogs.transportistas} countryContext={catalogCountry} />
+                    {/* 🔥 AQUÍ LE DECIMOS A LA AGENDA QUE EL SUPERVISOR SOLO PUEDE VER 🔥 */}
+                    <AgendaAdmin sucursalesObj={catalogs.sucursales} transportistasObj={catalogs.transportistas} countryContext={catalogCountry} readOnly={true} />
                 </div>
              )}
           </div>
