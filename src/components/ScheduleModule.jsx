@@ -1,34 +1,53 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../config/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { Calendar, Clock, MapPin, Wrench, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, MapPin, Wrench, AlertCircle, HardHat } from 'lucide-react';
 
 export default function ScheduleModule({ currentUser, userName }) {
   const [schedule, setSchedule] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isPublished, setIsPublished] = useState(true);
 
   useEffect(() => {
+    // Escucha la agenda personal
     const docRef = doc(db, "agenda_flota", userName);
-    
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-        if (docSnap.exists()) {
-            setSchedule(docSnap.data());
-        } else {
-            setSchedule(null);
-        }
+    const unsubscribeAgenda = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) setSchedule(docSnap.data());
+        else setSchedule(null);
         setLoading(false);
     });
 
-    return () => unsubscribe();
+    // Escucha el interruptor maestro de RRHH/Admin
+    const configRef = doc(db, "configuraciones", "general");
+    const unsubscribeConfig = onSnapshot(configRef, (docSnap) => {
+        if (docSnap.exists()) {
+            // Si agendaPublicada es false, la ocultamos. Si no existe o es true, la mostramos.
+            setIsPublished(docSnap.data().agendaPublicada !== false);
+        }
+    });
+
+    return () => { unsubscribeAgenda(); unsubscribeConfig(); };
   }, [userName]);
 
   if (loading) return <div className="p-10 text-center text-slate-500">Cargando agenda...</div>;
 
+  // 🔥 PANTALLA DE MODO BORRADOR 🔥
+  if (!isPublished) return (
+    <div className="bg-[#151F32] p-10 rounded-[2.5rem] border border-slate-800 text-center animate-in zoom-in-95 duration-300 shadow-2xl relative overflow-hidden mt-4">
+        <div className="absolute top-0 right-0 p-4 opacity-5"><HardHat size={150} className="text-yellow-500"/></div>
+        <div className="w-20 h-20 bg-yellow-900/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-yellow-500/30 relative z-10">
+            <HardHat className="text-yellow-500" size={36} strokeWidth={1.5}/>
+        </div>
+        <h3 className="text-2xl font-black text-white mb-2 relative z-10">Agenda en Actualización</h3>
+        <p className="text-slate-400 text-sm font-bold max-w-xs mx-auto relative z-10">Estamos ajustando y preparando los horarios del próximo mes. Estarán disponibles muy pronto.</p>
+    </div>
+  );
+
   if (!schedule) return (
-    <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-800 text-center">
+    <div className="bg-[#151F32] p-8 rounded-[2rem] border border-slate-800 text-center mt-4">
         <Calendar className="mx-auto text-slate-600 mb-4" size={40}/>
         <h3 className="text-white font-bold">Sin asignación</h3>
-        <p className="text-slate-500 text-xs mt-2">Aún no se ha cargado tu horario de este mes.</p>
+        <p className="text-slate-500 text-xs mt-2">Aún no se ha cargado tu horario.</p>
     </div>
   );
 
@@ -62,15 +81,14 @@ export default function ScheduleModule({ currentUser, userName }) {
       turnosTxt.includes(todayFullSlashUnp);
 
   return (
-    <div className="space-y-6 animate-in fade-in zoom-in duration-300 pb-20">
-        
+    <div className="space-y-6 animate-in fade-in zoom-in duration-300 pb-20 mt-4">
         {/* ENCABEZADO */}
         <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
             <h2 className="text-xl font-black mb-1 flex items-center gap-3 text-white">
                 <Calendar className="text-blue-500"/> Mi Agenda
             </h2>
-            <p className="text-slate-400 text-xs">Hola, {userName.split(' ')[0]}. Esta es tu programación.</p>
+            <p className="text-slate-400 text-xs">Hola, {userName.split(' ')[0]}. Esta es tu programación oficial.</p>
         </div>
 
         {/* TARJETA 1: RUTA BASE */}
@@ -110,9 +128,9 @@ export default function ScheduleModule({ currentUser, userName }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800">
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">TURNOS ASIGNADOS</h3>
-                {schedule.turnos ? (
+                {schedule.turnos && schedule.turnos !== 'Ninguno' ? (
                     <div className="flex flex-wrap gap-2">
-                        {schedule.turnos.split(',').map((date, i) => (
+                        {schedule.turnos.split('-').map((date, i) => (
                             <span key={i} className="bg-[#0B1120] px-3 py-2 rounded-lg text-white font-bold text-xs border border-slate-700">{date.trim()}</span>
                         ))}
                     </div>
