@@ -32,7 +32,7 @@ const cn = (...inputs) => twMerge(clsx(inputs));
 
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/mnoeanaliza/recolekta-os/refs/heads/main/Datos.csv";
 // Carga diferida del Mapa
-const RutaOptimizada = lazy(() => import('./components/RutaOptimizada.jsx'));
+//const RutaOptimizada = lazy(() => import('./components/RutaOptimizada'));
 
 // MAPEO DE CORREOS
 export const USUARIOS_EMAIL = {
@@ -1165,9 +1165,9 @@ const adminDashboardMetrics = useMemo(() => {
                     <button onClick={() => setMapaModalData(null)} className="bg-slate-800 text-slate-400 hover:text-white p-2 rounded-full transition-colors"><X size={24}/></button>
                 </div>
                 
-                <Suspense fallback={<div className="h-[500px] flex items-center justify-center text-blue-400 bg-[#0B1120] rounded-2xl"><Loader2 className="animate-spin" size={48}/></div>}>
-                    <RutaOptimizada puntos={mapaModalData.points} />
-                </Suspense>
+      {/* <Suspense fallback={<div className="h-[500px] flex items-center justify-center text-blue-400 bg-[#0B1120] rounded-2xl"><Loader2 className="animate-spin" size={48}/></div>}>
+    <RutaOptimizada puntos={mapaModalData.points} />
+</Suspense> */}
 
                 <div className="mt-4 flex items-center justify-center gap-4 text-[10px] text-slate-500 font-bold uppercase tracking-widest bg-[#0B1120] p-3 rounded-xl border border-slate-800">
                     <span className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-500 rounded-full"></div> Polilínea (Calle Real)</span>
