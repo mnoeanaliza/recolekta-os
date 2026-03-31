@@ -32,7 +32,7 @@ const cn = (...inputs) => twMerge(clsx(inputs));
 
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/mnoeanaliza/recolekta-os/refs/heads/main/Datos.csv";
 // Carga diferida del Mapa
-const RutaOptimizada = lazy(() => import('./components/RutaOptimizada'));
+const RutaOptimizada = lazy(() => import('./components/RutaOptimizada.jsx'));
 
 // MAPEO DE CORREOS
 export const USUARIOS_EMAIL = {
