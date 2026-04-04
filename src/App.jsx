@@ -692,15 +692,20 @@ const handleSyncToCloud = async () => {
             }; 
             fetchHistory();
         }
-    } else if (appMode === 'user' && currentUser?.email) {
+  } else if (appMode === 'user' && currentUser?.email) {
         const today = new Date(); 
         const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
         
-        unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfMonthISO)), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.usuarioEmail === currentUser.email || d.recolector === form.recolector).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || ''))));
+        // 🟢 CINTURÓN DE AHORRO 1: Descarga SOLO la producción de ESTE transportista.
+        unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector)), (snap) => {
+            setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.createdAt >= startOfMonthISO).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+        });
         
-        // 🔥 HORAS EXTRAS TRANSPORTISTA: Conectado a tu configuración sin errores
+        // 🟢 CINTURÓN DE AHORRO 2: Descarga SOLO las horas extras de ESTE transportista.
         const inicioCorteUser = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthISO;
-        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("createdAt", ">=", inicioCorteUser)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.usuario === currentUser.email).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''))));
+        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email)), (snap) => {
+            setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.fecha >= inicioCorteUser).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || '')));
+        });
         
         unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("usuario", "==", currentUser.email)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(10)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
