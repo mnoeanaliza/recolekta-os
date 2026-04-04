@@ -666,8 +666,9 @@ const handleSyncToCloud = async () => {
             unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfMonthISO), orderBy("createdAt", "desc")), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
             unsubFuel = onSnapshot(query(collection(db, "registros_combustible"), where("fecha", ">=", startOfMonthStr)), (snap) => setFuelData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
             unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startOfMonthStr)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
-            unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("fecha", ">=", startOfMonthStr)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
             unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(20)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+            const inicioCorteAdmin = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthStr;
+            unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("fecha", ">=", inicioCorteAdmin)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
         } else {
             // MODO HISTÓRICO AUTOMÁTICO (Tu jefe seleccionó un mes pasado)
             const fetchHistory = async () => {
@@ -692,14 +693,20 @@ const handleSyncToCloud = async () => {
             fetchHistory();
         }
     } else if (appMode === 'user' && currentUser?.email) {
-        const today = new Date(); const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
+        const today = new Date(); 
+        const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
+        
         unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfMonthISO)), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.usuarioEmail === currentUser.email || d.recolector === form.recolector).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || ''))));
-        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("createdAt", ">=", startOfMonthISO)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.usuario === currentUser.email).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''))));
+        
+        // 🔥 HORAS EXTRAS TRANSPORTISTA: Conectado a tu configuración sin errores
+        const inicioCorteUser = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthISO;
+        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("createdAt", ">=", inicioCorteUser)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.usuario === currentUser.email).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''))));
+        
         unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("usuario", "==", currentUser.email)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(10)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     }
     return () => { if(unsubOps) unsubOps(); if(unsubFuel) unsubFuel(); if(unsubMaint) unsubMaint(); if(unsubOt) unsubOt(); if(unsubAlertas) unsubAlertas(); if(unsubAgenda) unsubAgenda(); if(unsubConfig) unsubConfig(); if(unsubCatalogs) unsubCatalogs(); if(unsubAllProfiles) unsubAllProfiles(); if(unsubSummaries) unsubSummaries(); };
-  }, [dataSource, filterYear, filterMonth, appMode, currentUser, form.recolector]); 
+  }, [dataSource, filterYear, filterMonth, appMode, currentUser, form.recolector, sysConfig?.heInicio]);
 
   const getUserZone = (emailOrName) => { let email = emailOrName; if (email && !email.includes('@')) email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === emailOrName); return perfilesUsuarios[email]?.zona || 'Sin Asignar'; };
   
@@ -1052,11 +1059,14 @@ const adminDashboardMetrics = useMemo(() => {
     const csv = Papa.unparse(csvRows, { delimiter: ";" }); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Respaldo_Recolekta_${filterYear}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
   
-  const exportPayrollCSV = () => { 
-    if (!hrMetrics.rawData || hrMetrics.rawData.length === 0) return alert("No hay datos de horas extras en este rango."); 
+ const exportPayrollCSV = () => { 
+    // 💡 El filtro de la quincena se aplica EXCLUSIVAMENTE al exportar el Excel
+    let exportData = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
+    
+    if (exportData.length === 0) return alert("No hay datos de horas extras en este rango de quincena."); 
     const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h, 10); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
     const splitSchedule = (scheduleStr) => { if (!scheduleStr || !scheduleStr.includes('-')) return { start: '', end: '' }; const parts = scheduleStr.split('-'); return { start: parts[0].trim(), end: parts[1].trim() }; }; 
-    const csvRows = hrMetrics.rawData.map((r, index) => { 
+    const csvRows = exportData.map((r, index) => { 
         const workHours = splitSchedule(r.horarioTurno || ''); const heStart = formatTime12(r.horaInicio); const heEnd = formatTime12(r.horaFin); 
         return { 'ID': index + 1, 'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, 'Fecha': getStrictDateString(r.fecha), 'Hora de trabajo Inicio': workHours.start, 'Hora de trabajo Fin': workHours.end, 'Horario de Horas extras Inicio': heStart, 'Horario de Horas extras Fin': heEnd, 'Horas extras': r.horasCalculadas, 'Actividad Realizada / Observaciones': r.motivo || '', 'HorarioTrabajo': r.horarioTurno || '', 'HorarioHE': `${heStart} - ${heEnd}` }; 
     }); 
@@ -1820,16 +1830,46 @@ const adminDashboardMetrics = useMemo(() => {
                         <div className="flex gap-2 w-full md:w-auto"><input type="date" value={sysConfig.heInicio || ''} onChange={e=>setSysConfig({...sysConfig, heInicio: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><input type="date" value={sysConfig.heFin || ''} onChange={e=>setSysConfig({...sysConfig, heFin: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><button onClick={handleSaveConfig} className="bg-purple-600 hover:bg-purple-500 text-white px-4 rounded-xl font-bold text-[10px] uppercase transition-all shadow-md">Fijar</button></div>
                    </div>
                    <div className="flex justify-between items-center bg-[#151F32] p-6 rounded-[2rem] border border-slate-800">
-                      <div><h3 className="text-2xl font-black text-white">Nómina de Horas Extras</h3><p className="text-xs text-slate-400">Mostrando registros del {formatLocalDate(sysConfig.heInicio) || '--'} al {formatLocalDate(sysConfig.heFin) || '--'}</p></div>
-                      <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all"><FileSpreadsheet size={16}/> Exportar Excel RRHH</button>
+                      <div><h3 className="text-2xl font-black text-white">Nómina de Horas Extras</h3><p className="text-xs text-slate-400">Mostrando el historial completo del mes actual</p></div>
+                      <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all" title="El Excel descargará solo la quincena configurada arriba"><FileSpreadsheet size={16}/> Exportar Excel (Quincena)</button>
                    </div>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><Clock size={100} className="text-purple-500"/></div><p className="text-[10px] font-bold text-purple-500 uppercase tracking-widest mb-2">HORAS EXTRAS (EN ESTE CORTE)</p><h3 className="text-5xl font-black text-white">{hrMetrics.totalHoras} <span className="text-lg text-slate-500">hrs</span></h3><p className="text-xs text-slate-400 mt-2">Registros procesados: {hrMetrics.totalRegistros}</p></div>
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-purple-500"/> Ranking Horas Extra</h4><div className="space-y-3">{hrMetrics.rankingOt.slice(0,5).map((u, i) => (<div key={i} className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center text-[10px] font-bold text-white">{i+1}</div><span className="text-sm font-bold text-slate-300">{u.name}</span></div><div className="flex items-center gap-2"><div className="h-2 bg-purple-900 rounded-full w-24 overflow-hidden"><div className="h-full bg-purple-500" style={{width: `${(u.hours / (parseFloat(hrMetrics.totalHoras) || 1)) * 100}%`}}></div></div><span className="text-xs font-bold text-white">{u.hours}h</span></div></div>))}</div></div>
+                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><Clock size={100} className="text-purple-500"/></div><p className="text-[10px] font-bold text-purple-500 uppercase tracking-widest mb-2">HORAS EXTRAS (TODO EL MES)</p><h3 className="text-5xl font-black text-white">{hrMetrics.totalHoras} <span className="text-lg text-slate-500">hrs</span></h3><p className="text-xs text-slate-400 mt-2">Registros procesados: {hrMetrics.totalRegistros}</p></div>
+                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-purple-500"/> Ranking Horas Extra (Mes)</h4><div className="space-y-3">{hrMetrics.rankingOt.slice(0,5).map((u, i) => (<div key={i} className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center text-[10px] font-bold text-white">{i+1}</div><span className="text-sm font-bold text-slate-300">{u.name}</span></div><div className="flex items-center gap-2"><div className="h-2 bg-purple-900 rounded-full w-24 overflow-hidden"><div className="h-full bg-purple-500" style={{width: `${(u.hours / (parseFloat(hrMetrics.totalHoras) || 1)) * 100}%`}}></div></div><span className="text-xs font-bold text-white">{u.hours}h</span></div></div>))}</div></div>
                    </div>
                    <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6">
-                      <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-6 flex items-center gap-2"><ClipboardList className="text-purple-500" size={18}/> Detalle de Horas Extras</h4>
-                      <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Colaborador</th><th className="px-4 py-3">Inicio</th><th className="px-4 py-3">Fin</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead><tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">{hrMetrics.rawData.map((r, i) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-4 py-3">{getStrictDateString(r.fecha)}</td><td className="px-4 py-3 text-white">{USUARIOS_EMAIL[r.usuario] || r.usuario}</td><td className="px-4 py-3">{r.horaInicio}</td><td className="px-4 py-3">{r.horaFin}</td><td className="px-4 py-3 text-purple-400">{r.horasCalculadas}h</td><td className="px-4 py-3 italic text-slate-500">{r.motivo}</td><td className="px-4 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_horas_extras')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_horas_extras', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}</tbody></table></div>
+                      <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-6 flex items-center gap-2"><ClipboardList className="text-purple-500" size={18}/> Detalle Mensual de Horas Extras</h4>
+                      <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Colaborador</th><th className="px-4 py-3">Inicio</th><th className="px-4 py-3">Fin</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
+                      <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
+                          {hrMetrics.rawData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((r, i) => (
+                              <tr key={r.id} className="hover:bg-slate-800/50">
+                                  <td className="px-4 py-3 text-white font-bold">{getStrictDateString(r.fecha)}</td>
+                                  <td className="px-4 py-3 text-white">{USUARIOS_EMAIL[r.usuario] || r.usuario}</td>
+                                  <td className="px-4 py-3">{r.horaInicio}</td>
+                                  <td className="px-4 py-3">{r.horaFin}</td>
+                                  <td className="px-4 py-3 text-purple-400 font-black">{r.horasCalculadas}h</td>
+                                  <td className="px-4 py-3 italic text-slate-500">{r.motivo}</td>
+                                  <td className="px-4 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_horas_extras')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_horas_extras', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td>
+                              </tr>
+                          ))}
+                      </tbody></table></div>
+                      {/* 🔥 CONTROLES DE PAGINACIÓN */}
+                      <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between print-hide">
+                          <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">
+                              Mostrando {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, hrMetrics.rawData.length)} de {hrMetrics.rawData.length} registros
+                          </span>
+                          <div className="flex gap-2">
+                              <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
+                                  <ChevronLeft size={14} /> Ant.
+                              </button>
+                              <span className="bg-[#0B1120] text-slate-300 px-4 py-2 rounded-lg text-[10px] font-black border border-slate-700">
+                                  Pág. {currentPage} de {Math.ceil(hrMetrics.rawData.length / itemsPerPage) || 1}
+                              </span>
+                              <button onClick={() => setCurrentPage(prev => prev + 1)} disabled={currentPage >= Math.ceil(hrMetrics.rawData.length / itemsPerPage)} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
+                                  Sig. <ChevronRight size={14} />
+                              </button>
+                          </div>
+                      </div>
                    </div>
                 </div>
              )}
