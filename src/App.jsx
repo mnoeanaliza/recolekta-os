@@ -671,24 +671,30 @@ const handleSyncToCloud = async () => {
             const inicioCorteAdmin = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthStr;
             unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("fecha", ">=", inicioCorteAdmin)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
         } else {
-            // MODO HISTÓRICO AUTOMÁTICO (Tu jefe seleccionó un mes pasado)
+            // MODO HISTÓRICO AUTOMÁTICO (Tu jefe seleccionó un mes pasado o el Año)
             const fetchHistory = async () => {
                 setIsFetchingHistory(true);
                 try {
-                    let sStr, eStr;
                     if (filterMonth === 'all') { 
-                        sStr = `${filterYear}-01-01`; eStr = `${parseInt(filterYear) + 1}-01-01`; 
+                        // 🟢 CINTURÓN ADMIN 2: Si es "AÑO", vaciamos la memoria local.
+                        // La gráfica de BI usará automáticamente los resúmenes gratuitos de la nube.
+                        setLiveData([]);
+                        setFuelData([]);
+                        setMaintData([]);
+                        setOtData([]);
                     } else { 
-                        const m = String(filterMonth).padStart(2, '0'); sStr = `${filterYear}-${m}-01`; 
+                        const m = String(filterMonth).padStart(2, '0'); 
+                        const sStr = `${filterYear}-${m}-01`; 
                         const nextM = filterMonth == 12 ? 1 : parseInt(filterMonth) + 1; 
                         const nextY = filterMonth == 12 ? parseInt(filterYear) + 1 : filterYear; 
-                        eStr = `${nextY}-${String(nextM).padStart(2, '0')}-01`; 
+                        const eStr = `${nextY}-${String(nextM).padStart(2, '0')}-01`; 
+                        
+                        const snapOps = await getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", sStr), where("createdAt", "<", eStr))); setLiveData(snapOps.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const sStrShort = sStr.substring(0, 10); const eStrShort = eStr.substring(0, 10);
+                        const snapFuel = await getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapMaint = await getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapOt = await getDocs(query(collection(db, "registros_horas_extras"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setOtData(snapOt.docs.map(d => ({ id: d.id, ...d.data() })));
                     }
-                    const snapOps = await getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", sStr), where("createdAt", "<", eStr))); setLiveData(snapOps.docs.map(d => ({ id: d.id, ...d.data() })));
-                    const sStrShort = sStr.substring(0, 10); const eStrShort = eStr.substring(0, 10);
-                    const snapFuel = await getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
-                    const snapMaint = await getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
-                    const snapOt = await getDocs(query(collection(db, "registros_horas_extras"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setOtData(snapOt.docs.map(d => ({ id: d.id, ...d.data() })));
                 } catch (error) { console.error(error); } finally { setIsFetchingHistory(false); }
             }; 
             fetchHistory();
