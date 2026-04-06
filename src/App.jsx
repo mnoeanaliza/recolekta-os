@@ -702,15 +702,16 @@ const handleSyncToCloud = async () => {
   } else if (appMode === 'user' && currentUser?.email) {
         const today = new Date(); 
         const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
-        // 🟢 CINTURÓN DE TITANIO 1: Este transportista + SOLO este mes (En el servidor)
-        unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector), where("createdAt", ">=", startOfMonthISO)), (snap) => {
-            setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+        
+        // 🟢 CINTURÓN 1: Pedimos solo la data del transportista (destraba el caché y no requiere índices)
+        unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector)), (snap) => {
+            setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.createdAt >= startOfMonthISO).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
         });
         
-        // 🟢 CINTURÓN DE TITANIO 2: Este transportista + SOLO esta quincena (En el servidor)
+        // 🟢 CINTURÓN 2: Lo mismo para las horas extras
         const inicioCorteUser = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthISO;
-        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email), where("fecha", ">=", inicioCorteUser)), (snap) => {
-            setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || '')));
+        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email)), (snap) => {
+            setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.fecha >= inicioCorteUser).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || '')));
         });
         
         unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("usuario", "==", currentUser.email)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
