@@ -663,7 +663,8 @@ const handleSyncToCloud = async () => {
             const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString(); 
             const startOfMonthStr = startOfMonthISO.substring(0, 10);
             
-            unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfMonthISO), orderBy("createdAt", "desc")), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+            // 🟢 CINTURÓN ADMIN 1: Límite de seguridad para que nunca descargue miles de golpe
+            unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfMonthISO), orderBy("createdAt", "desc"), limit(800)), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
             unsubFuel = onSnapshot(query(collection(db, "registros_combustible"), where("fecha", ">=", startOfMonthStr)), (snap) => setFuelData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
             unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startOfMonthStr)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
             unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(20)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
