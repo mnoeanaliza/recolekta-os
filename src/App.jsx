@@ -1887,8 +1887,8 @@ const adminDashboardMetrics = useMemo(() => {
              )}
 
             {adminSection === 'agenda' && (
-                <div className="animate-in fade-in print-hide">
-                    <div className="bg-[#151F32] p-4 rounded-xl border border-slate-800 mb-6 flex flex-col md:flex-row items-center justify-between shadow-sm gap-4">
+                <div className="animate-in fade-in">
+                    <div className="bg-[#151F32] p-4 rounded-xl border border-slate-800 mb-6 flex flex-col md:flex-row items-center justify-between shadow-sm gap-4 print-hide">
                         <div className="flex items-center gap-4 w-full md:w-auto">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Globe size={14}/> Contexto Operativo:</span>
                             <select value={catalogCountry} onChange={e=>setCatalogCountry(e.target.value)} className="bg-[#0B1120] text-blue-400 text-xs font-black uppercase px-4 py-2 rounded-lg outline-none border border-slate-700 cursor-pointer shadow-inner">
