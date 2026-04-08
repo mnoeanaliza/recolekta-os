@@ -537,6 +537,13 @@ const handleSyncToCloud = async () => {
 
   const handleStartOperation = () => {
       if (!form.sucursal) return alert("⚠️ Selecciona primero la Sucursal a la que llegaste.");
+      
+      // 🟢 CANDADO 1: Verificar que la sucursal escrita exista en el catálogo del país
+      const sucursalesValidas = catalogs.sucursales[activeUserCountry] || [];
+      if (!sucursalesValidas.includes(form.sucursal)) {
+          return alert("⚠️ SUCURSAL INVÁLIDA: Por favor, selecciona una sucursal oficial de la lista desplegable. No se permite texto libre.");
+      }
+
       if (!form.tipo || !form.area) return alert("⚠️ Selecciona la Diligencia y Área.");
       
       setIsGettingGps(true);
@@ -699,7 +706,7 @@ const handleSyncToCloud = async () => {
             }; 
             fetchHistory();
         }
-  } else if (appMode === 'user' && currentUser?.email) {
+   } else if (appMode === 'user' && currentUser?.email) {
         const today = new Date(); 
         const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
         
@@ -1384,6 +1391,11 @@ const adminDashboardMetrics = useMemo(() => {
                         if(!imageFile) return alert("FOTO REQUERIDA PARA FINALIZAR"); 
                         if (!(catalogs.transportistas[activeUserCountry] || catalogs.transportistas || []).includes(form.recolector)) return alert("TRANSPORTISTA NO VÁLIDO"); 
                         
+                        // 🟢 CANDADO 2: Doble verificación antes de guardar en la base de datos
+                        const sucursalesValidas = catalogs.sucursales[activeUserCountry] || [];
+                        if (!sucursalesValidas.includes(form.sucursal)) {
+                            return alert("⚠️ ERROR: La sucursal fue alterada y no es válida. Selecciona una de la lista.");
+                        }
                         setIsUploading(true); 
                         try { 
                             const now = new Date();
@@ -1886,7 +1898,7 @@ const adminDashboardMetrics = useMemo(() => {
                 </div>
              )}
 
-            {adminSection === 'agenda' && (
+           {adminSection === 'agenda' && (
                 <div className="animate-in fade-in">
                     <div className="bg-[#151F32] p-4 rounded-xl border border-slate-800 mb-6 flex flex-col md:flex-row items-center justify-between shadow-sm gap-4 print-hide">
                         <div className="flex items-center gap-4 w-full md:w-auto">
