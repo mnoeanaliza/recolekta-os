@@ -696,11 +696,11 @@ const handleSyncToCloud = async () => {
                         const nextY = filterMonth == 12 ? parseInt(filterYear) + 1 : filterYear; 
                         const eStr = `${nextY}-${String(nextM).padStart(2, '0')}-01`; 
                         
-                        const snapOps = await getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", sStr), where("createdAt", "<", eStr))); setLiveData(snapOps.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapOps = await getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", sStr), where("createdAt", "<", eStr), limit(800))); setLiveData(snapOps.docs.map(d => ({ id: d.id, ...d.data() })));
                         const sStrShort = sStr.substring(0, 10); const eStrShort = eStr.substring(0, 10);
-                        const snapFuel = await getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
-                        const snapMaint = await getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
-                        const snapOt = await getDocs(query(collection(db, "registros_horas_extras"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort))); setOtData(snapOt.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapFuel = await getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(800))); setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapMaint = await getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(800))); setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapOt = await getDocs(query(collection(db, "registros_horas_extras"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(800))); setOtData(snapOt.docs.map(d => ({ id: d.id, ...d.data() })));
                     }
                 } catch (error) { console.error(error); } finally { setIsFetchingHistory(false); }
             }; 
@@ -710,15 +710,15 @@ const handleSyncToCloud = async () => {
         const today = new Date(); 
         const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
         
-        // 🟢 CINTURÓN 1: Pedimos solo la data del transportista (destraba el caché y no requiere índices)
-        unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector)), (snap) => {
-            setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.createdAt >= startOfMonthISO).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+        // 🟢 CINTURÓN DE TITANIO 1: Este transportista + SOLO ESTE MES
+        unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector), where("createdAt", ">=", startOfMonthISO)), (snap) => {
+            setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
         });
         
-        // 🟢 CINTURÓN 2: Lo mismo para las horas extras
+        // 🟢 CINTURÓN DE TITANIO 2: Este transportista + SOLO ESTA QUINCENA
         const inicioCorteUser = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthISO;
-        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email)), (snap) => {
-            setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.fecha >= inicioCorteUser).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || '')));
+        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email), where("fecha", ">=", inicioCorteUser)), (snap) => {
+            setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || '')));
         });
         
         unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("usuario", "==", currentUser.email)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
