@@ -85,12 +85,14 @@ export default function FuelModule({ currentUser, sysConfig }) {
             await uploadBytes(storageRef, imageFile);
             const photoURL = await getDownloadURL(storageRef);
 
-            await addDoc(collection(db, "registros_combustible"), {
-                ...form,
-                usuario: currentUser.email,
-                foto: photoURL,
-                createdAt: new Date().toISOString()
-            });
+    await addDoc(collection(db, "registros_combustible"), {
+    ...form,
+    // 🟢 LA CORRECCIÓN: Usamos ":" para asignar el valor, no ","
+    fecha: form.fecha.includes('T') ? form.fecha : `${form.fecha}T12:00:00`,
+    usuario: currentUser.email,
+    foto: photoURL,
+    createdAt: new Date().toISOString()
+    });
 
             alert("¡Registro enviado con éxito!");
             setForm({ fecha: new Date().toISOString().split('T')[0], galones: '', costo: '', kilometraje: '' });
