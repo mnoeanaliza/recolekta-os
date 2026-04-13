@@ -706,20 +706,34 @@ const handleSyncToCloud = async () => {
             }; 
             fetchHistory();
         }
-   } else if (appMode === 'user' && currentUser?.email) {
+ } else if (appMode === 'user' && currentUser?.email) {
         const today = new Date(); 
         const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
         
-        // 🟢 CINTURÓN DE TITANIO 1: Este transportista + SOLO ESTE MES
-        unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector), where("createdAt", ">=", startOfMonthISO)), (snap) => {
-            setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
-        });
+        // 🟢 CINTURÓN DE TITANIO 1 (Con Alerta Anti-Bloqueos)
+        unsubOps = onSnapshot(
+            query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector), where("createdAt", ">=", startOfMonthISO)), 
+            (snap) => {
+                setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+            },
+            (error) => {
+                // ESTA ALERTA SALVARÁ LA APP: Te dará el link directo si Firebase bloquea la consulta
+                alert("🚨 FIREBASE REQUIERE UN ÍNDICE. Presiona F12, ve a la pestaña 'Console' y haz clic en el enlace azul para destrabar la app.");
+                console.error("🔥 DALE CLIC A ESTE LINK PARA CREAR EL ÍNDICE: ", error.message);
+            }
+        );
         
-        // 🟢 CINTURÓN DE TITANIO 2: Este transportista + SOLO ESTA QUINCENA
+        // 🟢 CINTURÓN DE TITANIO 2 (Horas Extras)
         const inicioCorteUser = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthISO;
-        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email), where("fecha", ">=", inicioCorteUser)), (snap) => {
-            setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || '')));
-        });
+        unsubOt = onSnapshot(
+            query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email), where("fecha", ">=", inicioCorteUser)), 
+            (snap) => {
+                setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || '')));
+            },
+            (error) => {
+                console.error("🔥 LINK PARA ÍNDICE DE HORAS EXTRAS: ", error.message);
+            }
+        );
         
         unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("usuario", "==", currentUser.email)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(10)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
