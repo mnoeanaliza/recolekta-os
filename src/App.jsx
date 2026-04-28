@@ -706,33 +706,31 @@ const handleSyncToCloud = async () => {
             }; 
             fetchHistory();
         }
- } else if (appMode === 'user' && currentUser?.email) {
+} else if (appMode === 'user' && currentUser?.email) {
         const today = new Date(); 
+        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const startOfDayISO = todayStart.toISOString(); // 🟢 EL SEGURO: Solo desde la medianoche de hoy
         const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
         
-        // 🟢 CINTURÓN DE TITANIO 1 (Con Alerta Anti-Bloqueos)
+        // 🟢 CINTURÓN DE DIAMANTE 1: Solo los viajes de HOY (Corta de 1 Millón a casi nada)
         unsubOps = onSnapshot(
-            query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector), where("createdAt", ">=", startOfMonthISO)), 
+            query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector), where("createdAt", ">=", startOfDayISO)), 
             (snap) => {
                 setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
             },
             (error) => {
-                // ESTA ALERTA SALVARÁ LA APP: Te dará el link directo si Firebase bloquea la consulta
-                alert("🚨 FIREBASE REQUIERE UN ÍNDICE. Presiona F12, ve a la pestaña 'Console' y haz clic en el enlace azul para destrabar la app.");
-                console.error("🔥 DALE CLIC A ESTE LINK PARA CREAR EL ÍNDICE: ", error.message);
+                alert("🚨 FIREBASE REQUIERE UN ÍNDICE. Avisar a Administración.");
             }
         );
         
-        // 🟢 CINTURÓN DE TITANIO 2 (Horas Extras)
+        // 🟢 CINTURÓN DE DIAMANTE 2 (Horas Extras)
         const inicioCorteUser = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthISO;
         unsubOt = onSnapshot(
             query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email), where("fecha", ">=", inicioCorteUser)), 
             (snap) => {
                 setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || '')));
             },
-            (error) => {
-                console.error("🔥 LINK PARA ÍNDICE DE HORAS EXTRAS: ", error.message);
-            }
+            (error) => { console.error(error); }
         );
         
         unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("usuario", "==", currentUser.email)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
@@ -818,15 +816,10 @@ const handleSyncToCloud = async () => {
 const gamificationStats = useMemo(() => {
       const currentMonth = new Date().getMonth() + 1; const currentYear = new Date().getFullYear().toString();
       
-      // 🔥 CORRECCIÓN: Ahora el perfil SOLO lee la Base de Datos en Vivo (Firebase) igual que el Admin.
-      // Le quitamos el "...csvData"
-      const allUserOps = liveData.filter(d => { const dateInfo = extractDateInfo(d.createdAt); return dateInfo.month === currentMonth && dateInfo.year === currentYear && d.recolector === form.recolector; });
-      
-      const recs = allUserOps.filter(d => isPrincipalData(d)); 
-      const secundarias = allUserOps.filter(d => !isPrincipalData(d));
-      
-      const miMeta = getMetaEspera(userProfile.zona);
-      const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= miMeta).length / recs.length) * 100).toFixed(1) : 100;
+      // 🔥 MAGIA ANTI-FUGAS: Leemos los datos pre-calculados de la nube en vez de contar miles de viajes a mano.
+      const ef = userProfile.eficienciaNube !== undefined ? userProfile.eficienciaNube : 100;
+      const totalOps = (userProfile.vitalesNube || 0) + (userProfile.secundariasNube || 0);
+      const totalSecundarias = userProfile.secundariasNube || 0;
       
       const userOt = otData.filter(d => { 
           if (sysConfig?.heInicio && sysConfig?.heFin) {
@@ -838,11 +831,11 @@ const gamificationStats = useMemo(() => {
       
       return { 
           eficiencia: parseFloat(ef), 
-          totalOps: allUserOps.length, 
+          totalOps: totalOps, 
           totalOT: totalOT.toFixed(1),
-          totalSecundarias: secundarias.length 
+          totalSecundarias: totalSecundarias 
       };
-  }, [liveData, otData, form.recolector, userProfile.zona, sysConfig]);
+  }, [userProfile, otData, form.recolector, sysConfig]);
 const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
  const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
