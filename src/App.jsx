@@ -42,7 +42,9 @@ export const USUARIOS_EMAIL = {
   "david@recolekta.com": "DAVID ALVARADO", "carlos@recolekta.com": "CARLOS SOSA", "felix@recolekta.com": "FELIX VASQUEZ",
   "flor@recolekta.com": "FLOR CARDOZA", "hildebrando@recolekta.com": "HILDEBRANDO MENJIVAR", "test@admin.com": "USUARIO PRUEBA",
   "chofer@recolekta.com": "TRANSPORTISTA PRUEBA", "admin@recolekta.com": "ADMINISTRADOR", "supervision@recolekta.com": "SUPERVISOR",
-  "supervisor@recolekta.com": "SUPERVISOR", "nuevo_admin@recolekta.com": "NUEVO ADMIN", "ing.admin@recolekta.com": "INGENIERÍA ADMIN"
+  "supervisor@recolekta.com": "SUPERVISOR", "nuevo_admin@recolekta.com": "NUEVO ADMIN", "ing.admin@recolekta.com": "INGENIERÍA ADMIN", 
+  "MAURICIO ALFARO":"mauricio.alfaro@recolekta.com","RIGOBERTO CRUZ":"jose.rigoberto@recolekta.com", "ERNESTO RECINOS":"ernesto.recinos@recolekta.com",
+  "MAURICIO TINO":"jose.recinos@recolekta.com","JOSUE HERNANDEZ":"josue.hernandez@recolekta.com", "MARIO COTO": "mario.coto@recolekta"
 };
 
 // 🌍 CATÁLOGOS BASE INTERNACIONALES (Diccionarios por País) 🌍
