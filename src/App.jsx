@@ -656,39 +656,30 @@ const handleSyncToCloud = async () => {
         setResumenesMensualesNube(res);
     });
 
-    if (appMode === 'admin' || appMode === 'supervisor') {
-        unsubAllProfiles = onSnapshot(collection(db, "usuarios_perfiles"), (snap) => { const profilesMap = {}; snap.docs.forEach(doc => { profilesMap[doc.id] = doc.data(); }); setPerfilesUsuarios(profilesMap); });
-
- const currentMonthNum = new Date().getMonth() + 1;
+   if (appMode === 'admin') {
+        const currentMonthNum = new Date().getMonth() + 1;
         const currentYearStr = new Date().getFullYear().toString();
-        
         const isHistorical = filterYear !== currentYearStr || (filterMonth !== 'all' && parseInt(filterMonth) !== currentMonthNum);
 
         if (!isHistorical) {
-            // MODO EN VIVO (Mes actual)
+            // 🟢 MODO ADMIN: SIN LÍMITE. Descargas todo el mes para que tus PDF y finanzas sean 100% exactos.
             const today = new Date(); 
             const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString(); 
             const startOfMonthStr = startOfMonthISO.substring(0, 10);
             
-            // 🟢 CINTURÓN ADMIN 1: Límite de seguridad para que nunca descargue miles de golpe
-            unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfMonthISO), orderBy("createdAt", "desc"), limit(800)), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+            unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfMonthISO), orderBy("createdAt", "desc")), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
             unsubFuel = onSnapshot(query(collection(db, "registros_combustible"), where("fecha", ">=", startOfMonthStr)), (snap) => setFuelData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
             unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startOfMonthStr)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
             unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(20)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
             const inicioCorteAdmin = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthStr;
             unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("fecha", ">=", inicioCorteAdmin)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
         } else {
-            // MODO HISTÓRICO AUTOMÁTICO (Tu jefe seleccionó un mes pasado o el Año)
+            // HISTÓRICO ADMIN (Límite alto para que no se corten los reportes viejos)
             const fetchHistory = async () => {
                 setIsFetchingHistory(true);
                 try {
                     if (filterMonth === 'all') { 
-                        // 🟢 CINTURÓN ADMIN 2: Si es "AÑO", vaciamos la memoria local.
-                        // La gráfica de BI usará automáticamente los resúmenes gratuitos de la nube.
-                        setLiveData([]);
-                        setFuelData([]);
-                        setMaintData([]);
-                        setOtData([]);
+                        setLiveData([]); setFuelData([]); setMaintData([]); setOtData([]);
                     } else { 
                         const m = String(filterMonth).padStart(2, '0'); 
                         const sStr = `${filterYear}-${m}-01`; 
@@ -696,43 +687,46 @@ const handleSyncToCloud = async () => {
                         const nextY = filterMonth == 12 ? parseInt(filterYear) + 1 : filterYear; 
                         const eStr = `${nextY}-${String(nextM).padStart(2, '0')}-01`; 
                         
-                        const snapOps = await getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", sStr), where("createdAt", "<", eStr), limit(800))); setLiveData(snapOps.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapOps = await getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", sStr), where("createdAt", "<", eStr), limit(5000))); setLiveData(snapOps.docs.map(d => ({ id: d.id, ...d.data() })));
                         const sStrShort = sStr.substring(0, 10); const eStrShort = eStr.substring(0, 10);
-                        const snapFuel = await getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(800))); setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
-                        const snapMaint = await getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(800))); setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
-                        const snapOt = await getDocs(query(collection(db, "registros_horas_extras"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(800))); setOtData(snapOt.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapFuel = await getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(1000))); setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapMaint = await getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(1000))); setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapOt = await getDocs(query(collection(db, "registros_horas_extras"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(1000))); setOtData(snapOt.docs.map(d => ({ id: d.id, ...d.data() })));
                     }
                 } catch (error) { console.error(error); } finally { setIsFetchingHistory(false); }
             }; 
             fetchHistory();
         }
-} else if (appMode === 'user' && currentUser?.email) {
+   } else if (appMode === 'supervisor') {
+        // 🟢 SUPERVISOR: ¡Tu brillante idea aplicada! Solo vigila HOY. Ahorro masivo.
         const today = new Date(); 
-        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const startOfDayISO = todayStart.toISOString(); // 🟢 EL SEGURO: Solo desde la medianoche de hoy
+        const startOfDayISO = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString(); 
+        const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
+        const startOfMonthStr = startOfMonthISO.substring(0, 10);
+        
+        unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfDayISO), orderBy("createdAt", "desc")), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+        unsubFuel = onSnapshot(query(collection(db, "registros_combustible"), where("fecha", ">=", startOfMonthStr)), (snap) => setFuelData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
+        unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startOfMonthStr)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
+        unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(20)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+        const inicioCorteAdmin = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthStr;
+        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("fecha", ">=", inicioCorteAdmin)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
+
+   } else if (appMode === 'user' && currentUser?.email) {
+        // 🟢 TRANSPORTISTA: Cinturón de Diamante. Solo lee los viajes que haga HOY.
+        const today = new Date(); 
+        const startOfDayISO = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
         const startOfMonthISO = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
         
-        // 🟢 CINTURÓN DE DIAMANTE 1: Solo los viajes de HOY (Corta de 1 Millón a casi nada)
         unsubOps = onSnapshot(
             query(collection(db, "registros_produccion"), where("recolector", "==", form.recolector), where("createdAt", ">=", startOfDayISO)), 
             (snap) => {
                 setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
             },
-            (error) => {
-                alert("🚨 FIREBASE REQUIERE UN ÍNDICE. Avisar a Administración.");
-            }
+            (error) => { console.error("Requiere Índice", error); }
         );
         
-        // 🟢 CINTURÓN DE DIAMANTE 2 (Horas Extras)
         const inicioCorteUser = sysConfig?.heInicio ? sysConfig.heInicio : startOfMonthISO;
-        unsubOt = onSnapshot(
-            query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email), where("fecha", ">=", inicioCorteUser)), 
-            (snap) => {
-                setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || '')));
-            },
-            (error) => { console.error(error); }
-        );
-        
+        unsubOt = onSnapshot(query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email), where("fecha", ">=", inicioCorteUser)), (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''))));
         unsubMaint = onSnapshot(query(collection(db, "registros_mantenimiento"), where("usuario", "==", currentUser.email)), (snap) => setMaintData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         unsubAlertas = onSnapshot(query(collection(db, "alertas_flota"), orderBy("createdAt", "desc"), limit(10)), (snap) => setAlertasData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     }
@@ -814,13 +808,13 @@ const handleSyncToCloud = async () => {
   const handleAssignCategory = async (email, newCategory) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { categoria: newCategory }, { merge: true }); } catch (e) {} };
   const handleAssignZone = async (email, newZone) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { zona: newZone }, { merge: true }); } catch (e) {} };
 const gamificationStats = useMemo(() => {
-      const currentMonth = new Date().getMonth() + 1; const currentYear = new Date().getFullYear().toString();
-      
-      // 🔥 MAGIA ANTI-FUGAS: Leemos los datos pre-calculados de la nube en vez de contar miles de viajes a mano.
+      // 🔥 MAGIA DE LA NUBE: El perfil móvil ya no necesita descargar miles de viajes.
+      // Solo lee los totales exactos calculados por la Administradora.
       const ef = userProfile.eficienciaNube !== undefined ? userProfile.eficienciaNube : 100;
       const totalOps = (userProfile.vitalesNube || 0) + (userProfile.secundariasNube || 0);
       const totalSecundarias = userProfile.secundariasNube || 0;
       
+      const currentMonth = new Date().getMonth() + 1; const currentYear = new Date().getFullYear().toString();
       const userOt = otData.filter(d => { 
           if (sysConfig?.heInicio && sysConfig?.heFin) {
               return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin && (USUARIOS_EMAIL[d.usuario] || d.usuario) === form.recolector;
