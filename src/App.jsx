@@ -44,7 +44,7 @@ export const USUARIOS_EMAIL = {
   "chofer@recolekta.com": "TRANSPORTISTA PRUEBA", "admin@recolekta.com": "ADMINISTRADOR", "supervision@recolekta.com": "SUPERVISOR",
   "supervisor@recolekta.com": "SUPERVISOR", "nuevo_admin@recolekta.com": "NUEVO ADMIN", "ing.admin@recolekta.com": "INGENIERÍA ADMIN", 
   "mauricio.alfaro@recolekta.com":"MAURICIO ALFARO","jose.rigoberto@recolekta.com":"RIGOBERTO CRUZ", "ernesto.recinos@recolekta.com":"ERNESTO RECINOS",
-  "jose.recinos@recolekta.com":"JOSE RECINOS", "tino@recolekta.com":"MAURICIO TINO","josue.hernandez@recolekta.com":"JOSUE HERNANDEZ","mario.coto@recolekta":"MARIO COTO"
+  "jose.recinos@recolekta.com":"MAURICIO TINO","josue.hernandez@recolekta.com":"JOSUE HERNANDEZ","mario.coto@recolekta":"MARIO COTO"
 };
 
 // 🌍 CATÁLOGOS BASE INTERNACIONALES (Diccionarios por País) 🌍
@@ -656,6 +656,11 @@ const handleSyncToCloud = async () => {
     unsubSummaries = onSnapshot(collection(db, "resumenes_operativos"), (snap) => {
         let res = {}; snap.forEach(doc => { res[doc.id] = doc.data(); });
         setResumenesMensualesNube(res);
+    });
+    unsubAllProfiles = onSnapshot(collection(db, "usuarios_perfiles"), (snap) => { 
+        let perfiles = {}; 
+        snap.forEach(doc => { perfiles[doc.id] = doc.data(); }); 
+        setPerfilesUsuarios(perfiles); 
     });
 
    if (appMode === 'admin') {
