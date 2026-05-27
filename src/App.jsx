@@ -7,7 +7,7 @@ import FuelModule from './components/FuelModule';
 import ScheduleModule from './components/ScheduleModule';
 import MaintenanceModule from './components/MaintenanceModule';
 import OvertimeModule from './components/OvertimeModule';
-
+//import { USUARIOS_EMAIL } from '../App.jsx';
 import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion, setDoc } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -43,7 +43,7 @@ export const USUARIOS_EMAIL = {
   "flor@recolekta.com": "FLOR CARDOZA", "hildebrando@recolekta.com": "HILDEBRANDO MENJIVAR", "test@admin.com": "USUARIO PRUEBA",
   "chofer@recolekta.com": "TRANSPORTISTA PRUEBA", "admin@recolekta.com": "ADMINISTRADOR", "supervision@recolekta.com": "SUPERVISOR",
   "supervisor@recolekta.com": "SUPERVISOR", "nuevo_admin@recolekta.com": "NUEVO ADMIN", "ing.admin@recolekta.com": "INGENIERÍA ADMIN", 
-  "mauricio.alfaro@recolekta.com":"MAURICIO ALFARO","jose.rigoberto@recolekta.com":"RIGOBERTO CRUZ", "ernesto.recinos@recolekta.com":"ERNESTO RECINOS","rodrigo@recolekta.com": "RODRIGO PEREZ",
+  "mauricio.alfaro@recolekta.com":"MAURICIO ALFARO","jose.rigoberto@recolekta.com":"RIGOBERTO CRUZ", "ernesto.recinos@recolekta.com":"ERNESTO RECINOS",
   "jose.recinos@recolekta.com":"JOSE RECINOS","tino@recolekta.com":"MAURICIO TINO","josue.hernandez@recolekta.com":"JOSUE HERNANDEZ","mario.coto@recolekta":"MARIO COTO"
 };
 
@@ -56,7 +56,7 @@ const DEFAULT_CATALOGS = {
       "Honduras": ["Honduras - Tegucigalpa"],
       "Costa Rica": ["Costa Rica - San José"]
   },
-  transportistas: { "El Salvador": ["MAURICIO ALFARO","RIGOBERTO CRUZ","ERNESTO RECINOS", "RODRIGO PEREZ","JOSE RECINOS","MAURICIO TINO","JOSUE HERNANDEZ","MARIO COTO", "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "TRANSPORTISTA PRUEBA" ] },
+  transportistas: { "El Salvador": [ "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "TRANSPORTISTA PRUEBA" ] },
   sucursales: { "El Salvador": [ "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares" ] },
   areas: { "El Salvador": ["LABORATORIO / PROCESAMIENTO", "TUVET", "Imágenes Escalón", "Centro de Distribución", "LAB. Externo", "Contabilidad", "RRHH", "Contac Center", "Empresas", "Fisioterapia", "Cuentas por cobrar", "Mercadeo", "Fidelizacion", "IT", "LOGÍSTICA / RUTA"] },
   diligencias: { "El Salvador": ["Recolección de muestras", "Entrega de Muestras", "Traslado de toallas", "Traslado de reactivo", "Traslado de insumos", "Traslado de cortes", "Traslado de documentos", "Pago de aseguradora", "Pago o tramite bancario", "Tramite o diligencia extraordinaria", "INCIDENCIA EN RUTA"] }
@@ -133,7 +133,14 @@ function SmallGauge({ value, size = 60 }) {
 // =========================================================================
 // 🧩 COMPONENTE DE AGENDA
 // =========================================================================
-function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContext = "El Salvador", readOnly = false }) {
+function AgendaAdmin({ 
+    sucursalesObj = {}, 
+    transportistasObj = {}, 
+    countryContext = "El Salvador", 
+    readOnly = false,
+    filterZona = 'all',
+    perfilesUsuarios = {}
+}) {
     const [agendaData, setAgendaData] = useState([]);
     const [selectedUsers, setSelectedUsers] = useState([]);
     const [form, setForm] = useState({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
@@ -144,9 +151,42 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
     const [calMonth, setCalMonth] = useState(new Date().getMonth());
     const [calYear, setCalYear] = useState(new Date().getFullYear());
     const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-
     const transportistas = transportistasObj[countryContext] || [];
     const sucursales = sucursalesObj[countryContext] || [];
+
+    const transportistasFiltrados = useMemo(() => {
+
+    // Si no hay filtro, devolver todos
+    if (!filterZona || filterZona === 'all') {
+        return transportistas;
+    }
+
+    return transportistas.filter((nombreTransportista) => {
+
+        // Buscar email según nombre
+        const emailEncontrado = Object.keys(USUARIOS_EMAIL).find(
+            (email) =>
+                USUARIOS_EMAIL[email]?.trim()?.toLowerCase() ===
+                nombreTransportista?.trim()?.toLowerCase()
+        );
+
+        // Si no existe email asociado → excluir
+        if (!emailEncontrado) return false;
+
+        // Buscar perfil del usuario
+        const perfilUsuario = perfilesUsuarios[emailEncontrado];
+
+        // Si no existe perfil → excluir
+        if (!perfilUsuario) return false;
+
+        // Comparar zona
+        return (
+            perfilUsuario.zona?.trim()?.toLowerCase() ===
+            filterZona?.trim()?.toLowerCase()
+        );
+    });
+
+}, [transportistas, perfilesUsuarios, filterZona]);
 
     useEffect(() => {
         const unsub = onSnapshot(collection(db, "agenda_flota"), (snap) => {
@@ -160,9 +200,7 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
         if (val === 'TODOS') setSelectedUsers(transportistas);
         else if (val && !selectedUsers.includes(val)) setSelectedUsers([...selectedUsers, val]);
     };
-
     const removeUser = (user) => setSelectedUsers(selectedUsers.filter(u => u !== user));
-
     const handleSave = async (e) => {
         e.preventDefault();
         if (selectedUsers.length === 0) return alert("Selecciona al menos un transportista para asignar.");
@@ -174,7 +212,6 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                     if (form.horario) updateData.horario = form.horario;
                     if (form.zona) updateData.zona = form.zona;
                     if (form.mantenimiento) updateData.mantenimiento = form.mantenimiento;
-
                     if (form.puntos) {
                         if (form.puntos.toUpperCase() === 'NINGUNO') updateData.puntos = '';
                         else if (appendMode && currentUserData.puntos && currentUserData.puntos !== 'Ninguno') {
@@ -183,7 +220,6 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                             updateData.puntos = [...new Set([...existing, ...incoming])].join(' / ');
                         } else updateData.puntos = form.puntos;
                     }
-
                     if (form.turnos) {
                         if (form.turnos.toUpperCase() === 'NINGUNO') updateData.turnos = 'Ninguno';
                         else if (appendMode && currentUserData.turnos && currentUserData.turnos !== 'Ninguno') {
@@ -205,10 +241,8 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
             setSelectedUsers([]);
         } catch (error) { alert("Error al guardar en la base de datos."); }
     };
-
     const handleDelete = async (id) => { if(window.confirm(`¿Eliminar completamente la agenda de ${id}?`)) await deleteDoc(doc(db, "agenda_flota", id)); };
     const handleEdit = (item) => { setSelectedUsers([item.id]); setForm({ horario: item.horario || '', zona: item.zona || '', puntos: item.puntos || '', turnos: item.turnos || '', mantenimiento: item.mantenimiento || '' }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-
     const addTurnoDate = () => {
         if (!tempDate) return;
         const [y, m, d] = tempDate.split('-');
@@ -217,40 +251,32 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
         if (!currentTurnos.includes(formattedDate)) { currentTurnos.push(formattedDate); setForm({ ...form, turnos: currentTurnos.join(' - ') }); }
         setTempDate('');
     };
-
     const addPunto = () => {
         if (!tempPunto) return;
         let currentPuntos = form.puntos && form.puntos !== 'Ninguno' ? form.puntos.split(' / ').map(p => p.trim()).filter(p => p) : [];
         if (!currentPuntos.includes(tempPunto)) { currentPuntos.push(tempPunto); setForm({ ...form, puntos: currentPuntos.join(' / ') }); }
         setTempPunto('');
     };
-
     const prevMonth = () => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else { setCalMonth(calMonth - 1); } };
     const nextMonth = () => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else { setCalMonth(calMonth + 1); } };
-
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
     const firstDay = new Date(calYear, calMonth, 1).getDay(); 
     const blanks = Array.from({ length: firstDay }, (_, i) => i);
     const calendarDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
     const normalizeDateStr = (str) => { const parts = str.split('/'); if (parts.length === 3) return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`; return str; };
-
     const getTurnosForDay = (day) => {
         const targetDate = `${String(day).padStart(2, '0')}/${String(calMonth + 1).padStart(2, '0')}/${calYear}`; 
         let scheduled = [];
-        agendaData.forEach(user => { if (transportistas.includes(user.id) && user.turnos && user.turnos !== 'Ninguno') { const dates = user.turnos.split('-').map(t => normalizeDateStr(t.trim())); if (dates.includes(targetDate)) scheduled.push(user.id.split(' ')[0]); } });
+        agendaData.forEach(user => { if (transportistasFiltrados.includes(user.id) && user.turnos && user.turnos !== 'Ninguno') { const dates = user.turnos.split('-').map(t => normalizeDateStr(t.trim())); if (dates.includes(targetDate)) scheduled.push(user.id.split(' ')[0]); } });
         return scheduled;
     };
-
     const getMaintForDay = (day) => {
         const targetDate = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`; 
         let scheduled = [];
-        agendaData.forEach(user => { if (transportistas.includes(user.id) && user.mantenimiento === targetDate) scheduled.push(user.id.split(' ')[0]); });
+        agendaData.forEach(user => { if (transportistasFiltrados.includes(user.id) && user.mantenimiento === targetDate) scheduled.push(user.id.split(' ')[0]); });
         return scheduled;
     };
-
     const handlePrint = () => { window.print(); };
-
     return (
         <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
             {/* 1. OCULTAMOS EL FORMULARIO SI ES SOLO LECTURA (SUPERVISOR) */}
@@ -263,7 +289,7 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                             <select onChange={handleAddUser} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer mb-3" value="">
                                 <option value="">-- SELECCIONAR PARA AGREGAR AL GRUPO --</option>
                                 <option value="TODOS" className="font-black text-blue-400">AGREGAR A TODOS ({countryContext})</option>
-                                {transportistas.map(t => <option key={t} value={t}>{t}</option>)}
+                                {transportistasFiltrados.map(t => (<option key={t} value={t}>{t}</option>))}
                             </select>
                             <div className="flex flex-wrap gap-2">
                                 {selectedUsers.length === 0 ? (<p className="text-xs text-slate-600 italic">No has seleccionado a nadie.</p>) : (selectedUsers.map(u => (<span key={u} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 shadow-md">{u} <X size={14} className="cursor-pointer hover:text-red-300" onClick={() => removeUser(u)}/></span>)))}
@@ -289,7 +315,6 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                     </form>
                 </div>
             )}
-
             {/* 2. 🔥 OCULTAMOS EL CALENDARIO VISUAL SI ES SOLO LECTURA (SUPERVISOR) 🔥 */}
             {!readOnly && (
                 <div id="printable-calendar" className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-hidden mt-6 mb-6 print-bg-white print-border-gray print-text-black">
@@ -304,7 +329,6 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                             <div className="hidden print:block text-2xl font-black uppercase tracking-widest">{monthNames[calMonth]} {calYear}</div>
                         </div>
                     </div>
-
                     <div className="overflow-x-auto custom-scrollbar pb-2">
                         <div className="min-w-[700px] w-full">
                             <div className="grid grid-cols-7 gap-1 mb-2">{['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map(d => (<div key={d} className="text-center font-black text-[10px] text-slate-500 uppercase py-2 bg-[#0B1120] rounded-t-lg border-b border-slate-700 print-bg-gray print-text-black print-border-gray">{d}</div>))}</div>
@@ -327,7 +351,6 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                     </div>
                 </div>
             )}
-
             {/* TABLA GLOBAL DE HORARIOS (ESTO SÍ LO VERÁ EL SUPERVISOR) */}
             <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-x-auto print-hide">
                 <h3 className="font-bold text-white mb-4">HORARIO GLOBAL DE FLOTA ({countryContext})</h3>
@@ -345,7 +368,7 @@ function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContex
                         </tr>
                     </thead>
                     <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
-                        {agendaData.filter(item => transportistas.includes(item.id)).map((item) => (
+                       {agendaData.filter(item => transportistasFiltrados.includes(item.id)).map((item) => (
                             <tr key={item.id} className="hover:bg-slate-800/50">
                                 <td className="px-4 py-3 text-white">{item.id}</td>
                                 <td className="px-4 py-3 text-blue-400">{item.horario || '--'}</td>
@@ -377,6 +400,7 @@ export default function App() {
   if (!currentUser) return <LoginModule />;
   
   return (
+   
     <>
       <style>{`
         @media print {
@@ -385,6 +409,7 @@ export default function App() {
       `}</style>
       <Dashboard />
     </>
+    
   );
 }
 
@@ -449,7 +474,16 @@ const handleSyncToCloud = async () => {
 
               count++;
           }
-          
+          // 🟢 DICCIONARIO DINÁMICO HÍBRIDO: Combina GitHub con Firestore en tiempo real
+  const listaUsuariosGlobal = useMemo(() => {
+      const mapeo = { ...USUARIOS_EMAIL };
+      Object.entries(perfilesUsuarios).forEach(([email, data]) => {
+          if (data.nombre) {
+              mapeo[email.toLowerCase().trim()] = data.nombre.toUpperCase().trim();
+          }
+      });
+      return mapeo;
+  }, [perfilesUsuarios]);
           alert(`¡Sincronización Perfecta! ✅ Se actualizaron los velocímetros de ${count} transportistas al instante.`);
       } catch(e) { 
           console.error(e);
@@ -470,17 +504,14 @@ const handleSyncToCloud = async () => {
   const [catalogCountry, setCatalogCountry] = useState("El Salvador");
   const [newCatalogItems, setNewCatalogItems] = useState({ transportistas: '', sucursales: '', areas: '', diligencias: '', zonas: '' });
   const [sysConfig, setSysConfig] = useState({ heInicio: '', heFin: '', flotaInicio: '', flotaFin: '' });
-
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterUser, setFilterUser] = useState('all');
   const [filterSpecificDate, setFilterSpecificDate] = useState(''); 
   const [filterSucursal, setFilterSucursal] = useState('all'); 
-  const [filterZona, setFilterZona] = useState('all'); 
+  const [filterZona, setFilterZona] = useState('El Salvador - Metropolitana Centro');
   const [filterUserTableZone, setFilterUserTableZone] = useState('all'); 
-
   const availableYears = useMemo(() => { const current = new Date().getFullYear(); const years = []; for(let y = 2025; y <= current + 1; y++) { years.push(y.toString()); } return years; }, []);
-
   const [viewingPhoto, setViewingPhoto] = useState(null);
   const [editingItem, setEditingItem] = useState(null); 
   const [editFormData, setEditFormData] = useState({}); 
@@ -1133,8 +1164,19 @@ const adminDashboardMetrics = useMemo(() => {
         const currentSection = appMode === 'supervisor' ? supervisorSection : adminSection;
         if (currentSection === 'agenda') {
             if (agendaData.length === 0) return alert("No hay horarios registrados.");
-            drawHeader("AGENDA GLOBAL DE FLOTA", `Generado: ${dateStr}`);
-            const rows = agendaData.map(a => [a.id, a.horario || '--', a.zona || '--', a.puntos || '--', formatTurnosVisually(a.turnos) || 'Ninguno', formatWithDay(formatLocalDate(a.mantenimiento))]);
+            
+            // 🟢 FILTRAMOS LA AGENDA POR ZONA ANTES DE EXPORTAR
+            let agendaToExport = agendaData;
+            if (filterZona !== 'all') {
+                agendaToExport = agendaToExport.filter(a => isUserInFilterZone(a.id, filterZona));
+            }
+            if (agendaToExport.length === 0) return alert("No hay horarios registrados para esta zona.");
+
+            let titleParts = []; if (filterZona !== 'all') titleParts.push(`ZONA: ${filterZona}`);
+            const reportTitle = titleParts.length > 0 ? `AGENDA DE FLOTA | ${titleParts[0]}` : "AGENDA GLOBAL DE FLOTA";
+            
+            drawHeader(reportTitle, `Generado: ${dateStr}`);
+            const rows = agendaToExport.map(a => [a.id, a.horario || '--', a.zona || '--', a.puntos || '--', formatTurnosVisually(a.turnos) || 'Ninguno', formatWithDay(formatLocalDate(a.mantenimiento))]);
             autoTable(doc, { startY: 65, head: [['Transportista', 'Horario Base', 'Zona/Ruta', 'Puntos/Sucursales', 'Turnos Extra', 'Prox. Mantenimiento']], body: rows, headStyles: { fillColor: slate900 }, theme: 'grid', styles: { fontSize: 8 } });
             doc.save("Recolekta_Agenda_Horarios.pdf"); return;
         }
@@ -1251,7 +1293,7 @@ const adminDashboardMetrics = useMemo(() => {
                         <div>
                             <h3 className="text-xl font-black text-white uppercase leading-tight">{selectedAdminProfile.name}</h3>
                             <p className="text-[10px] text-slate-400 font-mono mb-2">{selectedAdminProfile.email || 'Sin correo vinculado'}</p>
-                            <div className="flex gap-2">
+                           <div className="flex flex-wrap gap-2 items-center mt-1">
                                 {/* SOLUCIÓN ASIMETRÍA: inline-flex, items-center y leading-none aplicados */}
                                 <span className={cn("inline-flex items-center justify-center text-[9px] font-black px-2.5 py-1.5 rounded-full uppercase tracking-widest leading-none", selectedAdminProfile.categoria === 'Coordinador' ? "bg-yellow-900/50 text-yellow-400 border border-yellow-500" : selectedAdminProfile.categoria === 'Técnico' ? "bg-slate-700 text-slate-300 border border-slate-400" : "bg-orange-900/50 text-orange-400 border border-orange-500")}>
                                     {selectedAdminProfile.categoria}
@@ -1259,6 +1301,22 @@ const adminDashboardMetrics = useMemo(() => {
                                 <span className="bg-indigo-900/50 text-indigo-400 border border-indigo-500 text-[9px] font-black px-2.5 py-1.5 rounded-full uppercase tracking-widest inline-flex items-center justify-center gap-1 leading-none">
                                     <Globe size={10}/> {selectedAdminProfile.zona}
                                 </span>
+                                
+                                {/* 🔥 BOTÓN OVERRIDE DEL ADMIN */}
+                                {selectedAdminProfile.estatus !== 'Inactivo' && (
+                                    <button 
+                                        onClick={async () => {
+                                            try {
+                                                await setDoc(doc(db, "usuarios_perfiles", selectedAdminProfile.email), { estatus: 'Inactivo' }, { merge: true });
+                                                setSelectedAdminProfile(prev => ({...prev, estatus: 'Inactivo'}));
+                                            } catch(e){}
+                                        }} 
+                                        className="bg-red-900/40 text-red-400 border border-red-500 text-[9px] font-black px-2.5 py-1.5 rounded-full uppercase tracking-widest hover:bg-red-600 hover:text-white transition-colors cursor-pointer"
+                                        title="Apagar app del transportista"
+                                    >
+                                        FORZAR DESCONEXIÓN
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1586,6 +1644,93 @@ const adminDashboardMetrics = useMemo(() => {
              </div>
              {adminSection === 'catalogos' && (
                 <div className="animate-in fade-in space-y-8">
+                    {/* 🟢 FORMULARIO ALTA DE NUEVOS TRANSPORTISTAS */}
+                   <div className="bg-[#0B1120] p-6 rounded-2xl border border-slate-700 mt-6 shadow-inner">
+                       <h4 className="text-xs font-black text-blue-400 uppercase tracking-widest mb-4">➕ Registrar Nuevo Transportista en el Sistema</h4>
+                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                           <div>
+                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Nombre Completo</label>
+                               <input type="text" id="new_user_name" placeholder="EJ. JUAN PÉREZ" className="w-full p-2.5 bg-[#151F32] border border-slate-700 rounded-lg text-xs font-bold text-white uppercase"/>
+                           </div>
+                           <div>
+                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Correo Electrónico</label>
+                               <input type="email" id="new_user_email" placeholder="juan@recolekta.com" className="w-full p-2.5 bg-[#151F32] border border-slate-700 rounded-lg text-xs font-bold text-white"/>
+                           </div>
+                           <div>
+                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Contraseña Inicial</label>
+                               <input type="text" id="new_user_password" placeholder="Mínimo 6 letras" className="w-full p-2.5 bg-[#151F32] border border-slate-700 rounded-lg text-xs font-bold text-white"/>
+                           </div>
+                           <div>
+                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Zona Operativa</label>
+                               <select id="new_user_zone" className="w-full p-2.5 bg-[#151F32] border border-slate-700 rounded-lg text-xs font-bold text-indigo-300">
+                                   {Object.values(catalogs.zonas || {}).flat().map(z => <option key={z} value={z}>{z}</option>)}
+                               </select>
+                           </div>
+                           <button 
+                               type="button"
+                               onClick={async () => {
+                                   const nameInput = document.getElementById('new_user_name');
+                                   const emailInput = document.getElementById('new_user_email');
+                                   const passInput = document.getElementById('new_user_password');
+                                   const zoneInput = document.getElementById('new_user_zone');
+
+                                   const name = nameInput.value.trim().toUpperCase();
+                                   const email = emailInput.value.trim().toLowerCase();
+                                   const password = passInput.value.trim();
+                                   const zone = zoneInput.value;
+
+                                   if(!name || !email || !password) return alert("Por favor completa los campos obligatorios.");
+                                   if(password.length < 6) return alert("La contraseña debe tener al menos 6 caracteres.");
+
+                                   try {
+                                       // A) Actualizar el catálogo maestro de transportistas en Firestore
+                                       let nuevosTransportistas = { ...catalogs.transportistas };
+                                       const listaActual = nuevosTransportistas[catalogCountry] || [];
+                                       if(listaActual.includes(name)) return alert("Este nombre ya existe en los catálogos.");
+                                       
+                                       nuevosTransportistas[catalogCountry] = [...listaActual, name].sort();
+                                       await setDoc(doc(db, "configuraciones", "catalogos"), { transportistas: nuevosTransportistas }, { merge: true });
+
+                                       // B) Crear el documento de perfil vinculado
+                                       await setDoc(doc(db, "usuarios_perfiles", email), {
+                                           nombre: name,
+                                           zona: zone,
+                                           categoria: 'Operador',
+                                           estatus: 'Inactivo',
+                                           createdAt: new Date().toISOString()
+                                       });
+
+                                       // C) El truco de la App Secundaria para Firebase Auth sin desloguear al Admin
+                                       // 🟢 CORRECCIÓN: Importamos deleteApp de firebase/app
+                                       const { initializeApp, deleteApp } = await import('firebase/app');
+                                       const { getAuth, createUserWithEmailAndPassword, signOut: secondarySignOut } = await import('firebase/auth');
+                                       
+                                       // Accedemos a la configuración interna del SDK ya inicializado
+                                       const fbConfig = db.app.options; 
+                                       const appSecundaria = initializeApp(fbConfig, "AppTemporalCreacion");
+                                       const authSecundario = getAuth(appSecundaria);
+                                       
+                                       await createUserWithEmailAndPassword(authSecundario, email, password);
+                                       await secondarySignOut(authSecundario);
+                                       
+                                       // 🟢 CORRECCIÓN: Usamos el método modular correcto
+                                       await deleteApp(appSecundaria);
+
+                                       alert(`¡Transportista ${name} creado con éxito en Autenticación, Catálogos y Perfiles! 🚀`);
+                                       
+                                       // Limpieza de inputs
+                                       nameInput.value = ''; emailInput.value = ''; passInput.value = '';
+                                   } catch(err) {
+                                       console.error(err);
+                                       alert("Error durante la creación: " + err.message);
+                                   }
+                               }}
+                               className="w-full bg-green-600 hover:bg-green-500 text-white py-2.5 rounded-lg text-xs font-black uppercase shadow-md transition-all"
+                           >
+                               Crear Usuario
+                           </button>
+                       </div>
+                   </div>
                    {/* 1. GESTIÓN DE USUARIOS */}
                    <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden">
                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 to-violet-500"></div>
@@ -1607,7 +1752,8 @@ const adminDashboardMetrics = useMemo(() => {
                                      .filter(name => !['ADMINISTRADOR', 'SUPERVISOR', 'NUEVO ADMIN', 'USUARIO PRUEBA'].includes(name))
                                      .filter(name => filterUserTableZone === 'all' || getUserZone(name) === filterUserTableZone)
                                      .map(name => {
-                                       const email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === name);
+                                       // 🟢 CORRECCIÓN: Busca el correo primero en los perfiles de Firebase en vivo, y si no, usa el respaldo estático.
+                                       const email = Object.keys(perfilesUsuarios).find(key => perfilesUsuarios[key]?.nombre === name) || Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === name);//const email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === name);
                                        const profile = perfilesUsuarios[email] || {}; 
                                        return (
                                            <tr key={name} className="hover:bg-slate-800/30">
@@ -1674,7 +1820,22 @@ const adminDashboardMetrics = useMemo(() => {
              {adminSection === 'ops' && (
                 <div className="animate-in fade-in print-hide">
                    <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden mb-6">
-                       <h3 className="text-xl font-black text-white flex items-center gap-3 mb-6"><PieChartIcon className="text-green-500"/> Estado Visual de Eficiencia Individual</h3>
+                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                   <h3 className="text-xl font-black text-white flex items-center gap-3"><PieChartIcon className="text-green-500"/> Estado Visual de Eficiencia Individual</h3>
+                    <button 
+                    onClick={() => {
+                    if(!window.confirm("⚠️ ¿Estás segura de apagar la flota? Esto cambiará el estatus de todos a 'INACTIVO'. Úsalo solo al cierre de operaciones.")) return;
+                    adminDashboardMetrics.transportistasStats.forEach(stat => {
+                    if(stat.email && stat.estatus !== 'Inactivo') {
+                    setDoc(doc(db, "usuarios_perfiles", stat.email), { estatus: 'Inactivo' }, { merge: true });
+                        }
+                        });
+                       alert("Toda la flota ha sido marcada como INACTIVA.");
+                                   }} 
+                     className="bg-red-900/30 text-red-400 border border-red-500 hover:bg-red-600 hover:text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shadow-md flex items-center gap-2">
+                     🛑 Apagar Flota (Fin de Día)
+                     </button>
+                     </div>
                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                            {adminDashboardMetrics.transportistasStats.map(stat => (
                                <div key={stat.name} onClick={() => setSelectedAdminProfile(stat)} className={cn("bg-[#0B1120] p-4 rounded-2xl border flex flex-col items-center justify-between gap-2 text-center cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg", stat.isDanger ? "border-red-500/50 shadow-md shadow-red-900/20" : "border-slate-700 hover:border-slate-500")}>
@@ -1833,7 +1994,7 @@ const adminDashboardMetrics = useMemo(() => {
                                 <table className="w-full text-left relative">
                                     <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] sticky top-0 z-10 shadow-sm"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
                                     <tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">
-                                        {fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
+                                     {fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser)) && isUserInFilterZone(d.usuario, filterZona)).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
                                     </tbody>
                                 </table>
                             </div>
@@ -1846,7 +2007,7 @@ const adminDashboardMetrics = useMemo(() => {
                                 <table className="w-full text-left relative">
                                     <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] sticky top-0 z-10 shadow-sm"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
                                     <tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">
-                                        {maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
+                                    {maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser)) && isUserInFilterZone(d.usuario, filterZona)).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
                                     </tbody>
                                 </table>
                             </div>
@@ -1929,7 +2090,13 @@ const adminDashboardMetrics = useMemo(() => {
                             </button>
                         </div>
                     </div>
-                    <AgendaAdmin sucursalesObj={catalogs.sucursales} transportistasObj={catalogs.transportistas} countryContext={catalogCountry} />
+        <AgendaAdmin
+    sucursalesObj={catalogs.sucursales}
+    transportistasObj={catalogs.transportistas}
+    countryContext={catalogCountry}
+    filterZona={filterZona}
+    perfilesUsuarios={perfilesUsuarios}
+/>
                 </div>
              )}
           </div>
@@ -2050,7 +2217,15 @@ const adminDashboardMetrics = useMemo(() => {
                         </select>
                     </div>
                     {/* 🔥 AQUÍ LE DECIMOS A LA AGENDA QUE EL SUPERVISOR SOLO PUEDE VER 🔥 */}
-                    <AgendaAdmin sucursalesObj={catalogs.sucursales} transportistasObj={catalogs.transportistas} countryContext={catalogCountry} readOnly={true} />
+                   <AgendaAdmin 
+    sucursalesObj={catalogs.sucursales} 
+    transportistasObj={catalogs.transportistas} 
+    countryContext={catalogCountry} 
+    readOnly={appMode === 'supervisor'}
+    perfilesUsuarios={perfilesUsuarios} 
+    catalogs={catalogs}
+    filtroZona={filtroZona} 
+/>
                 </div>
              )}
           </div>
