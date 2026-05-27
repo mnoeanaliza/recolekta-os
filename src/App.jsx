@@ -640,7 +640,7 @@ const handleSyncToCloud = async () => {
       return otData.filter(d => { if (!sysConfig?.heInicio || !sysConfig?.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
   }, [otData, sysConfig]);
 
-  useEffect(() => {
+useEffect(() => {
     if (!currentUser) return;
     if (!currentUser.email) { if (typeof logout === 'function') logout(); return; }
     const email = currentUser.email.toLowerCase().trim();
@@ -648,12 +648,26 @@ const handleSyncToCloud = async () => {
     
     if (adminEmails.includes(email)) setAppMode('admin'); 
     else if (email === 'supervision@recolekta.com' || email === 'supervisor@recolekta.com') setAppMode('supervisor'); 
-    else { setAppMode('user'); const nombreReal = USUARIOS_EMAIL[currentUser.email]; if (nombreReal) setForm(prev => ({ ...prev, recolector: nombreReal })); }
+    else { 
+        setAppMode('user'); 
+        const nombreReal = USUARIOS_EMAIL[email]; 
+        if (nombreReal) setForm(prev => ({ ...prev, recolector: nombreReal })); 
+    }
 
     const savedHiddenAlerts = localStorage.getItem(`recolekta_hidden_alerts_${email}`);
     if (savedHiddenAlerts) { try { setHiddenAlerts(JSON.parse(savedHiddenAlerts)); } catch (e) {} }
 
-    const unsubProfile = onSnapshot(doc(db, "usuarios_perfiles", email), (docSnap) => { if (docSnap.exists()) setUserProfile(prev => ({ ...prev, ...docSnap.data() })); });
+    const unsubProfile = onSnapshot(doc(db, "usuarios_perfiles", email), (docSnap) => { 
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            setUserProfile(prev => ({ ...prev, ...data })); 
+            
+            // 🟢 EL PUENTE DINÁMICO: Si el perfil tiene nombre en Firebase, lo inyecta en el formulario móvil
+            if (data.nombre) {
+                setForm(prev => ({ ...prev, recolector: data.nombre.toUpperCase() }));
+            }
+        } 
+    });
     return () => unsubProfile();
   }, [currentUser]);
 
