@@ -475,15 +475,7 @@ const handleSyncToCloud = async () => {
               count++;
           }
           // 🟢 DICCIONARIO DINÁMICO HÍBRIDO: Combina GitHub con Firestore en tiempo real
-  const listaUsuariosGlobal = useMemo(() => {
-      const mapeo = { ...USUARIOS_EMAIL };
-      Object.entries(perfilesUsuarios).forEach(([email, data]) => {
-          if (data.nombre) {
-              mapeo[email.toLowerCase().trim()] = data.nombre.toUpperCase().trim();
-          }
-      });
-      return mapeo;
-  }, [perfilesUsuarios]);
+  
           alert(`¡Sincronización Perfecta! ✅ Se actualizaron los velocímetros de ${count} transportistas al instante.`);
       } catch(e) { 
           console.error(e);
@@ -785,7 +777,14 @@ useEffect(() => {
     return () => { if(unsubOps) unsubOps(); if(unsubFuel) unsubFuel(); if(unsubMaint) unsubMaint(); if(unsubOt) unsubOt(); if(unsubAlertas) unsubAlertas(); if(unsubAgenda) unsubAgenda(); if(unsubConfig) unsubConfig(); if(unsubCatalogs) unsubCatalogs(); if(unsubAllProfiles) unsubAllProfiles(); if(unsubSummaries) unsubSummaries(); };
   }, [dataSource, filterYear, filterMonth, appMode, currentUser, form.recolector, sysConfig?.heInicio]);
 
-  const getUserZone = (emailOrName) => { let email = emailOrName; if (email && !email.includes('@')) email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === emailOrName); return perfilesUsuarios[email]?.zona || 'Sin Asignar'; };
+  const getUserZone = (emailOrName) => { 
+      let email = emailOrName; 
+      if (email && !email.includes('@')) {
+          // 🟢 CORRECCIÓN: Busca la zona en Firebase en vivo, si no, usa GitHub
+          email = Object.keys(perfilesUsuarios).find(key => perfilesUsuarios[key]?.nombre === emailOrName) || Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === emailOrName); 
+      }
+      return perfilesUsuarios[email]?.zona || 'Sin Asignar'; 
+  };
   
   // ⏱️ EL CEREBRO: LÍMITES DE TIEMPO DINÁMICOS POR ZONA (VINCULADO AL PANEL ADMIN)
   const getMetaEspera = (zonaStr) => {
