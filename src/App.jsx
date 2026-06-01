@@ -130,17 +130,7 @@ function SmallGauge({ value, size = 60 }) {
     );
 }
 
-// =========================================================================
-// 🧩 COMPONENTE DE AGENDA
-// =========================================================================
-function AgendaAdmin({ 
-    sucursalesObj = {}, 
-    transportistasObj = {}, 
-    countryContext = "El Salvador", 
-    readOnly = false,
-    filterZona = 'all',
-    perfilesUsuarios = {}
-}) {
+function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContext = "El Salvador", readOnly = false, perfilesUsuarios = {}, filtroZona = 'all' }) {
     const [agendaData, setAgendaData] = useState([]);
     const [selectedUsers, setSelectedUsers] = useState([]);
     const [form, setForm] = useState({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
@@ -151,42 +141,23 @@ function AgendaAdmin({
     const [calMonth, setCalMonth] = useState(new Date().getMonth());
     const [calYear, setCalYear] = useState(new Date().getFullYear());
     const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-    const transportistas = transportistasObj[countryContext] || [];
     const sucursales = sucursalesObj[countryContext] || [];
 
+    // 🔥 EL MOTOR DE FILTRADO DINÁMICO (A PRUEBA DE FALLOS)
     const transportistasFiltrados = useMemo(() => {
-
-    // Si no hay filtro, devolver todos
-    if (!filterZona || filterZona === 'all') {
-        return transportistas;
-    }
-
-    return transportistas.filter((nombreTransportista) => {
-
-        // Buscar email según nombre
-        const emailEncontrado = Object.keys(USUARIOS_EMAIL).find(
-            (email) =>
-                USUARIOS_EMAIL[email]?.trim()?.toLowerCase() ===
-                nombreTransportista?.trim()?.toLowerCase()
-        );
-
-        // Si no existe email asociado → excluir
-        if (!emailEncontrado) return false;
-
-        // Buscar perfil del usuario
-        const perfilUsuario = perfilesUsuarios[emailEncontrado];
-
-        // Si no existe perfil → excluir
-        if (!perfilUsuario) return false;
-
-        // Comparar zona
-        return (
-            perfilUsuario.zona?.trim()?.toLowerCase() ===
-            filterZona?.trim()?.toLowerCase()
-        );
-    });
-
-}, [transportistas, perfilesUsuarios, filterZona]);
+        const transportistasBase = transportistasObj[countryContext] || [];
+        if (filtroZona === 'all') return transportistasBase;
+        
+        return transportistasBase.filter(nombre => {
+            const email = Object.keys(perfilesUsuarios).find(key => perfilesUsuarios[key]?.nombre === nombre) || Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === nombre);
+            const zonaTransportista = (email && perfilesUsuarios[email]) ? perfilesUsuarios[email].zona : 'Sin Asignar';
+            if (['El Salvador', 'Guatemala', 'Honduras', 'Costa Rica'].includes(filtroZona)) return zonaTransportista.startsWith(filtroZona);
+            return zonaTransportista === filtroZona;
+        });
+    }, [transportistasObj, countryContext, filtroZona, perfilesUsuarios]);
+    
+    // 🟢 CLON DE SEGURIDAD: Evita el colapso de "not defined" en el código viejo
+    const transportistas = transportistasFiltrados;
 
     useEffect(() => {
         const unsub = onSnapshot(collection(db, "agenda_flota"), (snap) => {
@@ -731,11 +702,13 @@ useEffect(() => {
                         const nextY = filterMonth == 12 ? parseInt(filterYear) + 1 : filterYear; 
                         const eStr = `${nextY}-${String(nextM).padStart(2, '0')}-01`; 
                         
-                        const snapOps = await getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", sStr), where("createdAt", "<", eStr), limit(5000))); setLiveData(snapOps.docs.map(d => ({ id: d.id, ...d.data() })));
+                        // 🟢 CORRECCIÓN: Ordenamos de más reciente a más antiguo y subimos el límite a 15,000 para meses pesados
+                        // 🟢 CORRECCIÓN FIREBASE: Límite máximo permitido de 10,000 en orden descendente.
+                        const snapOps = await getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", sStr), where("createdAt", "<", eStr), orderBy("createdAt", "desc"), limit(10000))); setLiveData(snapOps.docs.map(d => ({ id: d.id, ...d.data() })));
                         const sStrShort = sStr.substring(0, 10); const eStrShort = eStr.substring(0, 10);
-                        const snapFuel = await getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(1000))); setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
-                        const snapMaint = await getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(1000))); setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
-                        const snapOt = await getDocs(query(collection(db, "registros_horas_extras"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), limit(1000))); setOtData(snapOt.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapFuel = await getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), orderBy("fecha", "desc"), limit(2000))); setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapMaint = await getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), orderBy("fecha", "desc"), limit(2000))); setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
+                        const snapOt = await getDocs(query(collection(db, "registros_horas_extras"), where("fecha", ">=", sStrShort), where("fecha", "<", eStrShort), orderBy("fecha", "desc"), limit(2000))); setOtData(snapOt.docs.map(d => ({ id: d.id, ...d.data() })));
                     }
                 } catch (error) { console.error(error); } finally { setIsFetchingHistory(false); }
             }; 
@@ -1175,15 +1148,22 @@ const adminDashboardMetrics = useMemo(() => {
         }
 
         const currentSection = appMode === 'supervisor' ? supervisorSection : adminSection;
-        if (currentSection === 'agenda') {
+       if (currentSection === 'agenda') {
             if (agendaData.length === 0) return alert("No hay horarios registrados.");
             
-            // 🟢 FILTRAMOS LA AGENDA POR ZONA ANTES DE EXPORTAR
-            let agendaToExport = agendaData;
+            // 🟢 FILTRO BLINDADO DE EMPLEADOS ACTIVOS (Para borrar fantasmas como Flor)
+            const activeTransportistas = Object.values(catalogs.transportistas || {})
+                                        .flat()
+                                        .map(name => name.toUpperCase().trim());
+            
+            // Comparamos limpiando los espacios invisibles
+            let agendaToExport = agendaData.filter(a => activeTransportistas.includes(a.id.toUpperCase().trim()));
+            
             if (filterZona !== 'all') {
                 agendaToExport = agendaToExport.filter(a => isUserInFilterZone(a.id, filterZona));
             }
-            if (agendaToExport.length === 0) return alert("No hay horarios registrados para esta zona.");
+            
+            if (agendaToExport.length === 0) return alert("No hay horarios para esta selección.");
 
             let titleParts = []; if (filterZona !== 'all') titleParts.push(`ZONA: ${filterZona}`);
             const reportTitle = titleParts.length > 0 ? `AGENDA DE FLOTA | ${titleParts[0]}` : "AGENDA GLOBAL DE FLOTA";
@@ -1641,7 +1621,21 @@ const adminDashboardMetrics = useMemo(() => {
                         {catalogs.paises.map(p => <option key={p} value={p} className="bg-indigo-900 text-white">📍 {p} (PAÍS COMPLETO)</option>)}
                         <optgroup label="ZONAS ESPECÍFICAS" className="bg-slate-800 text-slate-400">{Object.values(catalogs.zonas || {}).flat().map(z => <option key={z} value={z} className="bg-slate-900 text-white">  ↳ {z}</option>)}</optgroup>
                     </select>
-                    <input type="date" value={filterSpecificDate} onChange={e=>setFilterSpecificDate(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer flex-1 sm:flex-none" title="Filtrar por Día Exacto" />
+                    <input 
+                        type="date" 
+                        value={filterSpecificDate} 
+                        onChange={e => {
+                            const val = e.target.value;
+                            setFilterSpecificDate(val);
+                            if (val) {
+                                // Máquina del tiempo: Ajusta el mes y año automáticamente
+                                const [y, m, d] = val.split('-');
+                                setFilterYear(y);
+                                setFilterMonth(parseInt(m, 10).toString());
+                            }
+                        }} 
+                        className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer flex-1 sm:flex-none" 
+                        title="Filtrar por Día Exacto" />
                     <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">{availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}</select>
                     <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m==='all'?'Año':'Mes '+m}</option>)}</select>
                     <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Todos</option>{Object.values(catalogs.transportistas || {}).flat().map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
@@ -2103,12 +2097,13 @@ const adminDashboardMetrics = useMemo(() => {
                             </button>
                         </div>
                     </div>
-        <AgendaAdmin
-    sucursalesObj={catalogs.sucursales}
-    transportistasObj={catalogs.transportistas}
-    countryContext={catalogCountry}
-    filterZona={filterZona}
-    perfilesUsuarios={perfilesUsuarios}
+  <AgendaAdmin 
+    sucursalesObj={catalogs.sucursales} 
+    transportistasObj={catalogs.transportistas} 
+    countryContext={catalogCountry} 
+    readOnly={false}
+    perfilesUsuarios={perfilesUsuarios} 
+    filtroZona={filterZona} 
 />
                 </div>
              )}
