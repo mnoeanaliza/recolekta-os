@@ -2097,12 +2097,13 @@ const adminDashboardMetrics = useMemo(() => {
                             </button>
                         </div>
                     </div>
-  <AgendaAdmin 
+ <AgendaAdmin 
     sucursalesObj={catalogs.sucursales} 
     transportistasObj={catalogs.transportistas} 
     countryContext={catalogCountry} 
-    readOnly={false}
+    readOnly={appMode === 'supervisor'}
     perfilesUsuarios={perfilesUsuarios} 
+    catalogs={catalogs}
     filtroZona={filterZona} 
 />
                 </div>
@@ -2225,14 +2226,14 @@ const adminDashboardMetrics = useMemo(() => {
                         </select>
                     </div>
                     {/* 🔥 AQUÍ LE DECIMOS A LA AGENDA QUE EL SUPERVISOR SOLO PUEDE VER 🔥 */}
-                   <AgendaAdmin 
+<AgendaAdmin 
     sucursalesObj={catalogs.sucursales} 
     transportistasObj={catalogs.transportistas} 
     countryContext={catalogCountry} 
     readOnly={appMode === 'supervisor'}
     perfilesUsuarios={perfilesUsuarios} 
     catalogs={catalogs}
-    filtroZona={filtroZona} 
+    filtroZona={filterZona} 
 />
                 </div>
              )}
