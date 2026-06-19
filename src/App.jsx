@@ -868,7 +868,7 @@ const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 
     if (filterZona !== 'all') { filteredFuel = filteredFuel.filter(d => isUserInFilterZone(d.usuario, filterZona)); filteredMaint = filteredMaint.filter(d => isUserInFilterZone(d.usuario, filterZona)); }
     if (filterUser !== 'all') { filteredFuel = filteredFuel.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser); filteredMaint = filteredMaint.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser); }
     const totalFuelCost = filteredFuel.reduce((acc, curr) => acc + parseFloat(curr.costo || 0), 0); const totalGalones = filteredFuel.reduce((acc, curr) => acc + parseFloat(curr.galones || 0), 0); const totalMaintCost = filteredMaint.reduce((acc, curr) => acc + parseFloat(curr.costo || 0), 0);
-    const userStats = {}; const process = (i, k) => { const rawName = i.usuario || 'Desconocido'; const name = (USUARIOS_EMAIL[rawName] || rawName).split(' ')[0]; userStats[name] = userStats[name] || { fuel: 0, maint: 0 }; userStats[name][k] += parseFloat(i.costo || 0); };
+    const userStats = {}; const process = (i, k) => { const rawName = i.usuario || 'Desconocido'; const name = (perfilesUsuarios[rawName]?.nombre || USUARIOS_EMAIL[rawName] || rawName).split(' ')[0];userStats[name] = userStats[name] || { fuel: 0, maint: 0 }; userStats[name][k] += parseFloat(i.costo || 0); };
     filteredFuel.forEach(i => process(i, 'fuel')); filteredMaint.forEach(i => process(i, 'maint'));
     const chartData = Object.entries(userStats).map(([name, stats]) => ({ name, fuel: parseFloat(stats.fuel.toFixed(2)), maint: parseFloat(stats.maint.toFixed(2)), total: parseFloat((stats.fuel + stats.maint).toFixed(2)) })).sort((a,b) => b.total - a.total);
     return { totalFuelCost: totalFuelCost.toFixed(2), totalGalones: totalGalones.toFixed(2), totalMaintCost: totalMaintCost.toFixed(2), chartData };
@@ -1033,7 +1033,7 @@ const adminDashboardMetrics = useMemo(() => {
         const userDocs = filteredData.filter(d => d.recolector === name); 
         const recs = userDocs.filter(d => isPrincipalData(d));
         const sItems = userDocs.filter(d => !isPrincipalData(d));
-        const email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === name); 
+        const email = Object.keys(perfilesUsuarios).find(key => perfilesUsuarios[key]?.nombre === name) || Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === name);
         const profile = perfilesUsuarios[email] || {};
         
         const miMeta = getMetaEspera(profile.zona);
@@ -1964,7 +1964,35 @@ const adminDashboardMetrics = useMemo(() => {
                    {/* 1. CORTE OPERATIVO */}
                    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-3"><div className="p-3 bg-orange-900/30 rounded-xl text-orange-400"><Settings size={24}/></div><div><h3 className="text-sm font-black text-white uppercase">Corte Operativo de Flota (Combustible/Taller)</h3><p className="text-[10px] text-slate-400">Define el periodo activo para tu presupuesto.</p></div></div>
-                        <div className="flex gap-2 w-full md:w-auto"><input type="date" value={sysConfig.flotaInicio || ''} onChange={e=>setSysConfig({...sysConfig, flotaInicio: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><input type="date" value={sysConfig.flotaFin || ''} onChange={e=>setSysConfig({...sysConfig, flotaFin: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><button onClick={handleSaveConfig} className="bg-orange-600 hover:bg-orange-500 text-white px-4 rounded-xl font-bold text-[10px] uppercase transition-all shadow-md">Fijar</button></div>
+                        <div className="flex gap-2 w-full md:w-auto"><input type="date" value={sysConfig.flotaInicio || ''} onChange={e=>setSysConfig({...sysConfig, flotaInicio: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><input type="date" value={sysConfig.flotaFin || ''} onChange={e=>setSysConfig({...sysConfig, flotaFin: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/>
+                        <button 
+    onClick={async () => {
+        handleSaveConfig();
+        
+        const fInicio = sysConfig.flotaInicio;
+        const fFin = sysConfig.flotaFin;
+        if (!fInicio || !fFin) return alert("Por favor, selecciona las fechas en ambos calendarios.");
+
+        try {
+            const { collection, query, where, getDocs } = await import('firebase/firestore');
+            const qFuel = query(collection(db, "registros_combustible"), where("fecha", ">=", fInicio), where("fecha", "<=", fFin));
+            const snapFuel = await getDocs(qFuel);
+            setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
+
+            const qMaint = query(collection(db, "registros_mantenimiento"), where("fecha", ">=", fInicio), where("fecha", "<=", fFin));
+            const snapMaint = await getDocs(qMaint);
+            setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
+
+            alert(`✅ Historial descargado correctamente del ${fInicio} al ${fFin}`);
+        } catch(e) {
+            console.error(e);
+            alert("Error al descargar los datos de Firebase.");
+        }
+    }} 
+    className="bg-orange-600 hover:bg-orange-500 text-white px-4 rounded-xl font-bold text-[10px] uppercase transition-all shadow-md"
+>
+    Fijar
+</button></div>
                    </div>
 
                    {/* 2. KPI CARDS (Dólares y Galones) */}
@@ -2001,7 +2029,7 @@ const adminDashboardMetrics = useMemo(() => {
                                 <table className="w-full text-left relative">
                                     <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] sticky top-0 z-10 shadow-sm"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
                                     <tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">
-                                     {fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser)) && isUserInFilterZone(d.usuario, filterZona)).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
+                                     {fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser)) && isUserInFilterZone(d.usuario, filterZona)).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{perfilesUsuarios[r.usuario]?.nombre?.split(' ')[0] || USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
                                     </tbody>
                                 </table>
                             </div>
@@ -2014,7 +2042,7 @@ const adminDashboardMetrics = useMemo(() => {
                                 <table className="w-full text-left relative">
                                     <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] sticky top-0 z-10 shadow-sm"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
                                     <tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">
-                                    {maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser)) && isUserInFilterZone(d.usuario, filterZona)).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
+                                    {maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser)) && isUserInFilterZone(d.usuario, filterZona)).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{perfilesUsuarios[r.usuario]?.nombre?.split(' ')[0] || USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
                                     </tbody>
                                 </table>
                             </div>
