@@ -1110,9 +1110,27 @@ const adminDashboardMetrics = useMemo(() => {
     if (exportData.length === 0) return alert("No hay datos de horas extras en este rango de quincena."); 
     const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h, 10); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
     const splitSchedule = (scheduleStr) => { if (!scheduleStr || !scheduleStr.includes('-')) return { start: '', end: '' }; const parts = scheduleStr.split('-'); return { start: parts[0].trim(), end: parts[1].trim() }; }; 
+    
     const csvRows = exportData.map((r, index) => { 
         const workHours = splitSchedule(r.horarioTurno || ''); const heStart = formatTime12(r.horaInicio); const heEnd = formatTime12(r.horaFin); 
-        return { 'ID': index + 1, 'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 'Nombre del Transportista': USUARIOS_EMAIL[r.usuario] || r.usuario, 'Fecha': getStrictDateString(r.fecha), 'Hora de trabajo Inicio': workHours.start, 'Hora de trabajo Fin': workHours.end, 'Horario de Horas extras Inicio': heStart, 'Horario de Horas extras Fin': heEnd, 'Horas extras': r.horasCalculadas, 'Actividad Realizada / Observaciones': r.motivo || '', 'HorarioTrabajo': r.horarioTurno || '', 'HorarioHE': `${heStart} - ${heEnd}` }; 
+        
+        // 🟢 CORRECCIÓN: Motor híbrido para obtener el nombre real de los nuevos transportistas
+        const nombreTransportista = perfilesUsuarios[r.usuario]?.nombre?.toUpperCase() || USUARIOS_EMAIL[r.usuario] || r.usuario;
+
+        return { 
+            'ID': index + 1, 
+            'Marca temporal': getStrictDateString(r.createdAt || r.fecha), 
+            'Nombre del Transportista': nombreTransportista, 
+            'Fecha': getStrictDateString(r.fecha), 
+            'Hora de trabajo Inicio': workHours.start, 
+            'Hora de trabajo Fin': workHours.end, 
+            'Horario de Horas extras Inicio': heStart, 
+            'Horario de Horas extras Fin': heEnd, 
+            'Horas extras': r.horasCalculadas, 
+            'Actividad Realizada / Observaciones': r.motivo || '', 
+            'HorarioTrabajo': r.horarioTurno || '', 
+            'HorarioHE': `${heStart} - ${heEnd}` 
+        }; 
     }); 
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Consolidado_HE_${sysConfig.heInicio}_al_${sysConfig.heFin}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
