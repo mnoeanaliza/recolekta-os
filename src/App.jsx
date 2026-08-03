@@ -1605,7 +1605,10 @@ const adminDashboardMetrics = useMemo(() => {
                         </div>
                     </div>
                 </div>
-              ) : (<div className="space-y-4"><button onClick={() => setUserView('mantenimiento')} className="w-full bg-yellow-600/90 border-b-4 border-yellow-800 text-white py-4 rounded-2xl font-black uppercase shadow-xl hover:bg-yellow-500 transition-all flex items-center justify-center gap-3"><div className="bg-black/20 p-2 rounded-full"><Wrench size={20}/></div><span>Registrar Mantenimiento</span></button><ScheduleModule currentUser={currentUser} userName={USUARIOS_EMAIL[currentUser.email] || currentUser.email} /></div>)}
+              ) : (<div className="space-y-4"><button onClick={() => setUserView('mantenimiento')} className="w-full bg-yellow-600/90 border-b-4 border-yellow-800 text-white py-4 rounded-2xl font-black uppercase shadow-xl hover:bg-yellow-500 transition-all flex items-center justify-center gap-3"><div className="bg-black/20 p-2 rounded-full"><Wrench size={20}/></div><span>Registrar Mantenimiento</span></button><ScheduleModule 
+    currentUser={currentUser} 
+    userName={form.recolector || perfilesUsuarios[currentUser?.email]?.nombre?.toUpperCase() || USUARIOS_EMAIL[currentUser?.email] || currentUser?.email} 
+/></div>)}
               </div>
               <div className="space-y-6">
                  <div className="bg-[#151F32] p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden border border-slate-800">
