@@ -1102,7 +1102,6 @@ const adminDashboardMetrics = useMemo(() => {
     const csvRows = metrics.rows.map(r => ({ Fecha: getStrictDateString(r.createdAt), Transportista: r.recolector, Sucursal: r.sucursal, Diligencia: r.tipo, Area: r.area || 'N/A', Categoria: r.categoria, Entrada: r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}` : '', Salida: r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida}` : '', Espera_Minutos: r.tiempo, Observaciones: r.observaciones || '', Foto_URL: r.fotoData || '' })); 
     const csv = Papa.unparse(csvRows, { delimiter: ";" }); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Respaldo_Recolekta_${filterYear}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
-  
  const exportPayrollCSV = () => { 
     // 💡 El filtro de la quincena se aplica EXCLUSIVAMENTE al exportar el Excel
     let exportData = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
@@ -1133,8 +1132,7 @@ const adminDashboardMetrics = useMemo(() => {
         }; 
     }); 
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Consolidado_HE_${sysConfig.heInicio}_al_${sysConfig.heFin}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
-  };
-  
+  }; 
   const downloadReport = () => {
     try {
         const doc = new jsPDF(); const slate900 = [15, 23, 42]; const green500 = [34, 197, 94]; const dateStr = new Date().toLocaleDateString();
