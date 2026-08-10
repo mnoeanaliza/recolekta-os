@@ -857,9 +857,24 @@ const gamificationStats = useMemo(() => {
 const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
  const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
-    if (filterZona !== 'all') filteredOt = filteredOt.filter(d => isUserInFilterZone(d.usuario, filterZona)); if (filterUser !== 'all') filteredOt = filteredOt.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser);
+    if (filterZona !== 'all') filteredOt = filteredOt.filter(d => isUserInFilterZone(d.usuario, filterZona)); 
+    
+    // 🟢 CORRECCIÓN 1: Filtro global con limpieza de formato
+    if (filterUser !== 'all') filteredOt = filteredOt.filter(d => {
+        const emailLimpio = d.usuario ? d.usuario.toLowerCase().trim() : '';
+        return (perfilesUsuarios[emailLimpio]?.nombre || USUARIOS_EMAIL[emailLimpio] || '') === filterUser;
+    });
+
     const totalHoras = filteredOt.reduce((acc, curr) => { const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; return acc + hrs; }, 0);
-    const userOtStats = filteredOt.reduce((acc, curr) => { const rawName = curr.usuario || 'Desconocido'; const name = USUARIOS_EMAIL[rawName] || rawName; const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; acc[name] = (acc[name] || 0) + hrs; return acc; }, {});
+    const userOtStats = filteredOt.reduce((acc, curr) => { 
+        const rawName = curr.usuario || 'Desconocido'; 
+        // 🟢 CORRECCIÓN 2: Ranking y sumatoria con limpieza de formato
+        const emailLimpio = rawName.toLowerCase().trim();
+        const name = perfilesUsuarios[emailLimpio]?.nombre?.toUpperCase() || USUARIOS_EMAIL[emailLimpio] || rawName; 
+        
+        const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; acc[name] = (acc[name] || 0) + hrs; return acc; 
+    }, {});
+    
     const rankingOt = Object.entries(userOtStats).map(([name, hours]) => ({ name, hours: parseFloat(hours.toFixed(2)) })).sort((a,b) => b.hours - a.hours); return { totalHoras: totalHoras.toFixed(2), totalRegistros: filteredOt.length, rankingOt, rawData: filteredOt };
   }, [otData, filterUser, filterZona, sysConfig, perfilesUsuarios]);
 
@@ -1102,7 +1117,7 @@ const adminDashboardMetrics = useMemo(() => {
     const csvRows = metrics.rows.map(r => ({ Fecha: getStrictDateString(r.createdAt), Transportista: r.recolector, Sucursal: r.sucursal, Diligencia: r.tipo, Area: r.area || 'N/A', Categoria: r.categoria, Entrada: r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}` : '', Salida: r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida}` : '', Espera_Minutos: r.tiempo, Observaciones: r.observaciones || '', Foto_URL: r.fotoData || '' })); 
     const csv = Papa.unparse(csvRows, { delimiter: ";" }); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Respaldo_Recolekta_${filterYear}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
- const exportPayrollCSV = () => { 
+const exportPayrollCSV = () => { 
     // 💡 El filtro de la quincena se aplica EXCLUSIVAMENTE al exportar el Excel
     let exportData = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
     
@@ -1113,8 +1128,9 @@ const adminDashboardMetrics = useMemo(() => {
     const csvRows = exportData.map((r, index) => { 
         const workHours = splitSchedule(r.horarioTurno || ''); const heStart = formatTime12(r.horaInicio); const heEnd = formatTime12(r.horaFin); 
         
-        // 🟢 CORRECCIÓN: Motor híbrido para obtener el nombre real de los nuevos transportistas
-        const nombreTransportista = perfilesUsuarios[r.usuario]?.nombre?.toUpperCase() || USUARIOS_EMAIL[r.usuario] || r.usuario;
+        // 🟢 CORRECCIÓN BLINDADA: Limpieza de formato para forzar el cruce de datos
+        const emailLimpio = r.usuario ? r.usuario.toLowerCase().trim() : '';
+        const nombreTransportista = perfilesUsuarios[emailLimpio]?.nombre?.toUpperCase() || USUARIOS_EMAIL[emailLimpio] || r.usuario;
 
         return { 
             'ID': index + 1, 
@@ -1132,7 +1148,7 @@ const adminDashboardMetrics = useMemo(() => {
         }; 
     }); 
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Consolidado_HE_${sysConfig.heInicio}_al_${sysConfig.heFin}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
-  }; 
+};
   const downloadReport = () => {
     try {
         const doc = new jsPDF(); const slate900 = [15, 23, 42]; const green500 = [34, 197, 94]; const dateStr = new Date().toLocaleDateString();
@@ -2091,7 +2107,7 @@ const adminDashboardMetrics = useMemo(() => {
                           {hrMetrics.rawData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((r, i) => (
                               <tr key={r.id} className="hover:bg-slate-800/50">
                                   <td className="px-4 py-3 text-white font-bold">{getStrictDateString(r.fecha)}</td>
-                                  <td className="px-4 py-3 text-white">{USUARIOS_EMAIL[r.usuario] || r.usuario}</td>
+                                  <td className="px-4 py-3 text-white">{perfilesUsuarios[r.usuario?.toLowerCase().trim()]?.nombre?.toUpperCase() || USUARIOS_EMAIL[r.usuario?.toLowerCase().trim()] || r.usuario}</td>
                                   <td className="px-4 py-3">{r.horaInicio}</td>
                                   <td className="px-4 py-3">{r.horaFin}</td>
                                   <td className="px-4 py-3 text-purple-400 font-black">{r.horasCalculadas}h</td>
