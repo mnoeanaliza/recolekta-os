@@ -855,26 +855,23 @@ const gamificationStats = useMemo(() => {
       };
   }, [userProfile, otData, form.recolector, sysConfig]);
 const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
- const hrMetrics = useMemo(() => {
+
+  const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
     if (filterZona !== 'all') filteredOt = filteredOt.filter(d => isUserInFilterZone(d.usuario, filterZona)); 
-    
     // 🟢 CORRECCIÓN 1: Filtro global con limpieza de formato
     if (filterUser !== 'all') filteredOt = filteredOt.filter(d => {
         const emailLimpio = d.usuario ? d.usuario.toLowerCase().trim() : '';
         return (perfilesUsuarios[emailLimpio]?.nombre || USUARIOS_EMAIL[emailLimpio] || '') === filterUser;
     });
-
     const totalHoras = filteredOt.reduce((acc, curr) => { const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; return acc + hrs; }, 0);
     const userOtStats = filteredOt.reduce((acc, curr) => { 
         const rawName = curr.usuario || 'Desconocido'; 
         // 🟢 CORRECCIÓN 2: Ranking y sumatoria con limpieza de formato
         const emailLimpio = rawName.toLowerCase().trim();
         const name = perfilesUsuarios[emailLimpio]?.nombre?.toUpperCase() || USUARIOS_EMAIL[emailLimpio] || rawName; 
-        
         const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; acc[name] = (acc[name] || 0) + hrs; return acc; 
     }, {});
-    
     const rankingOt = Object.entries(userOtStats).map(([name, hours]) => ({ name, hours: parseFloat(hours.toFixed(2)) })).sort((a,b) => b.hours - a.hours); return { totalHoras: totalHoras.toFixed(2), totalRegistros: filteredOt.length, rankingOt, rawData: filteredOt };
   }, [otData, filterUser, filterZona, sysConfig, perfilesUsuarios]);
 
