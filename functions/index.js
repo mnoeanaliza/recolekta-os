@@ -1,166 +1,327 @@
 const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
+
 admin.initializeApp();
+
 const db = admin.firestore();
+const FieldValue = admin.firestore.FieldValue;
 
-// 🤖 ROBOT 1: AUDITOR INDIVIDUAL BLINDADO
+const PRINCIPAL_KEYWORDS = ["muestras", "entrega", "recepción", "recolección"];
+
+const round1 = (value) => parseFloat((Number(value) || 0).toFixed(1));
+const round2 = (value) => parseFloat((Number(value) || 0).toFixed(2));
+const toNumber = (value) => Number(value) || 0;
+
+const getMonthIdFromDate = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const getMonthIdFromDateString = (value) => {
+    if (!value || typeof value !== "string" || value.length < 7) return null;
+    return value.substring(0, 7);
+};
+
+const getMonthBounds = (monthId) => {
+    const [year, month] = monthId.split("-").map(Number);
+    const start = new Date(year, month - 1, 1).toISOString();
+    const end = new Date(year, month, 1).toISOString();
+    return { start, end };
+};
+
+const getStringMonthBounds = (monthId) => {
+    const [year, month] = monthId.split("-").map(Number);
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    return {
+        start: `${year}-${String(month).padStart(2, "0")}-01`,
+        end: `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`
+    };
+};
+
+const currentMonthId = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const isPrincipal = (data = {}) => {
+    const tipo = String(data.tipo || "").toLowerCase();
+    return data.categoria === "Principal" || PRINCIPAL_KEYWORDS.some((key) => tipo.includes(key));
+};
+
+const productionStats = (data = {}, meta) => {
+    if (isPrincipal(data)) {
+        return {
+            vitales: 1,
+            aTiempo: toNumber(data.tiempo) <= meta ? 1 : 0,
+            secundarias: 0,
+            total: 1
+        };
+    }
+
+    return { vitales: 0, aTiempo: 0, secundarias: 1, total: 1 };
+};
+
+const emptyProductionStats = () => ({ vitales: 0, aTiempo: 0, secundarias: 0, total: 0 });
+
+const addStats = (base, delta) => ({
+    vitales: Math.max(0, toNumber(base.vitales) + toNumber(delta.vitales)),
+    aTiempo: Math.max(0, toNumber(base.aTiempo) + toNumber(delta.aTiempo)),
+    secundarias: Math.max(0, toNumber(base.secundarias) + toNumber(delta.secundarias)),
+    total: Math.max(0, toNumber(base.total) + toNumber(delta.total))
+});
+
+const sumStats = (base, delta) => ({
+    vitales: toNumber(base.vitales) + toNumber(delta.vitales),
+    aTiempo: toNumber(base.aTiempo) + toNumber(delta.aTiempo),
+    secundarias: toNumber(base.secundarias) + toNumber(delta.secundarias),
+    total: toNumber(base.total) + toNumber(delta.total)
+});
+
+const efficiencyFromStats = (stats) => {
+    if (!stats.vitales) return 100;
+    return round1((stats.aTiempo / stats.vitales) * 100);
+};
+
+const getMeta = async () => {
+    const snap = await db.collection("configuraciones").doc("general").get();
+    return snap.exists ? Number(snap.data().metaMetro || 5) : 5;
+};
+
+const resolveEmail = async (data = {}) => {
+    if (data.usuarioEmail) return data.usuarioEmail;
+    if (!data.recolector) return null;
+
+    const profiles = await db
+        .collection("usuarios_perfiles")
+        .where("recolector", "==", data.recolector)
+        .limit(1)
+        .get();
+
+    return profiles.empty ? null : profiles.docs[0].id;
+};
+
+const getDeltaMap = (before, after, monthResolver, valueResolver) => {
+    const changes = new Map();
+
+    const apply = (data, sign) => {
+        if (!data) return;
+        const monthId = monthResolver(data);
+        if (!monthId) return;
+        const current = changes.get(monthId) || {};
+        const values = valueResolver(data);
+
+        Object.entries(values).forEach(([key, value]) => {
+            current[key] = toNumber(current[key]) + (toNumber(value) * sign);
+        });
+
+        changes.set(monthId, current);
+    };
+
+    apply(before, -1);
+    apply(after, 1);
+    return changes;
+};
+
+const rebuildGlobalProductionStats = async (monthId, meta) => {
+    const { start, end } = getMonthBounds(monthId);
+    const snap = await db
+        .collection("registros_produccion")
+        .where("createdAt", ">=", start)
+        .where("createdAt", "<", end)
+        .get();
+
+    let stats = emptyProductionStats();
+    snap.forEach((doc) => {
+        const data = doc.data();
+        if (data._migracionSilenciosa) return;
+        stats = addStats(stats, productionStats(data, meta));
+    });
+
+    return stats;
+};
+
+const rebuildUserProductionStats = async (email, monthId, meta) => {
+    const { start, end } = getMonthBounds(monthId);
+    const snap = await db
+        .collection("registros_produccion")
+        .where("usuarioEmail", "==", email)
+        .where("createdAt", ">=", start)
+        .where("createdAt", "<", end)
+        .get();
+
+    let stats = emptyProductionStats();
+    snap.forEach((doc) => {
+        const data = doc.data();
+        if (data._migracionSilenciosa) return;
+        stats = addStats(stats, productionStats(data, meta));
+    });
+
+    return stats;
+};
+
+const updateGlobalProductionSummary = async (monthId, delta, meta) => {
+    const ref = db.collection("resumenes_operativos").doc(monthId);
+
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const data = snap.exists ? snap.data() : {};
+        const hasCounters = Boolean(data._conteoProduccion);
+        const base = hasCounters ? data._conteoProduccion : await rebuildGlobalProductionStats(monthId, meta);
+        const next = hasCounters ? addStats(base, delta) : base;
+
+        tx.set(ref, {
+            _conteoProduccion: next,
+            eficienciaGlobal: efficiencyFromStats(next),
+            totalViajesMes: next.total,
+            ultimaActualizacion: FieldValue.serverTimestamp()
+        }, { merge: true });
+    });
+};
+
+const updateUserProfileStats = async (email, monthId, delta, meta) => {
+    const ref = db.collection("usuarios_perfiles").doc(email);
+
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const data = snap.exists ? snap.data() : {};
+        const monthlyStats = data._statsEficienciaNube || {};
+        const hasCounters = Boolean(monthlyStats[monthId]);
+        const base = hasCounters ? monthlyStats[monthId] : await rebuildUserProductionStats(email, monthId, meta);
+        const next = hasCounters ? addStats(base, delta) : base;
+        const nextMonthlyStats = { ...monthlyStats, [monthId]: next };
+        const update = {
+            _statsEficienciaNube: nextMonthlyStats,
+            ultimaAuditoria: FieldValue.serverTimestamp()
+        };
+
+        if (monthId === currentMonthId()) {
+            update.eficienciaNube = efficiencyFromStats(next);
+            update.vitalesNube = next.vitales;
+            update.secundariasNube = next.secundarias;
+        }
+
+        tx.set(ref, update, { merge: true });
+    });
+};
+
+const updateFinancialSummary = async (monthId, delta) => {
+    const ref = db.collection("resumenes_operativos").doc(monthId);
+
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const data = snap.exists ? snap.data() : {};
+        const update = { ultimaActualizacionFinanzas: FieldValue.serverTimestamp() };
+
+        if (delta.gastoCombustible !== undefined) {
+            update.gastoCombustible = Math.max(0, round2(toNumber(data.gastoCombustible) + toNumber(delta.gastoCombustible)));
+        }
+
+        if (delta.galonesCombustible !== undefined) {
+            update.galonesCombustible = Math.max(0, round2(toNumber(data.galonesCombustible) + toNumber(delta.galonesCombustible)));
+        }
+
+        if (delta.gastoMantenimiento !== undefined) {
+            update.gastoMantenimiento = Math.max(0, round2(toNumber(data.gastoMantenimiento) + toNumber(delta.gastoMantenimiento)));
+        }
+
+        tx.set(ref, update, { merge: true });
+    });
+};
+
 exports.auditorDeEficiencia = functions.firestore
-    .document('registros_produccion/{registroId}')
-    .onWrite(async (change, context) => {
-        const data = change.after.exists ? change.after.data() : change.before.data();
-        if (!data) return null;
+    .document("registros_produccion/{registroId}")
+    .onWrite(async (change) => {
+        const before = change.before.exists ? change.before.data() : null;
+        const after = change.after.exists ? change.after.data() : null;
+        if ((before && before._migracionSilenciosa) || (after && after._migracionSilenciosa)) return null;
 
-        // 🛡️ ESCUDO ANTI-AVALANCHAS: Si es una migración masiva, el robot se apaga y no hace nada.
-        if (data._migracionSilenciosa) return null;
+        const meta = await getMeta();
+        const updates = new Map();
 
-        const email = data.usuarioEmail;
-        const nombreTransportista = data.recolector; 
-        if (!email && !nombreTransportista) return null; 
+        const apply = async (data, sign) => {
+            if (!data) return;
+            const email = await resolveEmail(data);
+            const monthId = getMonthIdFromDate(data.createdAt);
+            if (!email || !monthId) return;
+            const key = `${email}|${monthId}`;
+            const current = updates.get(key) || emptyProductionStats();
+            const stats = productionStats(data, meta);
+            updates.set(key, sumStats(current, {
+                vitales: stats.vitales * sign,
+                aTiempo: stats.aTiempo * sign,
+                secundarias: stats.secundarias * sign,
+                total: stats.total * sign
+            }));
+        };
 
-        const date = new Date(data.createdAt || new Date());
-        const year = date.getFullYear();
-        const month = date.getMonth() + 1;
-        const startOfMonth = new Date(year, month - 1, 1).toISOString();
-        const endOfMonth = new Date(year, month, 1).toISOString();
+        await apply(before, -1);
+        await apply(after, 1);
 
-        try {
-            const configSnap = await db.collection("configuraciones").doc("general").get();
-            const metaMetro = configSnap.exists ? Number(configSnap.data().metaMetro || 5) : 5;
-            let targetEmail = email;
+        await Promise.all(Array.from(updates.entries()).map(([key, delta]) => {
+            const [email, monthId] = key.split("|");
+            return updateUserProfileStats(email, monthId, delta, meta);
+        }));
 
-            if (!email) {
-                const profiles = await db.collection("usuarios_perfiles").where("recolector", "==", nombreTransportista).limit(1).get();
-                if (!profiles.empty) targetEmail = profiles.docs[0].id;
-            }
-            if (!targetEmail) return null;
-
-            const viajesSnap = await db.collection("registros_produccion").where("usuarioEmail", "==", targetEmail).where("createdAt", ">=", startOfMonth).where("createdAt", "<", endOfMonth).get();
-            let vitales = 0; let aTiempo = 0; let secundarias = 0;
-            const PRINCIPAL_KEYWORDS = ["muestras", "entrega", "recepción", "recolección"];
-
-            viajesSnap.forEach(doc => {
-                const v = doc.data();
-                const isP = v.categoria === "Principal" || PRINCIPAL_KEYWORDS.some(k => (v.tipo || '').toLowerCase().includes(k));
-                if (isP) { vitales++; if ((v.tiempo || 0) <= metaMetro) aTiempo++; } else { secundarias++; }
-            });
-
-            let ef = 100; if (vitales > 0) ef = parseFloat(((aTiempo / vitales) * 100).toFixed(1));
-            return await db.collection("usuarios_perfiles").doc(targetEmail).set({ eficienciaNube: ef, secundariasNube: secundarias, vitalesNube: vitales, ultimaAuditoria: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-        } catch (error) { return null; }
+        return null;
     });
 
-// 🤖 ROBOT 2: RESUMEN GLOBAL BLINDADO
 exports.resumenGlobalMensual = functions.firestore
-    .document('registros_produccion/{registroId}')
-    .onWrite(async (change, context) => {
-        const data = change.after.exists ? change.after.data() : change.before.data();
-        if (!data || data._migracionSilenciosa) return null; // 🛡️ ESCUDO ACTIVO
+    .document("registros_produccion/{registroId}")
+    .onWrite(async (change) => {
+        const before = change.before.exists ? change.before.data() : null;
+        const after = change.after.exists ? change.after.data() : null;
+        if ((before && before._migracionSilenciosa) || (after && after._migracionSilenciosa)) return null;
 
-        const date = new Date(data.createdAt);
-        const year = date.getFullYear().toString();
-        const monthNum = (date.getMonth() + 1).toString().padStart(2, '0');
-        const documentId = `${year}-${monthNum}`; 
-        const startOfMonth = new Date(year, date.getMonth(), 1).toISOString();
-        const endOfMonth = new Date(year, date.getMonth() + 1, 1).toISOString();
+        const meta = await getMeta();
+        const deltas = getDeltaMap(
+            before,
+            after,
+            (data) => getMonthIdFromDate(data.createdAt),
+            (data) => productionStats(data, meta)
+        );
 
-        try {
-            const viajesSnap = await db.collection("registros_produccion").where("createdAt", ">=", startOfMonth).where("createdAt", "<", endOfMonth).get();
-            let vitales = 0; let aTiempo = 0;
-            const configSnap = await db.collection("configuraciones").doc("general").get();
-            const metaGeneral = configSnap.exists ? Number(configSnap.data().metaMetro || 5) : 5;
-            const PRINCIPAL_KEYWORDS = ["muestras", "entrega", "recepción", "recolección"];
-
-            viajesSnap.forEach(doc => {
-                const v = doc.data();
-                const isP = v.categoria === "Principal" || PRINCIPAL_KEYWORDS.some(k => (v.tipo || '').toLowerCase().includes(k));
-                if (isP) { vitales++; if ((v.tiempo || 0) <= metaGeneral) aTiempo++; }
-            });
-
-            let efGlobal = 100; if (vitales > 0) efGlobal = parseFloat(((aTiempo / vitales) * 100).toFixed(1));
-            return await db.collection("resumenes_operativos").doc(documentId).set({ eficienciaGlobal: efGlobal, totalViajesMes: viajesSnap.size, ultimaActualizacion: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-        } catch (error) { return null; }
+        await Promise.all(Array.from(deltas.entries()).map(([monthId, delta]) => updateGlobalProductionSummary(monthId, delta, meta)));
+        return null;
     });
-    // 🤖 ROBOT 3: AUDITOR FINANCIERO (COMBUSTIBLE)
+
 exports.resumenCombustibleMensual = functions.firestore
-    .document('registros_combustible/{registroId}')
-    .onWrite(async (change, context) => {
-        const data = change.after.exists ? change.after.data() : change.before.data();
-        if (!data || data._migracionSilenciosa) return null; // 🛡️ Escudo activo
+    .document("registros_combustible/{registroId}")
+    .onWrite(async (change) => {
+        const before = change.before.exists ? change.before.data() : null;
+        const after = change.after.exists ? change.after.data() : null;
+        if ((before && before._migracionSilenciosa) || (after && after._migracionSilenciosa)) return null;
 
-        // Extraemos el año y mes de la fecha del ticket (Ej: "2026-03-25" -> "2026-03")
-        const fechaStr = data.fecha;
-        if (!fechaStr || typeof fechaStr !== 'string') return null;
-        
-        const year = fechaStr.substring(0, 4);
-        const month = fechaStr.substring(5, 7);
-        const documentId = `${year}-${month}`;
+        const deltas = getDeltaMap(
+            before,
+            after,
+            (data) => getMonthIdFromDateString(data.fecha),
+            (data) => ({
+                gastoCombustible: toNumber(data.costo),
+                galonesCombustible: toNumber(data.galones)
+            })
+        );
 
-        try {
-            // Buscamos todos los tickets de ese mes específico
-            const startOfMonth = `${year}-${month}-01`;
-            const nextMonthNum = parseInt(month) === 12 ? 1 : parseInt(month) + 1;
-            const nextYearNum = parseInt(month) === 12 ? parseInt(year) + 1 : parseInt(year);
-            const endOfMonth = `${nextYearNum}-${String(nextMonthNum).padStart(2, '0')}-01`;
-
-            const ticketsSnap = await db.collection("registros_combustible")
-                .where("fecha", ">=", startOfMonth)
-                .where("fecha", "<", endOfMonth)
-                .get();
-
-            let gastoCombustible = 0;
-            let galonesCombustible = 0;
-
-            // Sumamos los montos
-            ticketsSnap.forEach(doc => {
-                const t = doc.data();
-                gastoCombustible += parseFloat(t.costo || 0);
-                galonesCombustible += parseFloat(t.galones || 0);
-            });
-
-            // Guardamos el dinero en el mismo documento de la eficiencia (Ej: "2026-03")
-            return await db.collection("resumenes_operativos").doc(documentId).set({ 
-                gastoCombustible: parseFloat(gastoCombustible.toFixed(2)), 
-                galonesCombustible: parseFloat(galonesCombustible.toFixed(2)),
-                ultimaActualizacionFinanzas: admin.firestore.FieldValue.serverTimestamp() 
-            }, { merge: true }); // merge: true es CLAVE para no borrar la eficiencia!
-        } catch (error) { return null; }
+        await Promise.all(Array.from(deltas.entries()).map(([monthId, delta]) => updateFinancialSummary(monthId, delta)));
+        return null;
     });
 
-// 🤖 ROBOT 4: AUDITOR FINANCIERO (TALLER)
 exports.resumenMantenimientoMensual = functions.firestore
-    .document('registros_mantenimiento/{registroId}')
-    .onWrite(async (change, context) => {
-        const data = change.after.exists ? change.after.data() : change.before.data();
-        if (!data || data._migracionSilenciosa) return null;
+    .document("registros_mantenimiento/{registroId}")
+    .onWrite(async (change) => {
+        const before = change.before.exists ? change.before.data() : null;
+        const after = change.after.exists ? change.after.data() : null;
+        if ((before && before._migracionSilenciosa) || (after && after._migracionSilenciosa)) return null;
 
-        const fechaStr = data.fecha;
-        if (!fechaStr || typeof fechaStr !== 'string') return null;
-        
-        const year = fechaStr.substring(0, 4);
-        const month = fechaStr.substring(5, 7);
-        const documentId = `${year}-${month}`;
+        const deltas = getDeltaMap(
+            before,
+            after,
+            (data) => getMonthIdFromDateString(data.fecha),
+            (data) => ({ gastoMantenimiento: toNumber(data.costo) })
+        );
 
-        try {
-            const startOfMonth = `${year}-${month}-01`;
-            const nextMonthNum = parseInt(month) === 12 ? 1 : parseInt(month) + 1;
-            const nextYearNum = parseInt(month) === 12 ? parseInt(year) + 1 : parseInt(year);
-            const endOfMonth = `${nextYearNum}-${String(nextMonthNum).padStart(2, '0')}-01`;
-
-            const ticketsSnap = await db.collection("registros_mantenimiento")
-                .where("fecha", ">=", startOfMonth)
-                .where("fecha", "<", endOfMonth)
-                .get();
-
-            let gastoMantenimiento = 0;
-
-            ticketsSnap.forEach(doc => {
-                const t = doc.data();
-                gastoMantenimiento += parseFloat(t.costo || 0);
-            });
-
-            return await db.collection("resumenes_operativos").doc(documentId).set({ 
-                gastoMantenimiento: parseFloat(gastoMantenimiento.toFixed(2)),
-                ultimaActualizacionFinanzas: admin.firestore.FieldValue.serverTimestamp() 
-            }, { merge: true });
-        } catch (error) { return null; }
+        await Promise.all(Array.from(deltas.entries()).map(([monthId, delta]) => updateFinancialSummary(monthId, delta)));
+        return null;
     });

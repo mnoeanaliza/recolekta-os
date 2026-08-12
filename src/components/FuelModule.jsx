@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, storage } from '../config/firebase';
-import { collection, addDoc, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Fuel, Camera, CheckCircle2, Loader2, FileText, Info } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -29,14 +29,16 @@ export default function FuelModule({ currentUser, sysConfig }) {
 
     useEffect(() => {
         if (!currentUser?.email) return;
-        const q = query(collection(db, "registros_combustible"), where("usuario", "==", currentUser.email));
+        const hasFleetPeriod = sysConfig?.flotaInicio && sysConfig?.flotaFin;
+        const q = hasFleetPeriod
+            ? query(collection(db, "registros_combustible"), where("usuario", "==", currentUser.email), where("fecha", ">=", sysConfig.flotaInicio), where("fecha", "<=", sysConfig.flotaFin), orderBy("fecha", "desc"), limit(60))
+            : query(collection(db, "registros_combustible"), where("usuario", "==", currentUser.email), orderBy("fecha", "desc"), limit(30));
         const unsub = onSnapshot(q, (snap) => {
             const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            arr.sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''));
             setHistory(arr);
         });
         return () => unsub();
-    }, [currentUser]);
+    }, [currentUser, sysConfig?.flotaInicio, sysConfig?.flotaFin]);
 
     const compressImage = (file) => {
         return new Promise((resolve) => {
@@ -79,6 +81,9 @@ export default function FuelModule({ currentUser, sysConfig }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!imageFile) return alert("Sube una foto del ticket o tablero");
+        if (Number(form.galones) <= 0 || Number(form.costo) <= 0 || Number(form.kilometraje) < 0) {
+            return alert("Revisa galones, costo y kilometraje antes de enviar.");
+        }
         setIsUploading(true);
         try {
             const storageRef = ref(storage, `combustible/${Date.now()}_${currentUser.email}`);

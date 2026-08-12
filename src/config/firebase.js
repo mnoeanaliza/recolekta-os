@@ -3,15 +3,14 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
-// Tus credenciales de producción de Recolekta OS
 const firebaseConfig = {
-  apiKey: "AIzaSyDwb_iRqVAPh7PI7TLVaThvBX6VPXgHbLM",
-  authDomain: "recolekta-app.firebaseapp.com",
-  projectId: "recolekta-app",
-  storageBucket: "recolekta-app.firebasestorage.app",
-  messagingSenderId: "367430492614",
-  appId: "1:367430492614:web:de8a74da7db328114dd2c7",
-  measurementId: "G-KB7BXRZ1QX"
+  apiKey: import.meta.env.VITE_API_KEY,
+  authDomain: import.meta.env.VITE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_APP_ID,
+  measurementId: import.meta.env.VITE_MEASUREMENT_ID
 };
 
 // Inicializar la aplicación

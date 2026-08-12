@@ -1,0 +1,54 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+
+    function safeEmail() {
+      return request.auth.token.email;
+    }
+
+    function isAdmin() {
+      return signedIn() && safeEmail() in [
+        'admin@recolekta.com',
+        'nuevo_admin@recolekta.com',
+        'gerencia@recolekta.com',
+        'ing.admin@recolekta.com'
+      ];
+    }
+
+    match /perfiles/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn() && (fileName == safeEmail() || isAdmin());
+    }
+
+    match /motos/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn() && (fileName == safeEmail() || isAdmin());
+    }
+
+    match /evidencias/{fileName} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /combustible/{fileName} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /mantenimiento/{fileName} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

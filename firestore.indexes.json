@@ -1,0 +1,37 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "registros_produccion",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "recolector", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "registros_combustible",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "usuario", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "registros_mantenimiento",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "usuario", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "registros_horas_extras",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "usuario", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

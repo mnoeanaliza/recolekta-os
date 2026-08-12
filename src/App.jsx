@@ -6,6 +6,10 @@ import { db, storage } from './config/firebase';
 import FuelModule from './components/FuelModule'; 
 import ScheduleModule from './components/ScheduleModule';
 import MaintenanceModule from './components/MaintenanceModule';
+import FleetAgenda from './modules/FleetAgenda';
+import AdminDashboard from './modules/AdminDashboard';
+import SupervisorDashboard from './modules/SupervisorDashboard';
+import TransportistaHome from './modules/TransportistaHome';
 import OvertimeModule from './components/OvertimeModule';
 //import { USUARIOS_EMAIL } from '../App.jsx';
 import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion, setDoc } from 'firebase/firestore'; 
@@ -25,87 +29,12 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import Papa from 'papaparse';
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
-import { clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { ADMIN_EMAILS, SUPERVISOR_EMAILS, cn, DEFAULT_CATALOGS, GITHUB_CSV_URL, PRINCIPAL_KEYWORDS, formatLocalDate, formatTurnosVisually, formatWithDay, getStrictDateString, isPrincipalData, USUARIOS_EMAIL } from './utils/constants';
 
-const cn = (...inputs) => twMerge(clsx(inputs));
+export { USUARIOS_EMAIL } from './utils/constants';
 
-const GITHUB_CSV_URL = "https://raw.githubusercontent.com/mnoeanaliza/recolekta-os/refs/heads/main/Datos.csv";
 // Carga diferida del Mapa
 const RutaOptimizada = lazy(() => import('./components/RutaOptimizada.jsx'));
-
-// MAPEO DE CORREOS
-export const USUARIOS_EMAIL = {
-  "brayan@recolekta.com": "BRAYAN REYES", "edwin@recolekta.com": "EDWIN FLORES", "teodoro@recolekta.com": "TEODORO PÉREZ",
-  "giovanni@recolekta.com": "GIOVANNI CALLEJAS", "jairo@recolekta.com": "JAIRO GIL", "jason@recolekta.com": "JASON BARRERA",
-  "antonio@recolekta.com": "ANTONIO RIVAS", "walter@recolekta.com": "WALTER RIVAS", "rogelio@recolekta.com": "ROGELIO MAZARIEGO",
-  "david@recolekta.com": "DAVID ALVARADO", "carlos@recolekta.com": "CARLOS SOSA", "felix@recolekta.com": "FELIX VASQUEZ",
-  "flor@recolekta.com": "FLOR CARDOZA", "hildebrando@recolekta.com": "HILDEBRANDO MENJIVAR", "test@admin.com": "USUARIO PRUEBA",
-  "chofer@recolekta.com": "TRANSPORTISTA PRUEBA", "admin@recolekta.com": "ADMINISTRADOR", "supervision@recolekta.com": "SUPERVISOR",
-  "supervisor@recolekta.com": "SUPERVISOR", "nuevo_admin@recolekta.com": "NUEVO ADMIN", "ing.admin@recolekta.com": "INGENIERÍA ADMIN", 
-  "mauricio.alfaro@recolekta.com":"MAURICIO ALFARO","jose.rigoberto@recolekta.com":"RIGOBERTO CRUZ", "ernesto.recinos@recolekta.com":"ERNESTO RECINOS",
-  "jose.recinos@recolekta.com":"JOSE RECINOS","tino@recolekta.com":"MAURICIO TINO","josue.hernandez@recolekta.com":"JOSUE HERNANDEZ","mario.coto@recolekta":"MARIO COTO"
-};
-
-// 🌍 CATÁLOGOS BASE INTERNACIONALES (Diccionarios por País) 🌍
-const DEFAULT_CATALOGS = {
-  paises: ["El Salvador", "Guatemala", "Honduras", "Costa Rica"],
-  zonas: {
-      "El Salvador": ["El Salvador - Metropolitana Centro", "El Salvador - Oriente", "El Salvador - Occidente"],
-      "Guatemala": ["Guatemala - Capital"],
-      "Honduras": ["Honduras - Tegucigalpa"],
-      "Costa Rica": ["Costa Rica - San José"]
-  },
-  transportistas: { "El Salvador": [ "BRAYAN REYES", "EDWIN FLORES", "TEODORO PÉREZ", "GIOVANNI CALLEJAS", "JAIRO GIL", "JASON BARRERA", "ANTONIO RIVAS", "WALTER RIVAS", "ROGELIO MAZARIEGO", "DAVID ALVARADO", "CARLOS SOSA", "FELIX VASQUEZ", "FLOR CARDOZA", "HILDEBRANDO MENJIVAR", "USUARIO PRUEBA", "TRANSPORTISTA PRUEBA" ] },
-  sucursales: { "El Salvador": [ "Constitución", "Soyapango", "San Miguel", "Lourdes", "Valle Dulce", "Venecia", "San Miguel 2", "Sonsonate 1", "Puerto", "San Martín", "San Miguel 3", "Sonsonate 2", "San Gabriel", "Casco", "La Unión", "Sonsonate 3", "Cojutepeque", "Zacatecoluca", "Santa Ana 1", "Merliot 1", "Santa Ana 2", "Merliot 2", "Ramblas", "Escalón 1", "Metapán", "Escalón 2", "Marsella", "Medica 1", "Opico", "Medica 2", "Medica 3", "Medica 4", "Santa Tecla", "Plaza Soma", "Plaza Sur", "Santa Elena", "Chalatenango", "Aguilares" ] },
-  areas: { "El Salvador": ["LABORATORIO / PROCESAMIENTO", "TUVET", "Imágenes Escalón", "Centro de Distribución", "LAB. Externo", "Contabilidad", "RRHH", "Contac Center", "Empresas", "Fisioterapia", "Cuentas por cobrar", "Mercadeo", "Fidelizacion", "IT", "LOGÍSTICA / RUTA"] },
-  diligencias: { "El Salvador": ["Recolección de muestras", "Entrega de Muestras", "Traslado de toallas", "Traslado de reactivo", "Traslado de insumos", "Traslado de cortes", "Traslado de documentos", "Pago de aseguradora", "Pago o tramite bancario", "Tramite o diligencia extraordinaria", "INCIDENCIA EN RUTA"] }
-};
-
-const PRINCIPAL_KEYWORDS = ["muestras", "entrega", "recepción", "recolección", "recoleccion"];
-const isPrincipalData = (d) => { if (d.categoria === "Principal") return true; const txt = (d.tipo || d.originalTipo || '').toLowerCase(); return PRINCIPAL_KEYWORDS.some(k => txt.includes(k)); };
-
-// --- 🛡️ ESCUDO Y FORMATEADORES DE FECHA ---
-const getStrictDateString = (dateInput) => {
-    if (!dateInput) return '';
-    if (typeof dateInput === 'string' && dateInput.includes('-') && !dateInput.includes('T')) {
-        const parts = dateInput.split('-');
-        if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    }
-    try {
-        const d = new Date(dateInput);
-        if(isNaN(d.getTime())) return typeof dateInput === 'string' ? dateInput : '';
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const year = d.getFullYear();
-        return `${day}/${month}/${year}`;
-    } catch(e) { return ''; }
-};
-
-const formatLocalDate = (dateStr) => getStrictDateString(dateStr);
-
-const formatWithDay = (dateStr) => {
-    if (!dateStr || dateStr === '--') return '--';
-    try {
-        let parts = dateStr.split('/');
-        let dateObj;
-        if (parts.length === 3) {
-            dateObj = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
-        } else {
-            parts = dateStr.split('-');
-            if (parts.length === 3) dateObj = new Date(`${parts[0]}-${parts[1]}-${parts[2]}T12:00:00`);
-            else return dateStr;
-        }
-        if (isNaN(dateObj.getTime())) return dateStr;
-        const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-        return `${days[dateObj.getDay()]} ${dateStr}`;
-    } catch(e) { return dateStr; }
-};
-
-const formatTurnosVisually = (turnosStr) => {
-    if (!turnosStr || turnosStr === 'Ninguno') return 'Ninguno';
-    return turnosStr.split('-').map(t => formatWithDay(t.trim())).join(' - ');
-};
 
 function SmallGauge({ value, size = 60 }) {
     const ef = parseFloat(value) || 0;
@@ -130,242 +59,6 @@ function SmallGauge({ value, size = 60 }) {
     );
 }
 
-function AgendaAdmin({ sucursalesObj = {}, transportistasObj = {}, countryContext = "El Salvador", readOnly = false, perfilesUsuarios = {}, filtroZona = 'all' }) {
-    const [agendaData, setAgendaData] = useState([]);
-    const [selectedUsers, setSelectedUsers] = useState([]);
-    const [form, setForm] = useState({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
-    const [tempDate, setTempDate] = useState('');
-    const [tempPunto, setTempPunto] = useState('');
-    
-    const [appendMode, setAppendMode] = useState(true);
-    const [calMonth, setCalMonth] = useState(new Date().getMonth());
-    const [calYear, setCalYear] = useState(new Date().getFullYear());
-    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-    const sucursales = sucursalesObj[countryContext] || [];
-
-    // 🔥 EL MOTOR DE FILTRADO DINÁMICO (A PRUEBA DE FALLOS)
-    const transportistasFiltrados = useMemo(() => {
-        const transportistasBase = transportistasObj[countryContext] || [];
-        if (filtroZona === 'all') return transportistasBase;
-        
-        return transportistasBase.filter(nombre => {
-            const email = Object.keys(perfilesUsuarios).find(key => perfilesUsuarios[key]?.nombre === nombre) || Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === nombre);
-            const zonaTransportista = (email && perfilesUsuarios[email]) ? perfilesUsuarios[email].zona : 'Sin Asignar';
-            if (['El Salvador', 'Guatemala', 'Honduras', 'Costa Rica'].includes(filtroZona)) return zonaTransportista.startsWith(filtroZona);
-            return zonaTransportista === filtroZona;
-        });
-    }, [transportistasObj, countryContext, filtroZona, perfilesUsuarios]);
-    
-    // 🟢 CLON DE SEGURIDAD: Evita el colapso de "not defined" en el código viejo
-    const transportistas = transportistasFiltrados;
-
-    useEffect(() => {
-        const unsub = onSnapshot(collection(db, "agenda_flota"), (snap) => {
-            setAgendaData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        });
-        return () => unsub();
-    }, []);
-
-    const handleAddUser = (e) => {
-        const val = e.target.value;
-        if (val === 'TODOS') setSelectedUsers(transportistas);
-        else if (val && !selectedUsers.includes(val)) setSelectedUsers([...selectedUsers, val]);
-    };
-    const removeUser = (user) => setSelectedUsers(selectedUsers.filter(u => u !== user));
-    const handleSave = async (e) => {
-        e.preventDefault();
-        if (selectedUsers.length === 0) return alert("Selecciona al menos un transportista para asignar.");
-        try {
-            await Promise.all(
-                selectedUsers.map(async (id) => {
-                    const currentUserData = agendaData.find(u => u.id === id) || {};
-                    const updateData = {};
-                    if (form.horario) updateData.horario = form.horario;
-                    if (form.zona) updateData.zona = form.zona;
-                    if (form.mantenimiento) updateData.mantenimiento = form.mantenimiento;
-                    if (form.puntos) {
-                        if (form.puntos.toUpperCase() === 'NINGUNO') updateData.puntos = '';
-                        else if (appendMode && currentUserData.puntos && currentUserData.puntos !== 'Ninguno') {
-                            const existing = currentUserData.puntos.split('/').map(s=>s.trim()).filter(Boolean);
-                            const incoming = form.puntos.split('/').map(s=>s.trim()).filter(Boolean);
-                            updateData.puntos = [...new Set([...existing, ...incoming])].join(' / ');
-                        } else updateData.puntos = form.puntos;
-                    }
-                    if (form.turnos) {
-                        if (form.turnos.toUpperCase() === 'NINGUNO') updateData.turnos = 'Ninguno';
-                        else if (appendMode && currentUserData.turnos && currentUserData.turnos !== 'Ninguno') {
-                            const existing = currentUserData.turnos.split('-').map(s=>s.trim()).filter(Boolean);
-                            const incoming = form.turnos.split('-').map(s=>s.trim()).filter(Boolean);
-                            const merged = [...new Set([...existing, ...incoming])].sort((a,b) => {
-                                const [da, ma, ya] = a.split('/');
-                                const [db, mb, yb] = b.split('/');
-                                return new Date(`${ya}-${ma}-${da}`) - new Date(`${yb}-${mb}-${db}`);
-                            });
-                            updateData.turnos = merged.join(' - ');
-                        } else updateData.turnos = form.turnos;
-                    }
-                    if (Object.keys(updateData).length > 0) await setDoc(doc(db, "agenda_flota", id), updateData, { merge: true });
-                })
-            );
-            alert(`¡Asignación guardada con éxito para ${selectedUsers.length} transportista(s)!`);
-            setForm({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
-            setSelectedUsers([]);
-        } catch (error) { alert("Error al guardar en la base de datos."); }
-    };
-    const handleDelete = async (id) => { if(window.confirm(`¿Eliminar completamente la agenda de ${id}?`)) await deleteDoc(doc(db, "agenda_flota", id)); };
-    const handleEdit = (item) => { setSelectedUsers([item.id]); setForm({ horario: item.horario || '', zona: item.zona || '', puntos: item.puntos || '', turnos: item.turnos || '', mantenimiento: item.mantenimiento || '' }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-    const addTurnoDate = () => {
-        if (!tempDate) return;
-        const [y, m, d] = tempDate.split('-');
-        const formattedDate = `${d}/${m}/${y}`;
-        let currentTurnos = form.turnos && form.turnos !== 'Ninguno' ? form.turnos.split(' - ').map(t => t.trim()).filter(t => t) : [];
-        if (!currentTurnos.includes(formattedDate)) { currentTurnos.push(formattedDate); setForm({ ...form, turnos: currentTurnos.join(' - ') }); }
-        setTempDate('');
-    };
-    const addPunto = () => {
-        if (!tempPunto) return;
-        let currentPuntos = form.puntos && form.puntos !== 'Ninguno' ? form.puntos.split(' / ').map(p => p.trim()).filter(p => p) : [];
-        if (!currentPuntos.includes(tempPunto)) { currentPuntos.push(tempPunto); setForm({ ...form, puntos: currentPuntos.join(' / ') }); }
-        setTempPunto('');
-    };
-    const prevMonth = () => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else { setCalMonth(calMonth - 1); } };
-    const nextMonth = () => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else { setCalMonth(calMonth + 1); } };
-    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-    const firstDay = new Date(calYear, calMonth, 1).getDay(); 
-    const blanks = Array.from({ length: firstDay }, (_, i) => i);
-    const calendarDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-    const normalizeDateStr = (str) => { const parts = str.split('/'); if (parts.length === 3) return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`; return str; };
-    const getTurnosForDay = (day) => {
-        const targetDate = `${String(day).padStart(2, '0')}/${String(calMonth + 1).padStart(2, '0')}/${calYear}`; 
-        let scheduled = [];
-        agendaData.forEach(user => { if (transportistasFiltrados.includes(user.id) && user.turnos && user.turnos !== 'Ninguno') { const dates = user.turnos.split('-').map(t => normalizeDateStr(t.trim())); if (dates.includes(targetDate)) scheduled.push(user.id.split(' ')[0]); } });
-        return scheduled;
-    };
-    const getMaintForDay = (day) => {
-        const targetDate = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`; 
-        let scheduled = [];
-        agendaData.forEach(user => { if (transportistasFiltrados.includes(user.id) && user.mantenimiento === targetDate) scheduled.push(user.id.split(' ')[0]); });
-        return scheduled;
-    };
-    const handlePrint = () => { window.print(); };
-    return (
-        <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-            {/* 1. OCULTAMOS EL FORMULARIO SI ES SOLO LECTURA (SUPERVISOR) */}
-            {!readOnly && (
-                <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl print-hide">
-                    <h3 className="text-xl font-black text-white mb-6 flex items-center gap-2"><Calendar className="text-blue-500"/> Asignación y Actualización de Horarios</h3>
-                    <form onSubmit={handleSave} className="space-y-6">
-                        <div className="bg-[#0B1120] p-5 rounded-2xl border border-blue-900/50 shadow-inner">
-                            <label className="text-[10px] font-bold text-blue-400 uppercase mb-2 flex items-center gap-1"><Users size={14}/> Transportistas de {countryContext}</label>
-                            <select onChange={handleAddUser} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer mb-3" value="">
-                                <option value="">-- SELECCIONAR PARA AGREGAR AL GRUPO --</option>
-                                <option value="TODOS" className="font-black text-blue-400">AGREGAR A TODOS ({countryContext})</option>
-                                {transportistasFiltrados.map(t => (<option key={t} value={t}>{t}</option>))}
-                            </select>
-                            <div className="flex flex-wrap gap-2">
-                                {selectedUsers.length === 0 ? (<p className="text-xs text-slate-600 italic">No has seleccionado a nadie.</p>) : (selectedUsers.map(u => (<span key={u} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 shadow-md">{u} <X size={14} className="cursor-pointer hover:text-red-300" onClick={() => removeUser(u)}/></span>)))}
-                                {selectedUsers.length > 1 && (<button type="button" onClick={()=>setSelectedUsers([])} className="text-[10px] text-red-400 hover:text-red-300 font-bold px-2">Limpiar Grupo</button>)}
-                            </div>
-                        </div>
-                        <div className="bg-blue-900/10 border border-blue-800/40 p-3 rounded-xl flex items-center gap-3"><input type="checkbox" checked={appendMode} onChange={e => setAppendMode(e.target.checked)} className="w-5 h-5 accent-blue-600 cursor-pointer" id="appendModeToggle" /><label htmlFor="appendModeToggle" className="text-[10px] font-bold text-blue-300 cursor-pointer uppercase">MODO ACUMULATIVO: Sumar los días a las asignaciones existentes</label></div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-[10px] font-bold text-slate-400 uppercase">Horario Base</label><input value={form.horario} onChange={e=>setForm({...form, horario: e.target.value})} placeholder="Ej. 06:00 am - 03:00 pm" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Zona Asignada</label><input value={form.zona} onChange={e=>setForm({...form, zona: e.target.value})} placeholder="Ej. San Salvador Centro" className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div></div>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-800 space-y-4 shadow-inner">
-                                <h4 className="text-xs font-bold text-slate-300 uppercase flex items-center gap-2"><MapPin size={14} className="text-indigo-400"/> Puntos / Sucursales ({countryContext})</h4>
-                                <div className="flex items-end gap-2"><div className="flex-1"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Catálogo Oficial</label><select value={tempPunto} onChange={e => setTempPunto(e.target.value)} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer"><option value="">-- ELEGIR SUCURSAL --</option>{sucursales.map(s => <option key={s} value={s}>{s}</option>)}</select></div><button type="button" onClick={addPunto} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-3 rounded-xl font-bold flex items-center shadow-md transition-all h-[46px] mt-auto"><Plus size={18}/></button></div>
-                                <div><div className="flex justify-between items-center mb-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Ruta Armada</label>{form.puntos && <button type="button" onClick={() => setForm({ ...form, puntos: '' })} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}</div><textarea value={form.puntos} onChange={e=>setForm({...form, puntos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar la ruta a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/></div>
-                            </div>
-                            <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-800 space-y-4 shadow-inner">
-                                <h4 className="text-xs font-bold text-slate-300 uppercase flex items-center gap-2"><Clock size={14} className="text-purple-400"/> Programación de Turnos</h4>
-                                <div className="flex items-end gap-2"><div className="flex-1"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Calendario</label><input type="date" value={tempDate} onChange={e => setTempDate(e.target.value)} style={{ colorScheme: 'dark' }} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold cursor-pointer"/></div><button type="button" onClick={addTurnoDate} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-xl font-bold flex items-center shadow-md transition-all h-[46px] mt-auto"><Plus size={18}/></button></div>
-                                <div><div className="flex justify-between items-center mb-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Fechas Asignadas</label>{form.turnos && <button type="button" onClick={() => setForm({ ...form, turnos: '' })} className="text-[9px] text-red-400 flex items-center gap-1 hover:text-red-300"><Eraser size={12}/> Limpiar</button>}</div><textarea value={form.turnos} onChange={e=>setForm({...form, turnos: e.target.value})} placeholder="Escribe 'Ninguno' para borrar los turnos a todos..." className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold resize-none h-16"/></div>
-                            </div>
-                        </div>
-                        <div><label className="text-[10px] font-bold text-slate-400 uppercase">Fecha Próx. Mantenimiento</label><input type="date" value={form.mantenimiento} onChange={e=>setForm({...form, mantenimiento: e.target.value})} style={{ colorScheme: 'dark' }} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold cursor-pointer max-w-xs"/></div>
-                        <button type="submit" className="w-full bg-green-600 hover:bg-green-500 text-white py-4 rounded-xl font-black uppercase shadow-lg flex items-center justify-center gap-2 transition-all"><Save size={18} /> Actualizar Información para el Grupo ({selectedUsers.length})</button>
-                    </form>
-                </div>
-            )}
-            {/* 2. 🔥 OCULTAMOS EL CALENDARIO VISUAL SI ES SOLO LECTURA (SUPERVISOR) 🔥 */}
-            {!readOnly && (
-                <div id="printable-calendar" className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-hidden mt-6 mb-6 print-bg-white print-border-gray print-text-black">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                        <div>
-                            <h3 className="text-xl font-black text-white flex items-center gap-2 print-text-black"><Calendar className="text-purple-500 print-hide"/> Calendario de Flota ({countryContext})</h3>
-                            <p className="text-xs text-slate-400 mt-1 print-text-black">Turnos Extras (Morado) y Mantenimientos (Amarillo)</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <button onClick={handlePrint} className="print-hide bg-white text-black px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-2 shadow-md"><Printer size={14}/> Imprimir</button>
-                            <div className="flex items-center gap-2 bg-[#0B1120] p-1.5 rounded-xl border border-slate-700 print-hide"><button type="button" onClick={prevMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronLeft size={18}/></button><span className="font-black text-white uppercase w-32 text-center text-sm">{monthNames[calMonth]} {calYear}</span><button type="button" onClick={nextMonth} className="text-slate-400 hover:text-white hover:bg-slate-800 p-2 rounded-lg transition-colors"><ChevronRight size={18}/></button></div>
-                            <div className="hidden print:block text-2xl font-black uppercase tracking-widest">{monthNames[calMonth]} {calYear}</div>
-                        </div>
-                    </div>
-                    <div className="overflow-x-auto custom-scrollbar pb-2">
-                        <div className="min-w-[700px] w-full">
-                            <div className="grid grid-cols-7 gap-1 mb-2">{['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map(d => (<div key={d} className="text-center font-black text-[10px] text-slate-500 uppercase py-2 bg-[#0B1120] rounded-t-lg border-b border-slate-700 print-bg-gray print-text-black print-border-gray">{d}</div>))}</div>
-                            <div className="grid grid-cols-7 gap-1">
-                                {blanks.map(b => <div key={`blank-${b}`} className="min-h-[100px] bg-[#0B1120]/30 rounded-xl border border-slate-800/30 print-bg-gray print-border-gray"></div>)}
-                                {calendarDays.map(d => {
-                                    const turnosForDay = getTurnosForDay(d); const maintForDay = getMaintForDay(d); const isToday = new Date().getDate() === d && new Date().getMonth() === calMonth && new Date().getFullYear() === calYear;
-                                    return (
-                                        <div key={d} className={cn("min-h-[100px] p-2 rounded-xl border flex flex-col gap-1 transition-colors hover:border-slate-600 print-bg-white print-border-gray", isToday ? "bg-blue-900/10 border-blue-500/50" : "bg-[#0B1120] border-slate-800")}>
-                                            <span className={cn("text-[10px] font-black self-end px-1.5 rounded-sm", isToday ? "bg-blue-500 text-white" : "text-slate-500 print-text-black")}>{d}</span>
-                                            <div className="flex flex-col gap-1 overflow-y-auto max-h-[80px] custom-scrollbar print:max-h-none print:overflow-visible">
-                                                {turnosForDay.map((name, i) => (<span key={`t-${i}`} className="text-[9px] font-bold bg-purple-900/40 border border-purple-800/50 text-purple-300 px-1.5 py-0.5 rounded truncate print-badge-purple" title={`Turno: ${name}`}>{name}</span>))}
-                                                {maintForDay.map((name, i) => (<span key={`m-${i}`} className="text-[9px] font-bold bg-yellow-900/40 border border-yellow-800/50 text-yellow-500 px-1.5 py-0.5 rounded truncate flex items-center gap-1 print-badge-yellow" title={`Mantenimiento: ${name}`}><Wrench size={8}/> {name}</span>))}
-                                            </div>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* TABLA GLOBAL DE HORARIOS (ESTO SÍ LO VERÁ EL SUPERVISOR) */}
-            <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl overflow-x-auto print-hide">
-                <h3 className="font-bold text-white mb-4">HORARIO GLOBAL DE FLOTA ({countryContext})</h3>
-                <table className="w-full text-left">
-                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg">
-                        <tr>
-                            <th className="px-4 py-3 rounded-l-lg">Transportista</th>
-                            <th className="px-4 py-3">Horario Base</th>
-                            <th className="px-4 py-3">Zona / Ruta</th>
-                            <th className="px-4 py-3 max-w-[200px]">Ruta Asignada</th>
-                            <th className="px-4 py-3 max-w-[150px]">Turnos</th>
-                            <th className="px-4 py-3">Mantenimiento</th>
-                            {/* 3. OCULTAMOS COLUMNA DE ACCIONES SI ES SUPERVISOR */}
-                            {!readOnly && <th className="px-4 py-3 text-center rounded-r-lg">Acciones</th>}
-                        </tr>
-                    </thead>
-                    <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
-                       {agendaData.filter(item => transportistasFiltrados.includes(item.id)).map((item) => (
-                            <tr key={item.id} className="hover:bg-slate-800/50">
-                                <td className="px-4 py-3 text-white">{item.id}</td>
-                                <td className="px-4 py-3 text-blue-400">{item.horario || '--'}</td>
-                                <td className="px-4 py-3">{item.zona || '--'}</td>
-                                <td className="px-4 py-3 truncate max-w-[200px]" title={item.puntos}>{item.puntos || '--'}</td>
-                                <td className="px-4 py-3 truncate max-w-[150px]" title={item.turnos}>{formatTurnosVisually(item.turnos)}</td>
-                                <td className="px-4 py-3 text-yellow-500">{formatWithDay(formatLocalDate(item.mantenimiento))}</td>
-                                {/* 4. OCULTAMOS BOTONES SI ES SUPERVISOR */}
-                                {!readOnly && (
-                                    <td className="px-4 py-3 flex justify-center gap-2">
-                                        <button onClick={() => handleEdit(item)} className="bg-slate-800 p-2 rounded-lg text-blue-400 hover:text-white transition-all"><Edit3 size={14}/></button>
-                                        <button onClick={() => handleDelete(item.id)} className="bg-slate-800 p-2 rounded-lg text-red-500 hover:text-white transition-all"><Trash2 size={14}/></button>
-                                    </td>
-                                )}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-}
-
-// =========================================================================
-// 🚀 APP PRINCIPAL 🚀
-// =========================================================================
 export default function App() {
   const { currentUser } = useAuth();
   if (!currentUser) return <LoginModule />;
@@ -456,6 +149,8 @@ const handleSyncToCloud = async () => {
   const [queryLimit, setQueryLimit] = useState(50); // 🔥 Control de Paginación Serverless
   const [fuelData, setFuelData] = useState([]); 
   const [maintData, setMaintData] = useState([]); 
+  const [yearlyFuelData, setYearlyFuelData] = useState([]);
+  const [yearlyMaintData, setYearlyMaintData] = useState([]);
   const [otData, setOtData] = useState([]); 
   const [csvData, setCsvData] = useState([]); 
   const [agendaData, setAgendaData] = useState([]); 
@@ -607,10 +302,8 @@ useEffect(() => {
     if (!currentUser) return;
     if (!currentUser.email) { if (typeof logout === 'function') logout(); return; }
     const email = currentUser.email.toLowerCase().trim();
-    const adminEmails = ['admin@recolekta.com', 'nuevo_admin@recolekta.com', 'gerencia@recolekta.com', 'ing.admin@recolekta.com'];
-    
-    if (adminEmails.includes(email)) setAppMode('admin'); 
-    else if (email === 'supervision@recolekta.com' || email === 'supervisor@recolekta.com') setAppMode('supervisor'); 
+    if (ADMIN_EMAILS.includes(email)) setAppMode('admin'); 
+    else if (SUPERVISOR_EMAILS.includes(email)) setAppMode('supervisor'); 
     else { 
         setAppMode('user'); 
         const nombreReal = USUARIOS_EMAIL[email]; 
@@ -750,6 +443,43 @@ useEffect(() => {
     return () => { if(unsubOps) unsubOps(); if(unsubFuel) unsubFuel(); if(unsubMaint) unsubMaint(); if(unsubOt) unsubOt(); if(unsubAlertas) unsubAlertas(); if(unsubAgenda) unsubAgenda(); if(unsubConfig) unsubConfig(); if(unsubCatalogs) unsubCatalogs(); if(unsubAllProfiles) unsubAllProfiles(); if(unsubSummaries) unsubSummaries(); };
   }, [dataSource, filterYear, filterMonth, appMode, currentUser, form.recolector, sysConfig?.heInicio]);
 
+  useEffect(() => {
+      const isAnalyticsOpen = (appMode === 'admin' && adminSection === 'bi') || (appMode === 'supervisor' && supervisorSection === 'bi');
+      const needsDetailedFleetHistory = filterZona !== 'all' || filterUser !== 'all';
+
+      if (!isAnalyticsOpen || !needsDetailedFleetHistory) {
+          setYearlyFuelData([]);
+          setYearlyMaintData([]);
+          return;
+      }
+
+      let cancelled = false;
+      const fetchYearlyFleetCosts = async () => {
+          const start = `${filterYear}-01-01`;
+          const end = `${parseInt(filterYear) + 1}-01-01`;
+
+          try {
+              const [fuelSnap, maintSnap] = await Promise.all([
+                  getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", start), where("fecha", "<", end), orderBy("fecha", "desc"), limit(10000))),
+                  getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", start), where("fecha", "<", end), orderBy("fecha", "desc"), limit(10000)))
+              ]);
+
+              if (cancelled) return;
+              setYearlyFuelData(fuelSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+              setYearlyMaintData(maintSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+          } catch (error) {
+              console.error("Error cargando historico anual de flota", error);
+              if (!cancelled) {
+                  setYearlyFuelData([]);
+                  setYearlyMaintData([]);
+              }
+          }
+      };
+
+      fetchYearlyFleetCosts();
+      return () => { cancelled = true; };
+  }, [appMode, adminSection, supervisorSection, filterYear, filterZona, filterUser]);
+
   const getUserZone = (emailOrName) => { 
       let email = emailOrName; 
       if (email && !email.includes('@')) {
@@ -855,23 +585,26 @@ const gamificationStats = useMemo(() => {
       };
   }, [userProfile, otData, form.recolector, sysConfig]);
 const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
-
-  const hrMetrics = useMemo(() => {
+const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
     if (filterZona !== 'all') filteredOt = filteredOt.filter(d => isUserInFilterZone(d.usuario, filterZona)); 
+    
     // 🟢 CORRECCIÓN 1: Filtro global con limpieza de formato
     if (filterUser !== 'all') filteredOt = filteredOt.filter(d => {
         const emailLimpio = d.usuario ? d.usuario.toLowerCase().trim() : '';
         return (perfilesUsuarios[emailLimpio]?.nombre || USUARIOS_EMAIL[emailLimpio] || '') === filterUser;
     });
+
     const totalHoras = filteredOt.reduce((acc, curr) => { const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; return acc + hrs; }, 0);
     const userOtStats = filteredOt.reduce((acc, curr) => { 
         const rawName = curr.usuario || 'Desconocido'; 
         // 🟢 CORRECCIÓN 2: Ranking y sumatoria con limpieza de formato
         const emailLimpio = rawName.toLowerCase().trim();
         const name = perfilesUsuarios[emailLimpio]?.nombre?.toUpperCase() || USUARIOS_EMAIL[emailLimpio] || rawName; 
+        
         const hrs = parseFloat(String(curr.horasCalculadas).replace(',', '.')) || 0; acc[name] = (acc[name] || 0) + hrs; return acc; 
     }, {});
+    
     const rankingOt = Object.entries(userOtStats).map(([name, hours]) => ({ name, hours: parseFloat(hours.toFixed(2)) })).sort((a,b) => b.hours - a.hours); return { totalHoras: totalHoras.toFixed(2), totalRegistros: filteredOt.length, rankingOt, rawData: filteredOt };
   }, [otData, filterUser, filterZona, sysConfig, perfilesUsuarios]);
 
@@ -965,6 +698,8 @@ const metrics = useMemo(() => {
 
 const biMetrics = useMemo(() => {
       const y1 = filterYear; const y2 = (parseInt(filterYear) - 1).toString(); const allOps = [...liveData, ...csvData]; const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      const fuelSource = yearlyFuelData.length > 0 ? yearlyFuelData : fuelData;
+      const maintSource = yearlyMaintData.length > 0 ? yearlyMaintData : maintData;
       const currYear = new Date().getFullYear().toString(); const currMonth = new Date().getMonth() + 1;
 
       const dataYoY = months.map((m, i) => {
@@ -980,8 +715,8 @@ const biMetrics = useMemo(() => {
           const ops1 = getOps(y1); const ops2 = getOps(y2); 
           const calcEf = (docs) => { const recs = docs.filter(d => isPrincipalData(d)); if(recs.length === 0) return 0; return parseFloat(((recs.filter(x => (x.tiempo||0) <= getMetaEspera(getUserZone(x.recolector))).length / recs.length) * 100).toFixed(1)); };
           
-          const getFuel = (y) => { let docs = fuelData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
-          const getMaint = (y) => { let docs = maintData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
+          const getFuel = (y) => { let docs = fuelSource.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
+          const getMaint = (y) => { let docs = maintSource.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           
           // 🔥 EL SÚPER MOTOR HÍBRIDO (Eficiencia + Finanzas + CSV Local) 🔥
           let efY1 = 0; let efY2 = 0;
@@ -1021,7 +756,7 @@ const biMetrics = useMemo(() => {
               [`maint${y2}`]: maintY2 !== null ? parseFloat(maintY2.toFixed(2)) : null 
           }
       }); return { dataYoY, yCurrent: y1, yPrev: y2 };
-  }, [liveData, csvData, fuelData, maintData, filterYear, filterUser, filterZona, perfilesUsuarios, resumenesMensualesNube]);
+  }, [liveData, csvData, fuelData, maintData, yearlyFuelData, yearlyMaintData, filterYear, filterUser, filterZona, perfilesUsuarios, resumenesMensualesNube]);
 
   const userMetrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
@@ -1114,6 +849,7 @@ const adminDashboardMetrics = useMemo(() => {
     const csvRows = metrics.rows.map(r => ({ Fecha: getStrictDateString(r.createdAt), Transportista: r.recolector, Sucursal: r.sucursal, Diligencia: r.tipo, Area: r.area || 'N/A', Categoria: r.categoria, Entrada: r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada}` : '', Salida: r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida}` : '', Espera_Minutos: r.tiempo, Observaciones: r.observaciones || '', Foto_URL: r.fotoData || '' })); 
     const csv = Papa.unparse(csvRows, { delimiter: ";" }); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Respaldo_Recolekta_${filterYear}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
   };
+  
 const exportPayrollCSV = () => { 
     // 💡 El filtro de la quincena se aplica EXCLUSIVAMENTE al exportar el Excel
     let exportData = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
@@ -1146,6 +882,7 @@ const exportPayrollCSV = () => {
     }); 
     const csv = Papa.unparse(csvRows, { delimiter: ";", header: true }); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Consolidado_HE_${sysConfig.heInicio}_al_${sysConfig.heFin}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); 
 };
+  
   const downloadReport = () => {
     try {
         const doc = new jsPDF(); const slate900 = [15, 23, 42]; const green500 = [34, 197, 94]; const dateStr = new Date().toLocaleDateString();
@@ -1247,6 +984,157 @@ const exportPayrollCSV = () => {
         }
         doc.save(`Recolekta_Reporte_Operaciones.pdf`);
     } catch (error) { alert("Error al generar el reporte."); }
+  };
+
+  const viewProps = {
+    SmallGauge,
+    abrirMapaDeRuta,
+    activeInput,
+    activeUserCountry,
+    adminDashboardMetrics,
+    adminSection,
+    agendaData,
+    alertasData,
+    appMode,
+    availableYears,
+    avisoForm,
+    biMetrics,
+    catalogCountry,
+    catalogs,
+    checkDate,
+    compressImage,
+    convertToMinutes,
+    csvData,
+    currentPage,
+    currentUser,
+    cycleCategory,
+    dataSource,
+    dismissAlert,
+    downloadReport,
+    editFormData,
+    editingItem,
+    exportPayrollCSV,
+    exportToCSV,
+    extractDateInfo,
+    filterMonth,
+    filterSpecificDate,
+    filterSucursal,
+    filterUser,
+    filterUserTableZone,
+    filterYear,
+    filterZona,
+    fleetMetrics,
+    form,
+    fuelData,
+    gamificationStats,
+    getMetaEspera,
+    getUserCountry,
+    getUserZone,
+    getWait,
+    gpsLocation,
+    handleAddCatalogItem,
+    handleAssignCategory,
+    handleAssignZone,
+    handleDelete,
+    handleEditFormChange,
+    handleFile,
+    handleInput,
+    handleMotoPhotoUpload,
+    handleProfilePhotoUpload,
+    handleRemoveCatalogItem,
+    handleSaveConfig,
+    handleStartOperation,
+    handleSyncToCloud,
+    handleUpdate,
+    hiddenAlerts,
+    hrMetrics,
+    imageFile,
+    imagePreview,
+    isCompressing,
+    isFetchingHistory,
+    isGettingGps,
+    isOperating,
+    isUploading,
+    isUserInFilterZone,
+    itemsPerPage,
+    liveData,
+    liveWaitMins,
+    logout,
+    maintData,
+    mapaModalData,
+    metrics,
+    newCatalogItems,
+    openEditModal,
+    operationStartTime,
+    otData,
+    perfilesUsuarios,
+    previousGps,
+    queryLimit,
+    regionalMetrics,
+    resumenesMensualesNube,
+    selectedAdminProfile,
+    setActiveInput,
+    setAdminSection,
+    setAgendaData,
+    setAlertasData,
+    setAppMode,
+    setAvisoForm,
+    setCatalogCountry,
+    setCatalogs,
+    setCsvData,
+    setCurrentPage,
+    setDataSource,
+    setEditFormData,
+    setEditingItem,
+    setFilterMonth,
+    setFilterSpecificDate,
+    setFilterSucursal,
+    setFilterUser,
+    setFilterUserTableZone,
+    setFilterYear,
+    setFilterZona,
+    setForm,
+    setFuelData,
+    setGpsLocation,
+    setHiddenAlerts,
+    setImageFile,
+    setImagePreview,
+    setIsCompressing,
+    setIsFetchingHistory,
+    setIsGettingGps,
+    setIsOperating,
+    setIsUploading,
+    setLiveData,
+    setLiveWaitMins,
+    setMaintData,
+    setMapaModalData,
+    setNewCatalogItems,
+    setOperationStartTime,
+    setOtData,
+    setPerfilesUsuarios,
+    setPreviousGps,
+    setQueryLimit,
+    setResumenesMensualesNube,
+    setSelectedAdminProfile,
+    setShowAvisoModal,
+    setShowWelcome,
+    setSupervisorSection,
+    setSysConfig,
+    setTransitTimeMins,
+    setUserProfile,
+    setUserView,
+    setViewingPhoto,
+    showAvisoModal,
+    showWelcome,
+    supervisorSection,
+    sysConfig,
+    transitTimeMins,
+    transportistaOtData,
+    userAlerts,
+    userMetrics,
+    userProfile,
+    userView,
+    viewingPhoto
   };
 
   return (
@@ -1431,874 +1319,9 @@ const exportPayrollCSV = () => {
         </div>
       </nav>
       <main className="max-w-7xl mx-auto p-4 md:p-6 print-p-0">
-        {appMode === 'user' && (
-           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
-              <div className="lg:col-span-2">
-              {userAlerts.length > 0 && (
-                  <div className="mb-6 space-y-3 animate-in slide-in-from-top-4">
-                      {userAlerts.map((alerta, idx) => (
-                          <div key={idx} className={cn("p-4 rounded-xl flex flex-col gap-3 shadow-lg border", alerta.type === 'kpi_danger' ? "bg-red-900/50 border-red-500 text-white" : alerta.type === 'turno' ? "bg-purple-900/30 border-purple-500 text-purple-200" : alerta.type === 'maint' ? "bg-yellow-900/30 border-yellow-500 text-yellow-200" : alerta.tipo === 'confirm' ? "bg-red-900/30 border-red-500 text-red-200" : "bg-blue-900/30 border-blue-500 text-blue-200")}>
-                              <div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><div className={cn("p-2 rounded-lg shrink-0", alerta.type==='kpi_danger'?"bg-red-600 text-white":"bg-black/30")}>{alerta.type === 'turno' ? <Clock size={20} className="text-purple-400"/> : (alerta.type === 'maint' || alerta.type === 'kpi_danger') ? <Wrench size={20} className={alerta.type==='kpi_danger'?"":"text-yellow-400"}/> : <Bell size={20} className={alerta.tipo === 'confirm' ? "text-red-400" : "text-blue-400"}/>}</div><div><h4 className="font-black uppercase text-xs opacity-80 mb-0.5">{alerta.title}</h4><p className="text-sm font-bold leading-tight">{alerta.msg}</p></div></div>{alerta.tipo !== 'confirm' && (<button onClick={(e) => { e.preventDefault(); dismissAlert(alerta); }} className="text-slate-400 hover:text-white shrink-0"><X size={18}/></button>)}</div>
-                              {alerta.tipo === 'confirm' && (<div className="flex gap-2 justify-end mt-1 border-t border-white/10 pt-3"><button onClick={(e) => { e.preventDefault(); dismissAlert(alerta, 'Enterado'); }} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-[10px] shadow-md uppercase transition-all">Enterado</button><button onClick={(e) => { e.preventDefault(); dismissAlert(alerta, 'En camino'); }} className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-[10px] shadow-md uppercase transition-all">En camino</button><button onClick={(e) => { e.preventDefault(); dismissAlert(alerta, 'Listo'); }} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-[10px] shadow-md uppercase transition-all flex items-center gap-1"><Check size={12}/> Listo</button></div>)}
-                          </div>
-                      ))}
-                  </div>
-              )}
-              <div className="flex gap-2 mb-6 p-1 bg-[#151F32] rounded-xl w-full border border-slate-800 overflow-x-auto md:flex-wrap md:overflow-visible custom-scrollbar">
-                 <button onClick={() => setUserView('ruta')} className={cn("shrink-0 px-6 py-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2", userView === 'ruta' ? "bg-green-600 text-white shadow-lg" : "text-slate-400 hover:text-white")}><Bike size={16}/> Ruta</button>
-                 <button onClick={() => setUserView('combustible')} className={cn("shrink-0 px-6 py-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2", userView === 'combustible' ? "bg-orange-600 text-white shadow-lg" : "text-slate-400 hover:text-white")}><Fuel size={16}/> Combustible</button>
-                 <button onClick={() => setUserView('agenda')} className={cn("shrink-0 px-6 py-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2", userView === 'agenda' || userView === 'mantenimiento' ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-white")}><Calendar size={16}/> Horarios</button>
-                 <button onClick={() => setUserView('extras')} className={cn("shrink-0 px-6 py-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2", userView === 'extras' ? "bg-purple-600 text-white shadow-lg" : "text-slate-400 hover:text-white")}><Clock size={16}/> H. Extra</button>
-                 <button onClick={() => setUserView('perfil')} className={cn("shrink-0 px-6 py-3 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2", userView === 'perfil' ? "bg-pink-600 text-white shadow-lg" : "text-slate-400 hover:text-white")}><Award size={16}/> Mi Perfil</button>
-              </div>
-
-              {userView === 'ruta' ? (
-                 <div className="bg-[#151F32] p-6 md:p-10 rounded-[2rem] shadow-xl border border-slate-800 relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-500 to-emerald-400"></div>
-                    
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4 border-b border-slate-800 pb-4">
-                        <h2 className="text-xl font-black flex items-center gap-3 text-white"><ClipboardList className="text-green-500"/> Registro de Ruta</h2>
-                        {/* 🔥 SELECTOR INTELIGENTE DE ESTATUS */}
-                        <div className="flex items-center gap-2 bg-[#0B1120] p-1.5 rounded-xl border border-slate-700 shadow-inner">
-                            <div className={cn("w-2.5 h-2.5 rounded-full ml-2", (userProfile.estatus === 'Standby') ? "bg-green-500 animate-pulse" : (userProfile.estatus === 'En Ruta') ? "bg-blue-500" : "bg-slate-500")}></div>
-                            <select 
-                                value={userProfile.estatus || 'Inactivo'} 
-                                onChange={async (e) => await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { estatus: e.target.value }, { merge: true })}
-                                className={cn("bg-transparent text-[10px] font-black uppercase outline-none cursor-pointer pr-2", (userProfile.estatus === 'Standby') ? "text-green-400" : (userProfile.estatus === 'En Ruta') ? "text-blue-400" : "text-slate-500")}
-                            >
-                                <option value="Inactivo" className="bg-slate-900 text-slate-400">⚫ OFFLINE / FIN DE TURNO</option>
-                                <option value="Esperando Asignacion de Ruta" className="bg-slate-900 text-green-400">🟢 DISPONIBLE (SEDE)</option>
-                                <option value="En Ruta" className="bg-slate-900 text-blue-400">🔵 EN RUTA</option>
-                                <option value="Almuerzo" className="bg-slate-900 text-yellow-400">🟡 HORA DE ALMUERZO</option>
-                            </select>
-                        </div>
-                    </div>
-                    <form onSubmit={async (e) => { 
-                        e.preventDefault(); 
-                        if(!isOperating) return alert("Debes INICIAR LA OPERACIÓN primero.");
-                        if(!imageFile) return alert("FOTO REQUERIDA PARA FINALIZAR"); 
-                        if (!(catalogs.transportistas[activeUserCountry] || catalogs.transportistas || []).includes(form.recolector)) return alert("TRANSPORTISTA NO VÁLIDO"); 
-                        
-                        // 🟢 CANDADO 2: Doble verificación antes de guardar en la base de datos
-                        const sucursalesValidas = catalogs.sucursales[activeUserCountry] || [];
-                        if (!sucursalesValidas.includes(form.sucursal)) {
-                            return alert("⚠️ ERROR: La sucursal fue alterada y no es válida. Selecciona una de la lista.");
-                        }
-                        setIsUploading(true); 
-                        try { 
-                            const now = new Date();
-                            let h = now.getHours(); let m = String(now.getMinutes()).padStart(2, '0'); let p = h >= 12 ? 'PM' : 'AM';
-                            h = h % 12; h = h ? h : 12; h = String(h).padStart(2, '0');
-                            const finalForm = { ...form, hSalida: h, mSalida: m, pSalida: p };
-                            const storageRef = ref(storage, `evidencias/${Date.now()}_${form.recolector.replace(/\s+/g, '_')}`); 
-                            await uploadBytes(storageRef, imageFile); 
-                            const photoURL = await getDownloadURL(storageRef); 
-                            const isP = PRINCIPAL_KEYWORDS.some(k=>form.tipo.toLowerCase().includes(k)); 
-                            const safeTransit = isNaN(Number(transitTimeMins)) || transitTimeMins === null ? 0 : Number(transitTimeMins);
-                            const safeWait = isNaN(Number(liveWaitMins)) || liveWaitMins === null ? 0 : Number(liveWaitMins);
-                            await addDoc(collection(db, "registros_produccion"), { 
-                                ...finalForm, 
-                                tiempo: safeWait, 
-                                tiempoTransito: safeTransit, 
-                                createdAt: new Date().toISOString(), 
-                                categoria: isP ? "Principal" : "Secundaria", 
-                                fotoData: photoURL || '', 
-                                month: new Date().getMonth() + 1, 
-                                usuarioEmail: currentUser.email || '',
-                                ubicacion: gpsLocation || 'Sin GPS',
-                                ubicacionAnterior: previousGps || null
-                            }); 
-                            alert("¡Operación y Recorrido Registrados Exitosamente! ✅"); 
-                           //await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { estatusLive: "DISPONIBLE", ultimaActividad: new Date().toISOString() }, { merge: true }).catch(()=>{});
-                            setForm(prev => ({...prev, sucursal: '', observaciones: ''})); 
-                            setImagePreview(null); setImageFile(null); setIsOperating(false); setOperationStartTime(null); setLiveWaitMins(0); setGpsLocation(null); setTransitTimeMins(0); setPreviousGps(null);
-                        } catch(e) { console.error(e); alert("Error de conexión al enviar."); } finally { setIsUploading(false); } 
-                    }} className="space-y-5">
-                      <div className="relative"><label className="text-[10px] font-bold text-slate-400 ml-4 block uppercase mb-1">Responsable</label><div className="relative"><input type="text" className={cn("w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase text-slate-400 cursor-not-allowed")} value={form.recolector} disabled /><User size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500"/></div></div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-blue-500 text-slate-300" value={form.tipo} onChange={e => setForm({...form, tipo: e.target.value})} disabled={isOperating} required><option value="">-- DILIGENCIA --</option>{(catalogs.diligencias[activeUserCountry] || catalogs.diligencias || []).map(d => <option key={d} value={d}>{d}</option>)}</select><select className="p-4 bg-[#0B1120] rounded-2xl font-bold outline-none border-2 border-slate-800 focus:border-indigo-500 text-slate-300" value={form.area} onChange={e => setForm({...form, area: e.target.value})} disabled={isOperating} required><option value="">-- ÁREA --</option>{(catalogs.areas[activeUserCountry] || catalogs.areas || []).map(a => <option key={a} value={a}>{a}</option>)}</select></div>
-                      <div className="relative" onClick={e => e.stopPropagation()}><input type="text" placeholder="SUCURSAL A LA QUE LLEGASTE..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none text-white placeholder-slate-600" value={form.sucursal} onChange={e => handleInput('sucursal', e.target.value)} onFocus={() => setActiveInput('sucursal')} disabled={isOperating} required />{activeInput === 'sucursal' && form.sucursal.length > 0 && !isOperating && (<div className="absolute z-30 w-full mt-2 bg-[#1F2937] shadow-xl rounded-xl border border-slate-700 max-h-40 overflow-y-auto">{(catalogs.sucursales[activeUserCountry] || catalogs.sucursales || []).filter(t=>t && typeof t === 'string' && t.toUpperCase().includes(form.sucursal.toUpperCase())).map(s => (<div key={s} onClick={() => { setForm({...form, sucursal: s}); setActiveInput(null); }} className="p-3 hover:bg-slate-700 cursor-pointer text-xs font-bold border-b border-slate-800 text-slate-300">{s}</div>))}</div>)}</div>
-                      <div className="bg-[#0B1120] p-6 rounded-[2rem] text-white flex flex-col sm:flex-row items-center justify-between gap-6 shadow-inner border border-slate-800">
-                          {!isOperating ? (
-                              <button type="button" onClick={handleStartOperation} disabled={isGettingGps} className="w-full sm:w-auto flex-1 py-4 bg-green-600 hover:bg-green-500 rounded-xl font-black uppercase text-sm shadow-lg shadow-green-900/20 transition-all flex items-center justify-center gap-2">
-                                  {isGettingGps ? <Loader2 className="animate-spin" size={20}/> : <MapPin size={20}/>}
-                                  {isGettingGps ? 'OBTENIENDO GPS...' : 'INICIAR OPERACIÓN'}
-                              </button>
-                          ) : (
-                              <div className="w-full sm:w-auto flex-1 py-4 bg-blue-900/20 border border-blue-500/50 rounded-xl font-black uppercase text-sm text-blue-400 flex items-center justify-center gap-2">
-                                  <Clock className="animate-pulse" size={20}/> OPERACIÓN EN CURSO...
-                              </div>
-                          )}
-                          <div className="text-center sm:border-l border-slate-800 sm:pl-6 flex flex-col justify-center min-w-[120px]">
-                              <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Minutos de Espera</p>
-                              <h4 className={cn("text-5xl font-black tabular-nums transition-colors duration-500", liveWaitMins > 5 ? "text-orange-400" : "text-green-400")}>
-                                  {Math.floor(liveWaitMins)}m
-                              </h4>
-                          </div>
-                      </div>
-                      <textarea placeholder="OBSERVACIONES..." className="w-full p-4 bg-[#0B1120] border-2 border-slate-800 rounded-2xl font-bold uppercase focus:border-blue-500 outline-none transition-all text-white placeholder-slate-600 resize-none h-24" value={form.observaciones} onChange={e => setForm({...form, observaciones: e.target.value})} disabled={!isOperating && form.recolector !== ''}/>
-                      <div className="grid grid-cols-2 gap-4">
-                          <label className={cn("col-span-1 p-4 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 transition-all font-bold uppercase text-[9px]", isOperating ? "bg-[#151F32] border-blue-500 text-blue-400 cursor-pointer hover:bg-blue-900/20" : "bg-[#0B1120] border-slate-700 text-slate-600 cursor-not-allowed")}>
-                              <Camera size={24}/><p>{imageFile ? 'FOTO LISTA' : 'TOMA FOTO TESTIGO'}</p><input type="file" className="hidden" accept="image/*" capture="environment" onChange={handleFile} disabled={!isOperating} />
-                          </label>
-                          <button type="button" onClick={() => downloadReport()} className="col-span-1 bg-slate-800 border border-slate-700 rounded-2xl font-bold text-xs text-slate-300 uppercase flex flex-col items-center justify-center gap-2 hover:bg-slate-700 transition-all"><Download size={24}/>Mi Reporte Hoy</button>
-                      </div>
-                      <button type="submit" disabled={!isOperating || !imagePreview || isUploading || isCompressing} className={cn("w-full py-5 rounded-2xl font-black text-sm shadow-xl transition-all uppercase flex items-center justify-center gap-2", isOperating && imagePreview && !isUploading && !isCompressing ? "bg-red-600 text-white hover:bg-red-500 hover:shadow-red-900/30 hover:-translate-y-1" : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700")}>
-                          {isCompressing ? <Loader2 className="animate-spin" size={20}/> : (isUploading ? <Loader2 className="animate-spin" size={20}/> : <CheckCircle2 size={20}/>)}
-                          {isCompressing ? 'PROCESANDO FOTO...' : (isUploading ? 'ENVIANDO...' : 'FINALIZAR Y ENVIAR')}
-                      </button>
-                    </form>
-                 </div>
-              ) : userView === 'combustible' ? (<FuelModule currentUser={currentUser} sysConfig={sysConfig} />) : userView === 'extras' ? (<OvertimeModule currentUser={currentUser} history={transportistaOtData} sysConfig={sysConfig} />) : userView === 'mantenimiento' ? (<MaintenanceModule currentUser={currentUser} onBack={() => setUserView('agenda')} sysConfig={sysConfig} />) : userView === 'perfil' ? (
-                 <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] shadow-xl border border-slate-800 relative overflow-hidden animate-in zoom-in-95 duration-200">
-                    <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 to-rose-400"></div>
-                    <div className="flex flex-col md:flex-row items-center md:items-start gap-6 mb-8 border-b border-slate-800 pb-8">
-                        <div className="flex gap-4">
-                            <div className="relative group"><div className="w-28 h-28 rounded-full border-4 border-slate-700 overflow-hidden bg-[#0B1120] flex items-center justify-center shadow-2xl">{userProfile.foto ? <img src={userProfile.foto} alt="Perfil" className="w-full h-full object-cover" /> : <User size={48} className="text-slate-500" />}</div><label className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"><UploadCloud size={20} className="text-white mb-1"/><span className="text-[8px] font-black uppercase text-white tracking-widest text-center leading-tight">Subir<br/>Perfil</span><input type="file" className="hidden" accept="image/*" onChange={handleProfilePhotoUpload} /></label></div>
-                            <div className="relative group"><div className="w-28 h-28 rounded-2xl border-4 border-slate-700 overflow-hidden bg-[#0B1120] flex items-center justify-center shadow-2xl">{userProfile.fotoMoto ? <img src={userProfile.fotoMoto} alt="Moto" className="w-full h-full object-cover" /> : <Bike size={48} className="text-slate-500" />}</div><label className="absolute inset-0 bg-black/60 rounded-2xl flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"><Camera size={20} className="text-white mb-1"/><span className="text-[8px] font-black uppercase text-white tracking-widest text-center leading-tight">Subir<br/>Moto</span><input type="file" className="hidden" accept="image/*" onChange={handleMotoPhotoUpload} /></label></div>
-                        </div>
-                        <div className="flex-1 text-center md:text-left">
-                            <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-1">{form.recolector}</h2><p className="text-xs font-bold text-slate-500 mb-2">{currentUser.email}</p>
-                            <div className="flex items-center gap-2 justify-center md:justify-start">
-                                <div className={cn("inline-flex items-center gap-2 px-4 py-2 rounded-xl border-2 shadow-lg", userProfile.categoria === 'Coordinador' ? "bg-yellow-900/40 border-yellow-500 text-yellow-400" : userProfile.categoria === 'Técnico' ? "bg-slate-700/50 border-slate-400 text-slate-300" : "bg-orange-900/40 border-orange-600 text-orange-400")}>{userProfile.categoria === 'Coordinador' ? <Award size={20}/> : userProfile.categoria === 'Técnico' ? <ShieldCheck size={20}/> : <Star size={20}/>}<span className="font-black uppercase text-xs tracking-widest">{userProfile.categoria || 'Operador'}</span></div>
-                                <div className="bg-indigo-900/50 border border-indigo-600 text-indigo-400 px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2"><Map size={16}/><span className="font-black uppercase text-xs tracking-widest">{userProfile.zona || 'Sin Asignar'}</span></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* GRÁFICA DE PASTEL (Izquierda) */}
-                        <div className="bg-[#0B1120] rounded-[2rem] p-6 border border-slate-700 shadow-inner flex flex-col items-center justify-center relative">
-                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest absolute top-6">Eficiencia del Mes</h4>
-                            <div className="mt-8 -mb-10 w-full flex justify-center">
-                                <PieChart width={220} height={120}>
-                                    <Pie data={[{ value: gamificationStats.eficiencia, fill: gamificationStats.eficiencia >= 95 ? '#10b981' : gamificationStats.eficiencia >= 80 ? '#f59e0b' : '#ef4444' }, { value: 100 - gamificationStats.eficiencia, fill: '#1f2937' }]} cx={110} cy={110} startAngle={180} endAngle={0} innerRadius={80} outerRadius={110} dataKey="value" stroke="none" />
-                                </PieChart>
-                            </div>
-                            <div className="text-center z-10">
-                                <span className={cn("text-5xl font-black", gamificationStats.eficiencia >= 95 ? "text-green-400" : gamificationStats.eficiencia >= 80 ? "text-yellow-400" : "text-red-400")}>{gamificationStats.eficiencia}%</span>
-                                <p className="text-[9px] font-bold text-slate-500 uppercase mt-1">Tu Meta es 95%</p>
-                            </div>
-                        </div>
-
-                        {/* LAS 3 TARJETAS (Derecha) */}
-                        <div className="space-y-4">
-                            {/* 🔥 1. HORAS EXTRAS (CORTE OFICIAL) 🔥 */}
-                            <div className="bg-purple-900/20 border border-purple-800/40 p-4 rounded-2xl flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-3 bg-purple-600 rounded-xl text-white shadow-lg"><Clock size={20}/></div>
-                                    <div>
-                                        <h4 className="text-[10px] font-black text-purple-400 uppercase">Horas Extras (Corte)</h4>
-                                        <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">
-                                            {sysConfig.heInicio ? `${formatLocalDate(sysConfig.heInicio)} al ${formatLocalDate(sysConfig.heFin)}` : 'Sin fechas definidas'}
-                                        </p>
-                                    </div>
-                                </div>
-                                <span className="text-2xl font-black text-white">{gamificationStats.totalOT}h</span>
-                            </div>
-
-                            {/* 🔥 2. TOTAL VIAJES 🔥 */}
-                            <div className="bg-blue-900/20 border border-blue-800/40 p-4 rounded-2xl flex items-center justify-between">
-                                <div className="flex items-center gap-3"><div className="p-3 bg-blue-600 rounded-xl text-white shadow-lg"><Target size={20}/></div><div><h4 className="text-[10px] font-black text-blue-400 uppercase">Total Viajes (Mes)</h4><p className="text-xs text-slate-300 font-bold">Recolecciones y Entregas</p></div></div>
-                                <span className="text-2xl font-black text-white">{gamificationStats.totalOps}</span>
-                            </div>
-                            {/* 🔥 3. META DE SECUNDARIAS 🔥 */}
-                            <div className="bg-indigo-900/20 border border-indigo-800/40 p-4 rounded-2xl">
-                                <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center gap-3"><div className="p-2 bg-indigo-600 rounded-xl text-white shadow-lg"><ListChecks size={16}/></div><div><h4 className="text-[10px] font-black text-indigo-400 uppercase">Meta Secundarias</h4><p className="text-[9px] text-slate-400 font-bold uppercase">Mínimo {sysConfig.metaSecundarias || 60} al mes</p></div></div>
-                                    <span className="text-xl font-black text-white">
-                                        {gamificationStats.totalSecundarias || 0}
-                                        <span className="text-sm text-slate-500"> / {sysConfig.metaSecundarias || 60}</span>
-                                    </span>
-                                </div>
-                                <div className="w-full bg-slate-900 rounded-full h-2.5 border border-slate-700 overflow-hidden">
-                                    <div className={cn("h-2.5 rounded-full transition-all duration-1000", (gamificationStats.totalSecundarias || 0) >= Number(sysConfig.metaSecundarias || 60) ? "bg-green-500" : "bg-indigo-500")} style={{ width: `${Math.min(((gamificationStats.totalSecundarias || 0) / Number(sysConfig.metaSecundarias || 60)) * 100, 100)}%` }}></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-              ) : (<div className="space-y-4"><button onClick={() => setUserView('mantenimiento')} className="w-full bg-yellow-600/90 border-b-4 border-yellow-800 text-white py-4 rounded-2xl font-black uppercase shadow-xl hover:bg-yellow-500 transition-all flex items-center justify-center gap-3"><div className="bg-black/20 p-2 rounded-full"><Wrench size={20}/></div><span>Registrar Mantenimiento</span></button><ScheduleModule 
-    currentUser={currentUser} 
-    userName={form.recolector || perfilesUsuarios[currentUser?.email]?.nombre?.toUpperCase() || USUARIOS_EMAIL[currentUser?.email] || currentUser?.email} 
-/></div>)}
-              </div>
-              <div className="space-y-6">
-                 <div className="bg-[#151F32] p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden border border-slate-800">
-                    <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">{userMetrics.label === 'HOY (GLOBAL)' ? 'EFICIENCIA DIARIA (HOY)' : `EFICIENCIA: ${userMetrics.label}`}</p>
-                    <h4 className="text-6xl font-black text-green-400 mb-2 leading-none">{userMetrics.ef}%</h4>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase italic">{userMetrics.count > 0 ? `Basado en ${userMetrics.count} Registros de Hoy` : 'Esperando datos del día...'}</p>
-                    <TrendingUp className="absolute -right-6 -bottom-6 text-slate-800 opacity-50" size={180}/>
-                 </div>
-              </div>
-           </div>
-        )}
-        {appMode === 'admin' && (
-          <div className="space-y-6 md:space-y-8 animate-in fade-in print-p-0">
-             <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 print-hide">
-                <div className="w-full xl:w-auto overflow-hidden">
-                    <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-white mb-4 xl:mb-0">Centro de Control</h2>
-                    <div className="flex gap-2 mt-0 xl:mt-4 bg-[#0B1120] p-1 rounded-xl w-full border border-slate-800 overflow-x-auto md:flex-wrap md:overflow-visible custom-scrollbar">
-                        <button onClick={()=>setAdminSection('ops')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection==='ops'?"bg-green-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}><ShieldCheck size={14}/> Operaciones</button>
-                        <button onClick={()=>setAdminSection('fleet')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection==='fleet'?"bg-orange-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}><Bike size={14}/> Flota</button>
-                        <button onClick={()=>setAdminSection('hr')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection==='hr'?"bg-purple-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}><Clock size={14}/> Control HE</button>
-                        <button onClick={()=>setAdminSection('agenda')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection==='agenda'?"bg-blue-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}><Calendar size={14}/> Horarios</button>
-                        <button onClick={()=>setAdminSection('bi')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection==='bi'?"bg-indigo-600 text-white shadow-md":"text-slate-500 hover:text-slate-300")}><PieChartIcon size={14}/> Analítica</button>
-                        <button onClick={()=>setAdminSection('catalogos')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection==='catalogos'?"bg-slate-200 text-black shadow-md":"text-slate-500 hover:text-slate-300")}><Settings size={14}/> Catálogos</button>
-                    </div>
-                </div>
-                <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center w-full xl:w-auto">
-                  <div className="flex flex-wrap bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center gap-2 w-full sm:w-auto">
-                    <Filter size={16} className="text-slate-500 hidden sm:block"/>
-                    <select value={filterZona} onChange={e=>setFilterZona(e.target.value)} className="bg-transparent font-black text-indigo-400 text-[10px] uppercase outline-none px-2 border-l border-slate-700 pl-2 flex-1 sm:flex-none cursor-pointer" title="Filtrar por Zona/Región">
-                        <option value="all" className="bg-slate-900 text-white">🌎 Todas las Zonas</option>
-                        {catalogs.paises.map(p => <option key={p} value={p} className="bg-indigo-900 text-white">📍 {p} (PAÍS COMPLETO)</option>)}
-                        <optgroup label="ZONAS ESPECÍFICAS" className="bg-slate-800 text-slate-400">{Object.values(catalogs.zonas || {}).flat().map(z => <option key={z} value={z} className="bg-slate-900 text-white">  ↳ {z}</option>)}</optgroup>
-                    </select>
-                    <input 
-                        type="date" 
-                        value={filterSpecificDate} 
-                        onChange={e => {
-                            const val = e.target.value;
-                            setFilterSpecificDate(val);
-                            if (val) {
-                                // Máquina del tiempo: Ajusta el mes y año automáticamente
-                                const [y, m, d] = val.split('-');
-                                setFilterYear(y);
-                                setFilterMonth(parseInt(m, 10).toString());
-                            }
-                        }} 
-                        className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer flex-1 sm:flex-none" 
-                        title="Filtrar por Día Exacto" />
-                    <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">{availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}</select>
-                    <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">{['all',1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">{m==='all'?'Año':'Mes '+m}</option>)}</select>
-                    <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Todos</option>{Object.values(catalogs.transportistas || {}).flat().map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
-                    <select value={filterSucursal} onChange={e=>setFilterSucursal(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 max-w-[120px] text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Sucursal</option>{Object.values(catalogs.sucursales || {}).flat().map(s=><option key={s} value={s} className="bg-slate-900">{s}</option>)}</select>
-                  </div>
-                  <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                      <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-blue-500 transition-all flex-1 sm:flex-none"><Bell size={14}/> Aviso</button>
-                      <button onClick={exportToCSV} className="bg-green-600 text-white px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-green-700 transition-all flex-1 sm:flex-none"><FileSpreadsheet size={14}/> Excel</button>
-                      <button onClick={() => downloadReport()} className="bg-white text-black px-4 py-3 md:py-2 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center justify-center gap-2 hover:bg-slate-200 transition-all flex-1 sm:flex-none"><Download size={14}/> PDF</button>
-                    {isFetchingHistory && <span className="text-[10px] text-blue-400 font-bold uppercase flex items-center gap-2 animate-pulse"><Loader2 size={14} className="animate-spin"/> Descargando Historial...</span>}
-                  </div>
-                </div>
-             </div>
-             {adminSection === 'catalogos' && (
-                <div className="animate-in fade-in space-y-8">
-                    {/* 🟢 FORMULARIO ALTA DE NUEVOS TRANSPORTISTAS */}
-                   <div className="bg-[#0B1120] p-6 rounded-2xl border border-slate-700 mt-6 shadow-inner">
-                       <h4 className="text-xs font-black text-blue-400 uppercase tracking-widest mb-4">➕ Registrar Nuevo Transportista en el Sistema</h4>
-                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
-                           <div>
-                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Nombre Completo</label>
-                               <input type="text" id="new_user_name" placeholder="EJ. JUAN PÉREZ" className="w-full p-2.5 bg-[#151F32] border border-slate-700 rounded-lg text-xs font-bold text-white uppercase"/>
-                           </div>
-                           <div>
-                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Correo Electrónico</label>
-                               <input type="email" id="new_user_email" placeholder="juan@recolekta.com" className="w-full p-2.5 bg-[#151F32] border border-slate-700 rounded-lg text-xs font-bold text-white"/>
-                           </div>
-                           <div>
-                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Contraseña Inicial</label>
-                               <input type="text" id="new_user_password" placeholder="Mínimo 6 letras" className="w-full p-2.5 bg-[#151F32] border border-slate-700 rounded-lg text-xs font-bold text-white"/>
-                           </div>
-                           <div>
-                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Zona Operativa</label>
-                               <select id="new_user_zone" className="w-full p-2.5 bg-[#151F32] border border-slate-700 rounded-lg text-xs font-bold text-indigo-300">
-                                   {Object.values(catalogs.zonas || {}).flat().map(z => <option key={z} value={z}>{z}</option>)}
-                               </select>
-                           </div>
-                           <button 
-                               type="button"
-                               onClick={async () => {
-                                   const nameInput = document.getElementById('new_user_name');
-                                   const emailInput = document.getElementById('new_user_email');
-                                   const passInput = document.getElementById('new_user_password');
-                                   const zoneInput = document.getElementById('new_user_zone');
-
-                                   const name = nameInput.value.trim().toUpperCase();
-                                   const email = emailInput.value.trim().toLowerCase();
-                                   const password = passInput.value.trim();
-                                   const zone = zoneInput.value;
-
-                                   if(!name || !email || !password) return alert("Por favor completa los campos obligatorios.");
-                                   if(password.length < 6) return alert("La contraseña debe tener al menos 6 caracteres.");
-
-                                   try {
-                                       // A) Actualizar el catálogo maestro de transportistas en Firestore
-                                       let nuevosTransportistas = { ...catalogs.transportistas };
-                                       const listaActual = nuevosTransportistas[catalogCountry] || [];
-                                       if(listaActual.includes(name)) return alert("Este nombre ya existe en los catálogos.");
-                                       
-                                       nuevosTransportistas[catalogCountry] = [...listaActual, name].sort();
-                                       await setDoc(doc(db, "configuraciones", "catalogos"), { transportistas: nuevosTransportistas }, { merge: true });
-
-                                       // B) Crear el documento de perfil vinculado
-                                       await setDoc(doc(db, "usuarios_perfiles", email), {
-                                           nombre: name,
-                                           zona: zone,
-                                           categoria: 'Operador',
-                                           estatus: 'Inactivo',
-                                           createdAt: new Date().toISOString()
-                                       });
-
-                                       // C) El truco de la App Secundaria para Firebase Auth sin desloguear al Admin
-                                       // 🟢 CORRECCIÓN: Importamos deleteApp de firebase/app
-                                       const { initializeApp, deleteApp } = await import('firebase/app');
-                                       const { getAuth, createUserWithEmailAndPassword, signOut: secondarySignOut } = await import('firebase/auth');
-                                       
-                                       // Accedemos a la configuración interna del SDK ya inicializado
-                                       const fbConfig = db.app.options; 
-                                       const appSecundaria = initializeApp(fbConfig, "AppTemporalCreacion");
-                                       const authSecundario = getAuth(appSecundaria);
-                                       
-                                       await createUserWithEmailAndPassword(authSecundario, email, password);
-                                       await secondarySignOut(authSecundario);
-                                       
-                                       // 🟢 CORRECCIÓN: Usamos el método modular correcto
-                                       await deleteApp(appSecundaria);
-
-                                       alert(`¡Transportista ${name} creado con éxito en Autenticación, Catálogos y Perfiles! 🚀`);
-                                       
-                                       // Limpieza de inputs
-                                       nameInput.value = ''; emailInput.value = ''; passInput.value = '';
-                                   } catch(err) {
-                                       console.error(err);
-                                       alert("Error durante la creación: " + err.message);
-                                   }
-                               }}
-                               className="w-full bg-green-600 hover:bg-green-500 text-white py-2.5 rounded-lg text-xs font-black uppercase shadow-md transition-all"
-                           >
-                               Crear Usuario
-                           </button>
-                       </div>
-                   </div>
-                   {/* 1. GESTIÓN DE USUARIOS */}
-                   <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden">
-                       <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 to-violet-500"></div>
-                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                           <h3 className="text-xl font-black text-white flex items-center gap-3"><Users className="text-pink-500"/> Gestión de Usuarios, Rangos y Zonas</h3>
-                           <div className="flex items-center gap-2 bg-[#0B1120] p-2 rounded-xl border border-slate-700">
-                               <Filter size={14} className="text-slate-500"/>
-                               <select value={filterUserTableZone} onChange={e=>setFilterUserTableZone(e.target.value)} className="bg-transparent text-[10px] font-bold text-slate-300 uppercase outline-none cursor-pointer">
-                                   <option value="all">Todas las Zonas</option>
-                                   {Object.values(catalogs.zonas || {}).flat().map(z => <option key={z} value={z}>{z}</option>)}
-                               </select>
-                           </div>
-                       </div>
-                       <div className="overflow-x-auto bg-[#0B1120] rounded-2xl border border-slate-700 shadow-inner">
-                           <table className="w-full text-left">
-                               <thead className="text-[10px] font-black text-slate-400 uppercase bg-slate-800/50"><tr><th className="px-5 py-4">Transportista</th><th className="px-5 py-4">Correo Acceso</th><th className="px-5 py-4">Foto</th><th className="px-5 py-4 w-48">Rango / Categoría</th><th className="px-5 py-4 w-48">🌍 Zona Asignada</th></tr></thead>
-                               <tbody className="text-xs font-bold divide-y divide-slate-800 text-slate-300">
-                                   {Object.values(catalogs.transportistas || {}).flat()
-                                     .filter(name => !['ADMINISTRADOR', 'SUPERVISOR', 'NUEVO ADMIN', 'USUARIO PRUEBA'].includes(name))
-                                     .filter(name => filterUserTableZone === 'all' || getUserZone(name) === filterUserTableZone)
-                                     .map(name => {
-                                       // 🟢 CORRECCIÓN: Busca el correo primero en los perfiles de Firebase en vivo, y si no, usa el respaldo estático.
-                                       const email = Object.keys(perfilesUsuarios).find(key => perfilesUsuarios[key]?.nombre === name) || Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === name);//const email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === name);
-                                       const profile = perfilesUsuarios[email] || {}; 
-                                       return (
-                                           <tr key={name} className="hover:bg-slate-800/30">
-                                               <td className="px-5 py-4 text-white font-black">{name}</td>
-                                               <td className="px-5 py-4 font-mono text-slate-400 text-[11px]">{email || <span className="text-red-500 italic">No vinculado</span>}</td>
-                                               <td className="px-5 py-4"><div className="w-10 h-10 rounded-full border-2 border-slate-700 bg-black flex items-center justify-center overflow-hidden shadow-md">{profile.foto ? <img src={profile.foto} className="w-full h-full object-cover"/> : <User size={18} className="text-slate-600"/>}</div></td>
-                                               <td className="px-5 py-4">{email ? (<div className="relative"><select value={profile.categoria || 'Operador'} onChange={(e) => handleAssignCategory(email, e.target.value)} className={cn("w-full p-2 bg-[#151F32] border border-slate-700 rounded text-[10px] uppercase outline-none", (profile.categoria||'Operador') === 'Coordinador' ? "text-yellow-400" : (profile.categoria||'Operador') === 'Técnico' ? "text-slate-300" : "text-orange-400")}><option value="Operador">Operador</option><option value="Técnico">Técnico</option><option value="Coordinador">Coordinador</option></select></div>) : '--'}</td>
-                                               <td className="px-5 py-4">{email ? (<div className="relative"><select value={profile.zona || 'Sin Asignar'} onChange={(e) => handleAssignZone(email, e.target.value)} className="w-full p-2 bg-[#151F32] border border-indigo-900 rounded text-[10px] uppercase outline-none text-indigo-300"><option value="Sin Asignar">Sin Asignar</option>{Object.values(catalogs.zonas || {}).flat().map(z => <option key={z} value={z}>{z}</option>)}</select></div>) : '--'}</td>
-                                           </tr>
-                                       );
-                                   })}
-                               </tbody>
-                           </table>
-                       </div>
-                   </div>               
-                   {/* 2. EDITOR DE CATÁLOGOS */}
-                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl">
-                       <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
-                           <h3 className="text-xl font-black text-white flex items-center gap-2"><ListChecks className="text-blue-500"/> Editor de Catálogos</h3>
-                           <select value={catalogCountry} onChange={e=>setCatalogCountry(e.target.value)} className="bg-[#0B1120] text-sm font-black text-white uppercase outline-none p-2 rounded-xl">{catalogs.paises.map(p => <option key={p} value={p}>{p}</option>)}</select>
-                       </div>
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                           <div className="bg-indigo-900/10 p-5 rounded-2xl border border-indigo-800/40 md:col-span-2"><h4 className="text-xs font-bold text-indigo-300 uppercase mb-4">Zonas Operativas de {catalogCountry}</h4><div className="flex gap-2"><input type="text" value={newCatalogItems.zonas || ''} onChange={e=>setNewCatalogItems({...newCatalogItems, zonas: e.target.value})} className="flex-1 p-3 bg-[#151F32] border border-indigo-700/50 rounded-xl text-white text-[10px]"/><button onClick={() => handleAddCatalogItem('zonas')} className="bg-indigo-600 px-4 rounded-xl text-white"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2 mt-4">{(catalogs.zonas[catalogCountry] || []).map(item => (<span key={item} className="bg-indigo-950/50 text-indigo-200 px-3 py-1.5 rounded-lg text-[9px] flex items-center gap-2">{item} <X size={12} className="cursor-pointer text-indigo-500" onClick={() => handleRemoveCatalogItem('zonas', item, catalogCountry)}/></span>))}</div></div>
-                           <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700"><h4 className="text-xs font-bold text-slate-300 uppercase mb-4">Transportistas ({catalogCountry})</h4><div className="flex gap-2"><input type="text" value={newCatalogItems.transportistas} onChange={e=>setNewCatalogItems({...newCatalogItems, transportistas: e.target.value.toUpperCase()})} className="flex-1 p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white text-[10px]"/><button onClick={() => handleAddCatalogItem('transportistas')} className="bg-blue-600 px-4 rounded-xl text-white"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2 mt-4">{(catalogs.transportistas[catalogCountry] || []).map(item => (<span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] flex items-center gap-2">{item} <X size={12} className="cursor-pointer" onClick={() => handleRemoveCatalogItem('transportistas', item)}/></span>))}</div></div>
-                           <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700"><h4 className="text-xs font-bold text-slate-300 uppercase mb-4">Sucursales ({catalogCountry})</h4><div className="flex gap-2"><input type="text" value={newCatalogItems.sucursales} onChange={e=>setNewCatalogItems({...newCatalogItems, sucursales: e.target.value})} className="flex-1 p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white text-[10px]"/><button onClick={() => handleAddCatalogItem('sucursales')} className="bg-indigo-600 px-4 rounded-xl text-white"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2 mt-4">{(catalogs.sucursales[catalogCountry] || []).map(item => (<span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] flex items-center gap-2">{item} <X size={12} className="cursor-pointer" onClick={() => handleRemoveCatalogItem('sucursales', item)}/></span>))}</div></div>
-                           <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700"><h4 className="text-xs font-bold text-slate-300 uppercase mb-4">Tipos de Diligencia ({catalogCountry})</h4><div className="flex gap-2"><input type="text" value={newCatalogItems.diligencias} onChange={e=>setNewCatalogItems({...newCatalogItems, diligencias: e.target.value})} className="flex-1 p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white text-[10px]"/><button onClick={() => handleAddCatalogItem('diligencias')} className="bg-green-600 px-4 rounded-xl text-white"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2 mt-4">{(catalogs.diligencias[catalogCountry] || []).map(item => (<span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] flex items-center gap-2">{item} <X size={12} className="cursor-pointer text-slate-500" onClick={() => handleRemoveCatalogItem('diligencias', item)}/></span>))}</div></div>
-                           <div className="bg-[#0B1120] p-5 rounded-2xl border border-slate-700"><h4 className="text-xs font-bold text-slate-300 uppercase mb-4">Áreas ({catalogCountry})</h4><div className="flex gap-2"><input type="text" value={newCatalogItems.areas} onChange={e=>setNewCatalogItems({...newCatalogItems, areas: e.target.value})} className="flex-1 p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white text-[10px]"/><button onClick={() => handleAddCatalogItem('areas')} className="bg-orange-600 px-4 rounded-xl text-white"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2 mt-4">{(catalogs.areas[catalogCountry] || []).map(item => (<span key={item} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-[9px] flex items-center gap-2">{item} <X size={12} className="cursor-pointer hover:text-red-400" onClick={() => handleRemoveCatalogItem('areas', item)}/></span>))}</div></div>
-                       </div>
-                   </div>
-                   
-                   {/* 3. NUEVO PANEL: CONFIGURACIÓN DE METAS (KPIs) */}
-                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl">
-                       <h3 className="text-xl font-black text-white flex items-center gap-2 mb-6 border-b border-slate-800 pb-4"><Target className="text-green-500"/> Configuración de Metas Operativas (KPIs)</h3>
-                       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                           <div><label className="text-[10px] font-bold text-slate-400 uppercase">Min. Espera (Metro)</label><input type="number" value={sysConfig.metaMetro || 5} onChange={e=>setSysConfig({...sysConfig, metaMetro: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
-                           <div><label className="text-[10px] font-bold text-slate-400 uppercase">Min. Espera (Interior)</label><input type="number" value={sysConfig.metaInterior || 10} onChange={e=>setSysConfig({...sysConfig, metaInterior: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
-                           <div><label className="text-[10px] font-bold text-slate-400 uppercase">Min. Espera (Frontera)</label><input type="number" value={sysConfig.metaFrontera || 20} onChange={e=>setSysConfig({...sysConfig, metaFrontera: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
-                           <div><label className="text-[10px] font-bold text-slate-400 uppercase">Meta Secundarias (Mes)</label><input type="number" value={sysConfig.metaSecundarias || 60} onChange={e=>setSysConfig({...sysConfig, metaSecundarias: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"/></div>
-                       </div>
-                       <button onClick={handleSaveConfig} className="mt-6 w-full md:w-auto bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase transition-all shadow-md flex items-center justify-center gap-2"><Save size={16}/> Aplicar Nuevas Metas Globales</button>
-                   </div>
-                </div>
-             )}
-
-             {adminSection === 'bi' && (
-                <div className="animate-in fade-in space-y-6 print-hide">
-                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden">
-                       <div className="absolute top-0 right-0 p-4 opacity-5"><Globe size={150} className="text-blue-500"/></div>
-                       <h3 className="text-xl font-black text-white flex items-center gap-2 mb-2"><Globe className="text-blue-400"/> Tabla de Posiciones Global</h3>
-                       <p className="text-xs text-slate-400 mb-6">Comparativa de rendimiento entre países y sub-zonas operativas.</p>
-                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative z-10">
-                           <div className="bg-[#0B1120] rounded-2xl border border-slate-700 overflow-hidden shadow-inner"><h4 className="bg-blue-900/20 p-4 text-xs font-black text-blue-300 uppercase tracking-widest border-b border-blue-900/50 flex items-center gap-2"><Trophy size={14}/> Comparativa por Países</h4><table className="w-full text-left"><thead className="text-[9px] font-bold text-slate-500 uppercase bg-slate-900/50"><tr><th className="px-4 py-3">País</th><th className="px-4 py-3 text-center">Eficiencia</th><th className="px-4 py-3 text-center">Viajes Vitales</th><th className="px-4 py-3 text-center">Total Viajes</th></tr></thead><tbody className="text-xs font-bold text-slate-300 divide-y divide-slate-800">{regionalMetrics.paises.length===0&&<tr><td colSpan="4" className="text-center py-4 text-slate-600">Sin datos</td></tr>}{regionalMetrics.paises.map((p, i) => (<tr key={p.nombre} className="hover:bg-slate-800/50"><td className="px-4 py-3 flex items-center gap-2"><span className="text-[10px] bg-slate-800 w-5 h-5 flex items-center justify-center rounded text-slate-400">{i+1}</span> {p.nombre}</td><td className="px-4 py-3 text-center"><span className={cn("px-2 py-1 rounded-md text-[10px] font-black", p.eficiencia >= 95 ? "bg-green-900/30 text-green-400" : p.eficiencia >= 80 ? "bg-yellow-900/30 text-yellow-400" : "bg-red-900/30 text-red-400")}>{p.eficiencia}%</span></td><td className="px-4 py-3 text-center text-blue-300">{p.vitales}</td><td className="px-4 py-3 text-center">{p.total}</td></tr>))}</tbody></table></div>
-                           <div className="bg-[#0B1120] rounded-2xl border border-slate-700 overflow-hidden shadow-inner"><h4 className="bg-indigo-900/20 p-4 text-xs font-black text-indigo-300 uppercase tracking-widest border-b border-indigo-900/50 flex items-center gap-2"><MapPin size={14}/> Rendimiento por Sub-Zonas</h4><table className="w-full text-left"><thead className="text-[9px] font-bold text-slate-500 uppercase bg-slate-900/50"><tr><th className="px-4 py-3">Zona / Región</th><th className="px-4 py-3 text-center">Eficiencia</th><th className="px-4 py-3 text-center">Viajes Vitales</th><th className="px-4 py-3 text-center">Total Viajes</th></tr></thead><tbody className="text-xs font-bold text-slate-300 divide-y divide-slate-800">{regionalMetrics.zonas.length===0&&<tr><td colSpan="4" className="text-center py-4 text-slate-600">Sin datos</td></tr>}{regionalMetrics.zonas.map((z, i) => (<tr key={z.nombre} className="hover:bg-slate-800/50"><td className="px-4 py-3 flex items-center gap-2"><span className="text-[10px] bg-slate-800 w-5 h-5 flex items-center justify-center rounded text-slate-400">{i+1}</span> <span className="truncate max-w-[120px]" title={z.nombre}>{z.nombre}</span></td><td className="px-4 py-3 text-center"><span className={cn("px-2 py-1 rounded-md text-[10px] font-black", z.eficiencia >= 95 ? "bg-green-900/30 text-green-400" : z.eficiencia >= 80 ? "bg-yellow-900/30 text-yellow-400" : "bg-red-900/30 text-red-400")}>{z.eficiencia}%</span></td><td className="px-4 py-3 text-center text-blue-300">{z.vitales}</td><td className="px-4 py-3 text-center">{z.total}</td></tr>))}</tbody></table></div>
-                       </div>
-                   </div>
-                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 flex justify-between items-center"><div><h3 className="text-xl font-black text-white flex items-center gap-2"><PieChartIcon className="text-indigo-500"/> Inteligencia de Negocios (YoY)</h3><p className="text-xs text-slate-400">Comparativa Anual Mensualizada ({biMetrics.yPrev} vs {biMetrics.yCurrent})</p></div></div>
-                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><TrendingUp size={16} className="text-green-500"/> Eficiencia Operativa (%)</h4><p className="text-[9px] text-slate-500 mb-2 italic">💡 Para ver meses anteriores, usa el filtro de mes y presiona "🔄 Histórico DB".</p><div className="h-64 w-full"><ResponsiveContainer width="100%" height="100%"><LineChart data={biMetrics.dataYoY}><CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#64748b'}} /><YAxis domain={[0, 100]} hide /><Tooltip contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff'}} /><Legend iconType="circle" wrapperStyle={{fontSize: '10px'}}/><Line type="monotone" name={`Año ${biMetrics.yPrev}`} dataKey={`ef${biMetrics.yPrev}`} stroke="#64748b" strokeWidth={2} dot={false} /><Line type="monotone" name={`Año ${biMetrics.yCurrent}`} dataKey={`ef${biMetrics.yCurrent}`} stroke="#10b981" strokeWidth={4} connectNulls={true} /></LineChart></ResponsiveContainer></div></div>
-                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><Fuel size={16} className="text-orange-500"/> Inversión Combustible ($)</h4><div className="h-64 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={biMetrics.dataYoY}><CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#64748b'}} /><Tooltip cursor={{fill: '#1f2937'}} contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff'}} /><Legend iconType="circle" wrapperStyle={{fontSize: '10px'}}/><Bar name={`Año ${biMetrics.yPrev}`} dataKey={`fuel${biMetrics.yPrev}`} fill="#64748b" radius={[4, 4, 0, 0]} /><Bar name={`Año ${biMetrics.yCurrent}`} dataKey={`fuel${biMetrics.yCurrent}`} fill="#f97316" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
-                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl lg:col-span-2"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><Wrench size={16} className="text-yellow-500"/> Costos de Mantenimiento Taller ($)</h4><div className="h-64 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={biMetrics.dataYoY}><CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#64748b'}} /><Tooltip cursor={{fill: '#1f2937'}} contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff'}} /><Legend iconType="circle" wrapperStyle={{fontSize: '10px'}}/><Bar name={`Año ${biMetrics.yPrev}`} dataKey={`maint${biMetrics.yPrev}`} fill="#64748b" radius={[4, 4, 0, 0]} /><Bar name={`Año ${biMetrics.yCurrent}`} dataKey={`maint${biMetrics.yCurrent}`} fill="#eab308" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
-                   </div>
-                </div>
-             )}
-             {adminSection === 'ops' && (
-                <div className="animate-in fade-in print-hide">
-                   <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden mb-6">
-                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                   <h3 className="text-xl font-black text-white flex items-center gap-3"><PieChartIcon className="text-green-500"/> Estado Visual de Eficiencia Individual</h3>
-                    <button 
-                    onClick={() => {
-                    if(!window.confirm("⚠️ ¿Estás segura de apagar la flota? Esto cambiará el estatus de todos a 'INACTIVO'. Úsalo solo al cierre de operaciones.")) return;
-                    adminDashboardMetrics.transportistasStats.forEach(stat => {
-                    if(stat.email && stat.estatus !== 'Inactivo') {
-                    setDoc(doc(db, "usuarios_perfiles", stat.email), { estatus: 'Inactivo' }, { merge: true });
-                        }
-                        });
-                       alert("Toda la flota ha sido marcada como INACTIVA.");
-                                   }} 
-                     className="bg-red-900/30 text-red-400 border border-red-500 hover:bg-red-600 hover:text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shadow-md flex items-center gap-2">
-                     🛑 Apagar Flota (Fin de Día)
-                     </button>
-                     </div>
-                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                           {adminDashboardMetrics.transportistasStats.map(stat => (
-                               <div key={stat.name} onClick={() => setSelectedAdminProfile(stat)} className={cn("bg-[#0B1120] p-4 rounded-2xl border flex flex-col items-center justify-between gap-2 text-center cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg", stat.isDanger ? "border-red-500/50 shadow-md shadow-red-900/20" : "border-slate-700 hover:border-slate-500")}>
-                                   
-                                   {/* 🔥 ESTATUS BADGE Y CHISMOSO 🔥 */}
-                                   <div className="w-full flex justify-between items-center mb-1">
-                                       <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded-md tracking-widest", stat.estatus === 'EN RUTA' ? "bg-green-900/50 text-green-400" : stat.estatus === 'INACTIVO' ? "bg-red-900/50 text-red-400" : stat.estatus === 'DESCONECTADO' ? "bg-slate-800 text-slate-400" : "bg-orange-900/50 text-orange-400")}>
-                                           {stat.estatus}
-                                       </span>
-                                       {stat.inactivoMin > 0 && (
-                                           <span className={cn("text-[10px] font-black flex items-center gap-1", stat.isDanger ? "text-red-400 animate-pulse" : "text-slate-500")}>
-                                               <Clock size={12}/> {stat.inactivoMin}m
-                                           </span>
-                                       )}
-                                   </div>
-
-                                   <span className="text-[11px] font-black text-white uppercase truncate w-full">{stat.name.split(' ')[0]} {stat.name.split(' ')[1] || ''}</span>
-                                   
-                                   <SmallGauge value={stat.eficiencia} size={70} />
-                                   
-                                   {/* 🔥 BARRA DE DILIGENCIAS SECUNDARIAS 🔥 */}
-                                   <div className="w-full mt-2">
-                                       <div className="flex justify-between text-[8px] font-bold text-slate-500 mb-1">
-                                           <span>VITALES: {stat.totalMuestras}</span>
-                                           <span>SECUNDARIAS: {stat.secundarias}</span>
-                                       </div>
-                                       <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
-                                           <div style={{width: `${stat.totalTrips > 0 ? (stat.totalMuestras/stat.totalTrips)*100 : 0}%`}} className="bg-green-500 h-full"></div>
-                                           <div style={{width: `${stat.totalTrips > 0 ? (stat.secundarias/stat.totalTrips)*100 : 0}%`}} className="bg-orange-500 h-full"></div>
-                                       </div>
-                                   </div>
-                                   
-                                   {/* 🔥 ÚLTIMO PUNTO VISITADO 🔥 */}
-                                   <span className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1 mt-1 truncate w-full justify-center">
-                                       <MapPin size={10}/> {stat.ultimaUbicacion || 'SIN RECORRIDO HOY'}
-                                   </span>
-                               </div>
-                           ))}
-                       </div>
-                   </div>
-                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">EFICIENCIA VITAL</p><h3 className="text-4xl font-black text-white">{metrics.efP}%</h3></div>
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">EFICIENCIA SECUNDARIA</p><h3 className="text-4xl font-black text-white">{metrics.efS}%</h3></div>
-                      <div className="bg-[#0B1120] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">TOTAL VIAJES</p><h3 className="text-4xl font-black text-white">{metrics.total}</h3></div>
-                   </div>
-                   <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 mt-6">
-                      <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><TrendingUp size={16} className="text-green-500"/> Evolución Anual de Eficiencia (%)</h4>
-                      <p className="text-[9px] text-slate-500 mb-2 italic">💡 Resumen global anual leído al instante desde la Nube.</p>
-                      <div className="h-60 w-full">
-                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={metrics.monthlyData}>
-                               <defs><linearGradient id="colorEf" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient></defs>
-                               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/>
-                               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#64748b'}} />
-                               <YAxis hide domain={[0, 100]} />
-                               <Tooltip contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff'}} itemStyle={{color: '#10b981'}} formatter={(value) => [`${value}%`, 'Eficiencia']} />
-                               <Area type="monotone" dataKey="ef" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorEf)" connectNulls={true} />
-                            </AreaChart>
-                         </ResponsiveContainer>
-                      </div>
-                   </div>
-                   <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6 mt-6">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-    <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest flex items-center gap-2"><ShieldCheck className="text-green-500" size={18}/> Bitácora de Operación Reciente (Detalle)</h4>
-    <div className="flex gap-2">
-        <button onClick={handleSyncToCloud} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 shadow-lg" title="Forzar Robot a leer todo el mes"><RefreshCw size={14}/> Sincronizar Nube</button>
-        <button onClick={abrirMapaDeRuta} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 shadow-lg"><Map size={14}/> Ver Mapa de Ruta Diaria</button>
-    </div></div>
-    <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center">Foto</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
-    <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
-    {metrics.rows.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((r, i) => (
-                                <tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors">
-                                    <td className="px-4 py-3 text-slate-300 font-bold">{getStrictDateString(r.createdAt)}</td>
-                                    <td className="px-4 py-3 text-white">{r.recolector}</td>
-                                    <td className="px-4 py-3">
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-white">{r.sucursal}</span>
-                                            {r.tiempoTransito > 0 && (<span className="text-[9px] text-blue-400 font-bold flex items-center gap-1 mt-0.5" title="Tiempo de viaje desde la última parada"><Bike size={10}/> Tránsito: {r.tiempoTransito}m</span>)}
-                                            {r.ubicacion && r.ubicacion !== 'Sin GPS' && (<a href={r.ubicacionAnterior ? `https://www.google.com/maps/dir/?api=1&origin=${r.ubicacionAnterior}&destination=${r.ubicacion}` : `https://www.google.com/maps/search/?api=1&query=${r.ubicacion}`} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 text-[9px] font-bold mt-0.5"><MapPin size={10} /> {r.ubicacionAnterior ? 'Ver Ruta Trazada' : 'Ver Ubicación'}</a>)}
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td>
-                                    <td className="px-4 py-3 text-slate-500">{r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida || ''}` : '--'}</td>
-                                    <td className={cn("px-4 py-3", r.tiempo > 5 ? "text-orange-400" : "text-green-400")}>{r.tiempo}m</td>
-                                    <td className="px-4 py-3 text-center"><span className={cn("px-2 py-0.5 rounded-md text-[9px] border font-bold uppercase", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300":"bg-orange-900/30 border-orange-900 text-orange-300")}>{r.categoria === "Principal" ? "Vital" : "Secundaria"}</span></td>
-                                    <td className="px-4 py-3 text-xs italic text-slate-500 truncate max-w-[150px]" title={r.observaciones}>{r.observaciones || '--'}</td>
-                                    <td className="px-4 py-3 text-center">{r.fotoData && r.fotoData.startsWith('http') ? <a href={r.fotoData} target="_blank" rel="noreferrer" className="inline-flex justify-center items-center bg-blue-900/30 text-blue-400 w-8 h-8 rounded-lg border border-blue-900"><ExternalLink size={14}/></a> : r.fotoData ? <img src={r.fotoData} className="w-8 h-8 rounded-lg object-cover cursor-pointer border border-slate-600 hover:border-white transition-all" onClick={()=>setViewingPhoto(r.fotoData)} alt="evidencia"/> : <span className="text-slate-700">-</span>}</td>
-                                    <td className="px-4 py-3 flex items-center justify-center gap-2">
-                                        {filterYear !== '2025' && (<><button onClick={() => openEditModal({...r, hLlegada: r.hLlegada || '', mLlegada: r.mLlegada || '', pLlegada: r.pLlegada || 'AM', hSalida: r.hSalida || '', mSalida: r.mSalida || '', pSalida: r.pSalida || 'AM'}, 'registros_produccion')} className="text-blue-400 hover:text-blue-200"><Edit3 size={16}/></button><button onClick={() => handleDelete('registros_produccion', r.id)} className="text-red-500 hover:text-red-300"><Trash2 size={16}/></button></>)}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {/* 🔥 CONTROLES DE PAGINACIÓN REAL */}
-                    <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between print-hide">
-                            <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">
-                                Mostrando {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, metrics.rows.length)} de {metrics.rows.length} viajes
-                            </span>
-                            <div className="flex gap-2">
-                                <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
-                                    <ChevronLeft size={14} /> Anterior
-                                </button>
-                                <span className="bg-[#0B1120] text-slate-300 px-4 py-2 rounded-lg text-[10px] font-black border border-slate-700">
-                                    Pág. {currentPage} de {Math.ceil(metrics.rows.length / itemsPerPage) || 1}
-                                </span>
-                                <button onClick={() => setCurrentPage(prev => prev + 1)} disabled={currentPage >= Math.ceil(metrics.rows.length / itemsPerPage)} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
-                                    Siguiente <ChevronRight size={14} />
-                                </button>
-                            </div>
-                       </div>
-                    </div>
-                   </div>
-                </div>
-             )}
-         {adminSection === 'fleet' && (
-                <div className="animate-in fade-in space-y-6 print-hide">
-                   
-                   {/* 1. CORTE OPERATIVO */}
-                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
-                        <div className="flex items-center gap-3"><div className="p-3 bg-orange-900/30 rounded-xl text-orange-400"><Settings size={24}/></div><div><h3 className="text-sm font-black text-white uppercase">Corte Operativo de Flota (Combustible/Taller)</h3><p className="text-[10px] text-slate-400">Define el periodo activo para tu presupuesto.</p></div></div>
-                        <div className="flex gap-2 w-full md:w-auto"><input type="date" value={sysConfig.flotaInicio || ''} onChange={e=>setSysConfig({...sysConfig, flotaInicio: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><input type="date" value={sysConfig.flotaFin || ''} onChange={e=>setSysConfig({...sysConfig, flotaFin: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/>
-                        <button 
-    onClick={async () => {
-        handleSaveConfig();
-        
-        const fInicio = sysConfig.flotaInicio;
-        const fFin = sysConfig.flotaFin;
-        if (!fInicio || !fFin) return alert("Por favor, selecciona las fechas en ambos calendarios.");
-
-        try {
-            const { collection, query, where, getDocs } = await import('firebase/firestore');
-            const qFuel = query(collection(db, "registros_combustible"), where("fecha", ">=", fInicio), where("fecha", "<=", fFin));
-            const snapFuel = await getDocs(qFuel);
-            setFuelData(snapFuel.docs.map(d => ({ id: d.id, ...d.data() })));
-
-            const qMaint = query(collection(db, "registros_mantenimiento"), where("fecha", ">=", fInicio), where("fecha", "<=", fFin));
-            const snapMaint = await getDocs(qMaint);
-            setMaintData(snapMaint.docs.map(d => ({ id: d.id, ...d.data() })));
-
-            alert(`✅ Historial descargado correctamente del ${fInicio} al ${fFin}`);
-        } catch(e) {
-            console.error(e);
-            alert("Error al descargar los datos de Firebase.");
-        }
-    }} 
-    className="bg-orange-600 hover:bg-orange-500 text-white px-4 rounded-xl font-bold text-[10px] uppercase transition-all shadow-md"
->
-    Fijar
-</button></div>
-                   </div>
-
-                   {/* 2. KPI CARDS (Dólares y Galones) */}
-                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><DollarSign size={80} className="text-green-500"/></div><p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">COMB. (MES)</p><h3 className="text-3xl font-black text-white">${fleetMetrics.totalFuelCost}</h3></div>
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><Wrench size={80} className="text-yellow-500"/></div><p className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mb-2">TALLER (MES)</p><h3 className="text-3xl font-black text-white">${fleetMetrics.totalMaintCost}</h3></div>
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><Fuel size={80} className="text-orange-500"/></div><p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-2">GALONES</p><h3 className="text-3xl font-black text-white">{fleetMetrics.totalGalones}</h3></div>
-                      <div className="bg-[#0B1120] p-6 rounded-[2rem] border border-slate-800 flex flex-col justify-center"><p className="text-[10px] font-bold text-slate-500 uppercase">GASTO TOTAL FLOTA</p><h3 className="text-3xl font-black text-white">${(parseFloat(fleetMetrics.totalFuelCost) + parseFloat(fleetMetrics.totalMaintCost)).toFixed(2)}</h3></div>
-                   </div>
-
-                   {/* 3. GRÁFICA A ANCHO COMPLETO */}
-                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl">
-                        <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-orange-500"/> Costo Operativo por Transportista ($)</h4>
-                        <div className="h-72 w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={fleetMetrics.chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false}/>
-                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#64748b'}} interval={0} angle={-45} textAnchor="end" height={60} />
-                                    <Tooltip cursor={{fill: '#1f2937'}} contentStyle={{backgroundColor: '#0B1120', border: '1px solid #1f2937', color: '#fff'}} />
-                                    <Legend verticalAlign="top" height={36} />
-                                    <Bar dataKey="fuel" name="Combustible" stackId="a" fill="#ea580c" />
-                                    <Bar dataKey="maint" name="Taller" stackId="a" fill="#eab308" radius={[4, 4, 0, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                   </div>
-
-                   {/* 4. TABLAS LADO A LADO LIBERADAS (Mes completo) */}
-                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        {/* TABLA COMBUSTIBLE */}
-                        <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 flex flex-col h-[400px]">
-                            <h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2 shrink-0"><Fuel size={14} className="text-orange-500"/> Cargas de Combustible</h4>
-                            <div className="overflow-y-auto h-full pb-2 custom-scrollbar">
-                                <table className="w-full text-left relative">
-                                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] sticky top-0 z-10 shadow-sm"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center">Ticket</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
-                                    <tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">
-                                     {fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser)) && isUserInFilterZone(d.usuario, filterZona)).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{perfilesUsuarios[r.usuario]?.nombre?.split(' ')[0] || USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3">{r.galones}</td><td className="px-2 py-3 text-green-400">${r.costo}</td><td className="px-2 py-3">{r.kilometraje}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_combustible')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_combustible', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        
-                        {/* TABLA TALLER */}
-                        <div className="bg-[#151F32] p-4 rounded-[2rem] border border-slate-800 flex flex-col h-[400px]">
-                            <h4 className="font-bold text-slate-300 text-xs uppercase mb-2 flex items-center gap-2 shrink-0"><Wrench size={14} className="text-yellow-500"/> Servicios de Taller</h4>
-                            <div className="overflow-y-auto h-full pb-2 custom-scrollbar">
-                                <table className="w-full text-left relative">
-                                    <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] sticky top-0 z-10 shadow-sm"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center">Evidencia</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
-                                    <tbody className="text-[10px] text-slate-400 divide-y divide-slate-800">
-                                    {maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser)) && isUserInFilterZone(d.usuario, filterZona)).map((r) => (<tr key={r.id} className="hover:bg-slate-800/50"><td className="px-2 py-3">{formatLocalDate(r.fecha)}</td><td className="px-2 py-3 text-white">{perfilesUsuarios[r.usuario]?.nombre?.split(' ')[0] || USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-2 py-3 text-white">{r.tipo}</td><td className="px-2 py-3">{r.taller}</td><td className="px-2 py-3 text-yellow-400">${r.costo}</td><td className="px-2 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td><td className="px-2 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_mantenimiento')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_mantenimiento', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td></tr>))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                   </div>
-                   
-                </div>
-             )}
-             {adminSection === 'hr' && (
-                <div className="animate-in fade-in space-y-6 print-hide">
-                   <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
-                        <div className="flex items-center gap-3"><div className="p-3 bg-purple-900/30 rounded-xl text-purple-400"><Settings size={24}/></div><div><h3 className="text-sm font-black text-white uppercase">Corte de Quincena (Horas Extra)</h3><p className="text-[10px] text-slate-400">Define las fechas para la exportación y visualización del transportista.</p></div></div>
-                        <div className="flex gap-2 w-full md:w-auto"><input type="date" value={sysConfig.heInicio || ''} onChange={e=>setSysConfig({...sysConfig, heInicio: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><input type="date" value={sysConfig.heFin || ''} onChange={e=>setSysConfig({...sysConfig, heFin: e.target.value})} className="p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold text-[10px] flex-1"/><button onClick={handleSaveConfig} className="bg-purple-600 hover:bg-purple-500 text-white px-4 rounded-xl font-bold text-[10px] uppercase transition-all shadow-md">Fijar</button></div>
-                   </div>
-                   <div className="flex justify-between items-center bg-[#151F32] p-6 rounded-[2rem] border border-slate-800">
-                      <div><h3 className="text-2xl font-black text-white">Nómina de Horas Extras</h3><p className="text-xs text-slate-400">Mostrando el historial completo del mes actual</p></div>
-                      <button onClick={exportPayrollCSV} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase shadow-md flex items-center gap-2 hover:bg-purple-700 transition-all" title="El Excel descargará solo la quincena configurada arriba"><FileSpreadsheet size={16}/> Exportar Excel (Quincena)</button>
-                   </div>
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><Clock size={100} className="text-purple-500"/></div><p className="text-[10px] font-bold text-purple-500 uppercase tracking-widest mb-2">HORAS EXTRAS (TODO EL MES)</p><h3 className="text-5xl font-black text-white">{hrMetrics.totalHoras} <span className="text-lg text-slate-500">hrs</span></h3><p className="text-xs text-slate-400 mt-2">Registros procesados: {hrMetrics.totalRegistros}</p></div>
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-purple-500"/> Ranking Horas Extra (Mes)</h4><div className="space-y-3">{hrMetrics.rankingOt.slice(0,5).map((u, i) => (<div key={i} className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center text-[10px] font-bold text-white">{i+1}</div><span className="text-sm font-bold text-slate-300">{u.name}</span></div><div className="flex items-center gap-2"><div className="h-2 bg-purple-900 rounded-full w-24 overflow-hidden"><div className="h-full bg-purple-500" style={{width: `${(u.hours / (parseFloat(hrMetrics.totalHoras) || 1)) * 100}%`}}></div></div><span className="text-xs font-bold text-white">{u.hours}h</span></div></div>))}</div></div>
-                   </div>
-                   <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6">
-                      <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-6 flex items-center gap-2"><ClipboardList className="text-purple-500" size={18}/> Detalle Mensual de Horas Extras</h4>
-                      <div className="overflow-x-auto"><table className="w-full text-left"><thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Colaborador</th><th className="px-4 py-3">Inicio</th><th className="px-4 py-3">Fin</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3 text-center rounded-r-lg">Acciones</th></tr></thead>
-                      <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800">
-                          {hrMetrics.rawData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((r, i) => (
-                              <tr key={r.id} className="hover:bg-slate-800/50">
-                                  <td className="px-4 py-3 text-white font-bold">{getStrictDateString(r.fecha)}</td>
-                                  <td className="px-4 py-3 text-white">{perfilesUsuarios[r.usuario?.toLowerCase().trim()]?.nombre?.toUpperCase() || USUARIOS_EMAIL[r.usuario?.toLowerCase().trim()] || r.usuario}</td>
-                                  <td className="px-4 py-3">{r.horaInicio}</td>
-                                  <td className="px-4 py-3">{r.horaFin}</td>
-                                  <td className="px-4 py-3 text-purple-400 font-black">{r.horasCalculadas}h</td>
-                                  <td className="px-4 py-3 italic text-slate-500">{r.motivo}</td>
-                                  <td className="px-4 py-3 flex justify-center gap-2"><button onClick={()=>openEditModal(r, 'registros_horas_extras')}><Edit size={14} className="text-blue-500 hover:text-blue-300"/></button><button onClick={()=>handleDelete('registros_horas_extras', r.id)}><Trash2 size={14} className="text-red-500 hover:text-red-300"/></button></td>
-                              </tr>
-                          ))}
-                      </tbody></table></div>
-                      {/* 🔥 CONTROLES DE PAGINACIÓN */}
-                      <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between print-hide">
-                          <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">
-                              Mostrando {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, hrMetrics.rawData.length)} de {hrMetrics.rawData.length} registros
-                          </span>
-                          <div className="flex gap-2">
-                              <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
-                                  <ChevronLeft size={14} /> Ant.
-                              </button>
-                              <span className="bg-[#0B1120] text-slate-300 px-4 py-2 rounded-lg text-[10px] font-black border border-slate-700">
-                                  Pág. {currentPage} de {Math.ceil(hrMetrics.rawData.length / itemsPerPage) || 1}
-                              </span>
-                              <button onClick={() => setCurrentPage(prev => prev + 1)} disabled={currentPage >= Math.ceil(hrMetrics.rawData.length / itemsPerPage)} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
-                                  Sig. <ChevronRight size={14} />
-                              </button>
-                          </div>
-                      </div>
-                   </div>
-                </div>
-             )}
-
-           {adminSection === 'agenda' && (
-                <div className="animate-in fade-in">
-                    <div className="bg-[#151F32] p-4 rounded-xl border border-slate-800 mb-6 flex flex-col md:flex-row items-center justify-between shadow-sm gap-4 print-hide">
-                        <div className="flex items-center gap-4 w-full md:w-auto">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Globe size={14}/> Contexto Operativo:</span>
-                            <select value={catalogCountry} onChange={e=>setCatalogCountry(e.target.value)} className="bg-[#0B1120] text-blue-400 text-xs font-black uppercase px-4 py-2 rounded-lg outline-none border border-slate-700 cursor-pointer shadow-inner">
-                                {catalogs.paises.map(p => <option key={p} value={p}>{p}</option>)}
-                            </select>
-                        </div>
-                        
-                        {/* 🔥 EL INTERRUPTOR MAESTRO DE PUBLICACIÓN 🔥 */}
-                        <div className="flex items-center gap-3 w-full md:w-auto bg-[#0B1120] p-2 rounded-xl border border-slate-700">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Visibilidad en App:</span>
-                            <button 
-                                onClick={async () => {
-                                    try { await setDoc(doc(db, "configuraciones", "general"), { agendaPublicada: !(sysConfig.agendaPublicada !== false) }, { merge: true }); } catch (e) { alert("Error de conexión"); }
-                                }} 
-                                className={cn("px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all shadow-md", sysConfig.agendaPublicada !== false ? "bg-green-600 hover:bg-green-500 text-white" : "bg-red-600 hover:bg-red-500 text-white")}
-                            >
-                                {sysConfig.agendaPublicada !== false ? '👁️ PÚBLICA (VISIBLE)' : '🙈 OCULTA (EN EDICIÓN)'}
-                            </button>
-                        </div>
-                    </div>
- <AgendaAdmin 
-    sucursalesObj={catalogs.sucursales} 
-    transportistasObj={catalogs.transportistas} 
-    countryContext={catalogCountry} 
-    readOnly={appMode === 'supervisor'}
-    perfilesUsuarios={perfilesUsuarios} 
-    catalogs={catalogs}
-    filtroZona={filterZona} 
-/>
-                </div>
-             )}
-          </div>
-        )}
-        {appMode === 'supervisor' && (
-           <div className="space-y-6 md:space-y-8 animate-in fade-in print-p-0">
-             <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-800 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 print-hide">
-                <div className="w-full xl:w-auto overflow-hidden">
-                    <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-white mb-4 xl:mb-0 flex items-center gap-2"><Eye className="text-blue-500"/> Visor Operativo supervision</h2>
-                    <div className="flex gap-2 mt-0 xl:mt-4 bg-[#0B1120] p-1 rounded-xl w-full border border-slate-800 overflow-x-auto md:flex-wrap md:overflow-visible custom-scrollbar">
-                        <button onClick={()=>setSupervisorSection('bitacora')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='bitacora'?"bg-blue-600 text-white shadow-md":"text-slate-500 hover:bg-slate-800")}>Bitácora</button>
-                        <button onClick={()=>setSupervisorSection('combustible')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='combustible'?"bg-orange-600 text-white shadow-md":"text-slate-500 hover:bg-slate-800")}>Combustible</button>
-                        <button onClick={()=>setSupervisorSection('taller')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='taller'?"bg-yellow-600 text-black shadow-md":"text-slate-500 hover:bg-slate-800")}>Taller</button>
-                        <button onClick={()=>setSupervisorSection('agenda')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection==='agenda'?"bg-purple-600 text-white shadow-md":"text-slate-500 hover:bg-slate-800")}>Horarios</button>
-                    </div>
-                </div>
-                <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center w-full xl:w-auto">
-                  <div className="flex flex-wrap bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center gap-2 w-full sm:w-auto">
-                    <Filter size={14} className="text-slate-500 hidden sm:block"/>
-                    <input type="date" value={filterSpecificDate} onChange={e=>setFilterSpecificDate(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer flex-1 sm:flex-none" title="Filtrar por Día Exacto" />
-                    <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">{availableYears.map(y => <option key={y} value={y} className="bg-slate-900">{y}{y==='2025'?' (CSV)':''}</option>)}</select>
-                    <select value={filterUser} onChange={e=>setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all">Toda la Flota</option>{Object.values(catalogs.transportistas || {}).flat().map(u=><option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
-                    <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Año</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=><option key={m} value={m} className="bg-slate-900">Mes {m}</option>)}</select>
-                  </div>
-                  <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                      <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-4 py-3 md:py-2 rounded-lg text-[9px] font-black uppercase hover:bg-blue-500 transition-all flex items-center gap-1 shadow-md"><Send size={12}/> AVISO</button>
-                      <button onClick={() => downloadReport()} className="bg-white text-black px-4 py-3 md:py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition-all flex items-center gap-1"><Download size={12}/> PDF</button>
-                  </div>
-                </div>
-             </div>
-             
-            {supervisorSection === 'bitacora' && (
-                <div className="space-y-6">
-                    <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 print-hide">
-                        <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-4 flex items-center gap-2"><Users className="text-blue-500" size={18}/> Monitor de Estatus en Vivo</h4>
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                            {adminDashboardMetrics.transportistasStats.map(stat => (
-                             <div key={stat.name} className={cn("px-3 py-2 rounded-xl flex items-center gap-3 border shadow-sm transition-all", stat.estatus === 'Standby' ? "bg-green-900/20 border-green-500/50" : stat.estatus === 'En Ruta' ? "bg-blue-900/20 border-blue-500/30" : stat.estatus === 'Almuerzo' ? "bg-yellow-900/20 border-yellow-500/50" : "bg-slate-800/40 border-slate-700")}>
-                                    <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", stat.estatus === 'Standby' ? "bg-green-500 animate-pulse" : stat.estatus === 'En Ruta' ? "bg-blue-500" : stat.estatus === 'Almuerzo' ? "bg-yellow-500" : "bg-slate-600")}></div>
-                                    <div className="flex flex-col flex-1">
-                                        <span className={cn("text-[10px] font-black uppercase leading-tight", stat.estatus === 'Inactivo' ? "text-slate-500" : "text-white")}>{stat.name.split(' ')[0]}</span>
-                                        <span className={cn("text-[8px] font-bold uppercase px-1.5 py-0.5 rounded-md w-fit mt-0.5", stat.estatus === 'Standby' ? "bg-green-600 text-white" : stat.estatus === 'En Ruta' ? "bg-blue-600 text-white" : stat.estatus === 'Almuerzo' ? "bg-yellow-600 text-black" : "bg-slate-700 text-slate-400")}>
-                                            {stat.estatus === 'Standby' ? 'DISPONIBLE' : stat.estatus === 'En Ruta' ? 'EN RUTA' : stat.estatus === 'Almuerzo' ? 'ALMORZANDO' : 'INACTIVO'}
-                                        </span>
-                                    </div>
-                                    
-                                    {/* ⏱️ EL CHISMOSO: Solo aparece en ruta, ignorando la hora de almuerzo */}
-                                    {stat.estatus === 'En Ruta' && stat.minutosInactivo !== null && (
-                                        <div className="text-right">
-                                            <p className="text-[7px] text-slate-500 uppercase font-bold leading-none mb-0.5">Últ. Parada</p>
-                                            <span className={cn("text-[9px] font-mono font-black", stat.minutosInactivo >= 60 ? "text-red-400 animate-pulse" : "text-blue-300")}>
-                                                {stat.minutosInactivo > 120 ? '+2 hrs' : `${stat.minutosInactivo}m`}
-                                            </span>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* TABLA DE BITÁCORA ORIGINAL */}
-                    <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto print-hide">
-                       <table className="w-full text-left">
-                          <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Transportista</th><th className="px-4 py-3">Punto</th><th className="px-4 py-3">Entrada</th><th className="px-4 py-3">Salida</th><th className="px-4 py-3">Espera</th><th className="px-4 py-3 text-center">Tipo</th><th className="px-4 py-3">Obs.</th><th className="px-4 py-3 text-center rounded-r-lg">Foto</th></tr></thead>
-                          <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800 overflow-y-auto h-full custom-scrollbar">
-                             {metrics.rows.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((r, i) => (<tr key={r.id || i} className="hover:bg-slate-800/50 transition-colors"><td className="px-4 py-3 text-slate-300 font-bold">{getStrictDateString(r.createdAt)}</td><td className="px-4 py-3 text-white">{r.recolector}</td><td className="px-4 py-3"><div className="flex flex-col"><span className="font-bold text-white">{r.sucursal}</span>{r.tiempoTransito > 0 && (<span className="text-[9px] text-blue-400 font-bold flex items-center gap-1 mt-0.5" title="Tiempo de viaje desde la última parada"><Bike size={10}/> Tránsito: {r.tiempoTransito}m</span>)}{r.ubicacion && r.ubicacion !== 'Sin GPS' && (<a href={r.ubicacionAnterior ? `https://www.google.com/maps/dir/?api=1&origin=${r.ubicacionAnterior}&destination=${r.ubicacion}` : `https://www.google.com/maps/search/?api=1&query=${r.ubicacion}`} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 text-[9px] font-bold mt-0.5" title="Ver en mapa real"><MapPin size={10} /> {r.ubicacionAnterior ? 'Ver Ruta Trazada' : 'Ver Ubicación'}</a>)}</div></td><td className="px-4 py-3 text-slate-500">{r.hLlegada && r.mLlegada ? `${r.hLlegada}:${r.mLlegada} ${r.pLlegada || ''}` : '--'}</td><td className="px-4 py-3 text-slate-500">{r.hSalida && r.mSalida ? `${r.hSalida}:${r.mSalida} ${r.pSalida || ''}` : '--'}</td><td className={cn("px-4 py-3", r.tiempo > 5 ? "text-orange-400" : "text-green-400")}>{r.tiempo}m</td><td className="px-4 py-3 text-center"><span className={cn("px-2 py-0.5 rounded-md text-[9px] border font-bold uppercase", r.categoria==="Principal"?"bg-indigo-900/30 border-indigo-900 text-indigo-300":"bg-orange-900/30 border-orange-900 text-orange-300")}>{r.categoria === "Principal" ? "Vital" : "Secundaria"}</span></td><td className="px-4 py-3 text-xs italic text-slate-500 truncate max-w-[150px]" title={r.observaciones}>{r.observaciones || '--'}</td><td className="px-4 py-3 text-center">{r.fotoData && r.fotoData.startsWith('http') ? <a href={r.fotoData} target="_blank" rel="noreferrer" className="inline-flex justify-center items-center bg-blue-900/30 text-blue-400 w-8 h-8 rounded-lg border border-blue-900"><ExternalLink size={14}/></a> : r.fotoData ? <img src={r.fotoData} className="w-8 h-8 rounded-lg object-cover cursor-pointer border border-slate-600 hover:border-white transition-all" onClick={()=>setViewingPhoto(r.fotoData)} alt="evidencia"/> : <span className="text-slate-700">-</span>}</td></tr>))}
-                          </tbody>
-                       </table>
-                       {/* 🔥 CONTROLES DE PAGINACIÓN REAL */}
-                       <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between print-hide">
-                            <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">
-                                Mostrando {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, metrics.rows.length)} de {metrics.rows.length} viajes
-                            </span>
-                            <div className="flex gap-2">
-                                <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
-                                    <ChevronLeft size={14} /> Anterior
-                                </button>
-                                <span className="bg-[#0B1120] text-slate-300 px-4 py-2 rounded-lg text-[10px] font-black border border-slate-700">
-                                    Pág. {currentPage} de {Math.ceil(metrics.rows.length / itemsPerPage) || 1}
-                                </span>
-                                <button onClick={() => setCurrentPage(prev => prev + 1)} disabled={currentPage >= Math.ceil(metrics.rows.length / itemsPerPage)} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
-                                    Siguiente <ChevronRight size={14} />
-                                </button>
-                            </div>
-                       </div>
-                    </div>
-                </div>
-             )}
-
-             {supervisorSection === 'combustible' && (
-                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto print-hide">
-                   <table className="w-full text-left">
-                      <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Galones</th><th className="px-4 py-3">Costo Total</th><th className="px-4 py-3">Km</th><th className="px-4 py-3 text-center rounded-r-lg">Ticket</th></tr></thead>
-                      <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800 overflow-y-auto h-full custom-scrollbar">
-                         {fuelData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).map((r, i) => (<tr key={r.id || i} className="hover:bg-slate-800/50"><td className="px-4 py-3">{formatLocalDate(r.fecha)}</td><td className="px-4 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-4 py-3">{r.galones}</td><td className="px-4 py-3 text-green-400">${r.costo}</td><td className="px-4 py-3">{r.kilometraje}</td><td className="px-4 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-orange-900/50 text-orange-400 px-2 py-1 rounded border border-orange-900 text-[9px] uppercase hover:bg-orange-900">Ver Ticket</button>}</td></tr>))}
-                      </tbody>
-                   </table>
-                </div>
-             )}
-
-             {supervisorSection === 'taller' && (
-                <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 overflow-x-auto print-hide">
-                   <table className="w-full text-left">
-                      <thead className="text-[9px] font-black text-slate-500 uppercase bg-[#0B1120] rounded-lg"><tr><th className="px-4 py-3 rounded-l-lg">Fecha</th><th className="px-4 py-3">Usuario</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Taller</th><th className="px-4 py-3">Costo</th><th className="px-4 py-3 text-center rounded-r-lg">Evidencia</th></tr></thead>
-                      <tbody className="text-xs font-bold text-slate-400 divide-y divide-slate-800 overflow-y-auto h-full custom-scrollbar">
-                         {maintData.filter(d => checkDate(d.fecha) && (filterUser==='all' || (USUARIOS_EMAIL[d.usuario]||'').includes(filterUser))).map((r, i) => (<tr key={r.id || i} className="hover:bg-slate-800/50"><td className="px-4 py-3">{formatLocalDate(r.fecha)}</td><td className="px-4 py-3 text-white">{USUARIOS_EMAIL[r.usuario]?.split(' ')[0] || 'User'}</td><td className="px-4 py-3">{r.tipo}</td><td className="px-4 py-3">{r.taller}</td><td className="px-4 py-3 text-yellow-400">${r.costo}</td><td className="px-4 py-3 text-center">{r.foto && <button onClick={()=>setViewingPhoto(r.foto)} className="bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded border border-yellow-900 text-[9px] uppercase hover:bg-yellow-900">Ver Foto</button>}</td></tr>))}
-                      </tbody>
-                   </table>
-                </div>
-             )}
-
-             {supervisorSection === 'agenda' && (
-                <div className="animate-in fade-in print-hide">
-                    <div className="bg-[#151F32] p-4 rounded-xl border border-slate-800 mb-6 flex items-center justify-between shadow-sm">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Globe size={14}/> Contexto Operativo:</span>
-                        <select value={catalogCountry} onChange={e=>setCatalogCountry(e.target.value)} className="bg-[#0B1120] text-blue-400 text-xs font-black uppercase px-4 py-2 rounded-lg outline-none border border-slate-700 cursor-pointer shadow-inner">
-                            {catalogs.paises.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                    </div>
-                    {/* 🔥 AQUÍ LE DECIMOS A LA AGENDA QUE EL SUPERVISOR SOLO PUEDE VER 🔥 */}
-<AgendaAdmin 
-    sucursalesObj={catalogs.sucursales} 
-    transportistasObj={catalogs.transportistas} 
-    countryContext={catalogCountry} 
-    readOnly={appMode === 'supervisor'}
-    perfilesUsuarios={perfilesUsuarios} 
-    catalogs={catalogs}
-    filtroZona={filterZona} 
-/>
-                </div>
-             )}
-          </div>
-        )}
+        {appMode === 'user' && <TransportistaHome {...viewProps} />}
+        {appMode === 'admin' && <AdminDashboard {...viewProps} />}
+        {appMode === 'supervisor' && <SupervisorDashboard {...viewProps} />}
       </main>
     </div>
   );

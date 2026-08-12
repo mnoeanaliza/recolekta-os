@@ -12,8 +12,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-// TU CLAVE DE OPENROUTESERVICE (Asegúrate de pegar aquí la clave larga que sacaste de su web)
-const ORS_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImZhMTU3N2JjYTdhZjRkMjBiZjc1ZGJhZWZlZmQ4ZmVjIiwiaCI6Im11cm11cjY0In0='; 
+const ORS_API_KEY = import.meta.env.VITE_ORS_API_KEY;
 
 export default function RutaOptimizada({ puntos = [] }) {
   const [ruta, setRuta] = useState(null);
@@ -30,6 +29,10 @@ export default function RutaOptimizada({ puntos = [] }) {
       setCargando(true);
       setError(null);
       try {
+        if (!ORS_API_KEY) {
+          throw new Error('Falta configurar VITE_ORS_API_KEY para trazar rutas.');
+        }
+
         const coordinates = puntos.map(p => [p.lng, p.lat]);
 
         const response = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {

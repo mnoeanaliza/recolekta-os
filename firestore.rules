@@ -1,0 +1,104 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+
+    function email() {
+      return request.auth.token.email;
+    }
+
+    function isAdmin() {
+      return signedIn() && email() in [
+        'admin@recolekta.com',
+        'nuevo_admin@recolekta.com',
+        'gerencia@recolekta.com',
+        'ing.admin@recolekta.com'
+      ];
+    }
+
+    function isSupervisor() {
+      return signedIn() && email() in [
+        'supervision@recolekta.com',
+        'supervisor@recolekta.com'
+      ];
+    }
+
+    function canManage() {
+      return isAdmin() || isSupervisor();
+    }
+
+    function ownsEmailField(fieldName) {
+      return signedIn()
+        && request.resource.data.keys().hasAny([fieldName])
+        && request.resource.data[fieldName] == email();
+    }
+
+    function ownsExistingEmailField(fieldName) {
+      return signedIn()
+        && resource.data.keys().hasAny([fieldName])
+        && resource.data[fieldName] == email();
+    }
+
+    match /configuraciones/{documentId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /catalogos/{documentId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /agenda_flota/{documentId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /usuarios_perfiles/{userEmail} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin() || (signedIn() && userEmail == email());
+      allow delete: if isAdmin();
+    }
+
+    match /alertas_flota/{documentId} {
+      allow read: if signedIn();
+      allow create, update, delete: if canManage();
+    }
+
+    match /registros_produccion/{documentId} {
+      allow read: if canManage() || ownsExistingEmailField('usuarioEmail');
+      allow create: if ownsEmailField('usuarioEmail');
+      allow update, delete: if canManage();
+    }
+
+    match /registros_combustible/{documentId} {
+      allow read: if canManage() || ownsExistingEmailField('usuario');
+      allow create: if ownsEmailField('usuario');
+      allow update, delete: if canManage();
+    }
+
+    match /registros_mantenimiento/{documentId} {
+      allow read: if canManage() || ownsExistingEmailField('usuario');
+      allow create: if ownsEmailField('usuario');
+      allow update, delete: if canManage();
+    }
+
+    match /registros_horas_extras/{documentId} {
+      allow read: if canManage() || ownsExistingEmailField('usuario');
+      allow create: if ownsEmailField('usuario');
+      allow update, delete: if canManage();
+    }
+
+    match /resumenes_operativos/{documentId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
