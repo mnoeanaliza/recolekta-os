@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 // --- 1. IMPORTACIONES ---
 import { useAuth } from './context/AuthContext';
 import LoginModule from './components/LoginModule';
@@ -98,19 +98,31 @@ const handleSyncToCloud = async () => {
       
       try {
           let count = 0;
-          // 1. Obtenemos a todos los transportistas de tu catálogo
-          const transportistas = Object.values(catalogs.transportistas || {}).flat();
+          const usersByEmail = new Map();
+          const profilesByEmail = new Map();
+          const normalizeEmail = (value) => String(value || '').toLowerCase().trim();
+          const normalizeName = (value) => String(value || '').toUpperCase().trim();
 
-          // 2. Calculamos los datos de los 5,443 viajes que ya tienes en pantalla
-          for (const nombre of transportistas) {
-              const email = Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === nombre);
-              if (!email) continue;
+          Object.entries(USUARIOS_EMAIL).forEach(([email, nombre]) => {
+              usersByEmail.set(normalizeEmail(email), normalizeName(nombre));
+          });
+          Object.entries(perfilesUsuarios).forEach(([email, profile]) => {
+              const normalizedEmail = normalizeEmail(email);
+              profilesByEmail.set(normalizedEmail, profile);
+              if (profile?.nombre) usersByEmail.set(normalizedEmail, normalizeName(profile.nombre));
+          });
 
-              const profile = perfilesUsuarios[email] || {};
+          // Calcula los perfiles desde Firebase para incluir usuarios creados recientemente.
+          for (const [email, nombre] of usersByEmail.entries()) {
+              if (!email || !nombre || ADMIN_EMAILS.includes(email) || SUPERVISOR_EMAILS.includes(email)) continue;
+
+              const profile = profilesByEmail.get(email) || {};
               const miMeta = getMetaEspera(profile.zona);
 
-              // Filtramos los viajes específicos de este transportista
-              const userDocs = liveData.filter(d => d.recolector === nombre);
+              const userDocs = liveData.filter((d) => {
+                  const registroEmail = normalizeEmail(d.usuarioEmail);
+                  return (registroEmail && registroEmail === email) || normalizeName(d.recolector) === nombre;
+              });
 
               let vitalesTotal = 0;
               let vitalesA_Tiempo = 0;
@@ -128,7 +140,11 @@ const handleSyncToCloud = async () => {
               let eficiencia = 100;
               if (vitalesTotal > 0) eficiencia = parseFloat(((vitalesA_Tiempo / vitalesTotal) * 100).toFixed(1));
 
-              // 3. Subimos la respuesta correcta directamente al perfil del usuario
+              const hasChanges = Number(profile.eficienciaNube ?? 100) !== eficiencia
+                  || Number(profile.vitalesNube || 0) !== vitalesTotal
+                  || Number(profile.secundariasNube || 0) !== secundariasTotal;
+              if (!hasChanges) continue;
+
               await setDoc(doc(db, "usuarios_perfiles", email), {
                   eficienciaNube: eficiencia,
                   vitalesNube: vitalesTotal,
@@ -151,6 +167,7 @@ const handleSyncToCloud = async () => {
   const [maintData, setMaintData] = useState([]); 
   const [yearlyFuelData, setYearlyFuelData] = useState([]);
   const [yearlyMaintData, setYearlyMaintData] = useState([]);
+  const yearlyFleetCacheRef = useRef(new Map());
   const [otData, setOtData] = useState([]); 
   const [csvData, setCsvData] = useState([]); 
   const [agendaData, setAgendaData] = useState([]); 
@@ -167,7 +184,7 @@ const handleSyncToCloud = async () => {
   const [filterUser, setFilterUser] = useState('all');
   const [filterSpecificDate, setFilterSpecificDate] = useState(''); 
   const [filterSucursal, setFilterSucursal] = useState('all'); 
-  const [filterZona, setFilterZona] = useState('El Salvador - Metropolitana Centro');
+  const [filterZona, setFilterZona] = useState('all');
   const [filterUserTableZone, setFilterUserTableZone] = useState('all'); 
   const availableYears = useMemo(() => { const current = new Date().getFullYear(); const years = []; for(let y = 2025; y <= current + 1; y++) { years.push(y.toString()); } return years; }, []);
   const [viewingPhoto, setViewingPhoto] = useState(null);
@@ -453,6 +470,13 @@ useEffect(() => {
           return;
       }
 
+      const cached = yearlyFleetCacheRef.current.get(filterYear);
+      if (cached) {
+          setYearlyFuelData(cached.fuel);
+          setYearlyMaintData(cached.maintenance);
+          return;
+      }
+
       let cancelled = false;
       const fetchYearlyFleetCosts = async () => {
           const start = `${filterYear}-01-01`;
@@ -465,8 +489,11 @@ useEffect(() => {
               ]);
 
               if (cancelled) return;
-              setYearlyFuelData(fuelSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-              setYearlyMaintData(maintSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+              const fuel = fuelSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+              const maintenance = maintSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+              yearlyFleetCacheRef.current.set(filterYear, { fuel, maintenance });
+              setYearlyFuelData(fuel);
+              setYearlyMaintData(maintenance);
           } catch (error) {
               console.error("Error cargando historico anual de flota", error);
               if (!cancelled) {
@@ -487,6 +514,11 @@ useEffect(() => {
           email = Object.keys(perfilesUsuarios).find(key => perfilesUsuarios[key]?.nombre === emailOrName) || Object.keys(USUARIOS_EMAIL).find(key => USUARIOS_EMAIL[key] === emailOrName); 
       }
       return perfilesUsuarios[email]?.zona || 'Sin Asignar'; 
+  };
+
+  const getUserDisplayName = (emailOrName) => {
+      const key = String(emailOrName || '').toLowerCase().trim();
+      return perfilesUsuarios[key]?.nombre || USUARIOS_EMAIL[key] || emailOrName || '';
   };
   
   // ⏱️ EL CEREBRO: LÍMITES DE TIEMPO DINÁMICOS POR ZONA (VINCULADO AL PANEL ADMIN)
@@ -569,11 +601,14 @@ const gamificationStats = useMemo(() => {
       const totalSecundarias = userProfile.secundariasNube || 0;
       
       const currentMonth = new Date().getMonth() + 1; const currentYear = new Date().getFullYear().toString();
+      const currentEmail = String(currentUser?.email || '').toLowerCase().trim();
       const userOt = otData.filter(d => { 
+          const registroEmail = String(d.usuario || '').toLowerCase().trim();
+          if (registroEmail !== currentEmail) return false;
           if (sysConfig?.heInicio && sysConfig?.heFin) {
-              return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin && (USUARIOS_EMAIL[d.usuario] || d.usuario) === form.recolector;
+              return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin;
           }
-          const dateInfo = extractDateInfo(d.fecha); return dateInfo.month === currentMonth && dateInfo.year === currentYear && (USUARIOS_EMAIL[d.usuario] || d.usuario) === form.recolector; 
+          const dateInfo = extractDateInfo(d.fecha); return dateInfo.month === currentMonth && dateInfo.year === currentYear;
       });
       const totalOT = userOt.reduce((acc, curr) => acc + parseFloat(String(curr.horasCalculadas).replace(',','.') || 0), 0);
       
@@ -583,7 +618,7 @@ const gamificationStats = useMemo(() => {
           totalOT: totalOT.toFixed(1),
           totalSecundarias: totalSecundarias 
       };
-  }, [userProfile, otData, form.recolector, sysConfig]);
+  }, [userProfile, otData, currentUser, sysConfig]);
 const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
 const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
@@ -611,9 +646,9 @@ const hrMetrics = useMemo(() => {
   const fleetMetrics = useMemo(() => {
     let filteredFuel = fuelData.filter(d => checkDate(d.fecha)); let filteredMaint = maintData.filter(d => checkDate(d.fecha));
     if (filterZona !== 'all') { filteredFuel = filteredFuel.filter(d => isUserInFilterZone(d.usuario, filterZona)); filteredMaint = filteredMaint.filter(d => isUserInFilterZone(d.usuario, filterZona)); }
-    if (filterUser !== 'all') { filteredFuel = filteredFuel.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser); filteredMaint = filteredMaint.filter(d => (USUARIOS_EMAIL[d.usuario] || '') === filterUser); }
+    if (filterUser !== 'all') { filteredFuel = filteredFuel.filter(d => getUserDisplayName(d.usuario) === filterUser); filteredMaint = filteredMaint.filter(d => getUserDisplayName(d.usuario) === filterUser); }
     const totalFuelCost = filteredFuel.reduce((acc, curr) => acc + parseFloat(curr.costo || 0), 0); const totalGalones = filteredFuel.reduce((acc, curr) => acc + parseFloat(curr.galones || 0), 0); const totalMaintCost = filteredMaint.reduce((acc, curr) => acc + parseFloat(curr.costo || 0), 0);
-    const userStats = {}; const process = (i, k) => { const rawName = i.usuario || 'Desconocido'; const name = (perfilesUsuarios[rawName]?.nombre || USUARIOS_EMAIL[rawName] || rawName).split(' ')[0];userStats[name] = userStats[name] || { fuel: 0, maint: 0 }; userStats[name][k] += parseFloat(i.costo || 0); };
+    const userStats = {}; const process = (i, k) => { const rawName = i.usuario || 'Desconocido'; const name = getUserDisplayName(rawName).split(' ')[0];userStats[name] = userStats[name] || { fuel: 0, maint: 0 }; userStats[name][k] += parseFloat(i.costo || 0); };
     filteredFuel.forEach(i => process(i, 'fuel')); filteredMaint.forEach(i => process(i, 'maint'));
     const chartData = Object.entries(userStats).map(([name, stats]) => ({ name, fuel: parseFloat(stats.fuel.toFixed(2)), maint: parseFloat(stats.maint.toFixed(2)), total: parseFloat((stats.fuel + stats.maint).toFixed(2)) })).sort((a,b) => b.total - a.total);
     return { totalFuelCost: totalFuelCost.toFixed(2), totalGalones: totalGalones.toFixed(2), totalMaintCost: totalMaintCost.toFixed(2), chartData };
@@ -715,8 +750,8 @@ const biMetrics = useMemo(() => {
           const ops1 = getOps(y1); const ops2 = getOps(y2); 
           const calcEf = (docs) => { const recs = docs.filter(d => isPrincipalData(d)); if(recs.length === 0) return 0; return parseFloat(((recs.filter(x => (x.tiempo||0) <= getMetaEspera(getUserZone(x.recolector))).length / recs.length) * 100).toFixed(1)); };
           
-          const getFuel = (y) => { let docs = fuelSource.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
-          const getMaint = (y) => { let docs = maintSource.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => (USUARIOS_EMAIL[x.usuario]||'') === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
+          const getFuel = (y) => { let docs = fuelSource.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => getUserDisplayName(x.usuario) === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
+          const getMaint = (y) => { let docs = maintSource.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => getUserDisplayName(x.usuario) === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           
           // 🔥 EL SÚPER MOTOR HÍBRIDO (Eficiencia + Finanzas + CSV Local) 🔥
           let efY1 = 0; let efY2 = 0;
@@ -940,17 +975,17 @@ const exportPayrollCSV = () => {
             doc.save("Recolekta_Agenda_Horarios.pdf"); return;
         }
         if (currentSection === 'combustible' || currentSection === 'fleet') {
-            let dataToExport = fuelData.filter(d => checkDate(d.fecha)); if (filterUser !== 'all') dataToExport = dataToExport.filter(d => (USUARIOS_EMAIL[d.usuario]||'') === filterUser);
+            let dataToExport = fuelData.filter(d => checkDate(d.fecha)); if (filterUser !== 'all') dataToExport = dataToExport.filter(d => getUserDisplayName(d.usuario) === filterUser);
             if (dataToExport.length === 0) return alert("No hay datos de combustible.");
             drawHeader("CONTROL DE COMBUSTIBLE", `Generado: ${dateStr} | Filtro: ${filterUser !== 'all' ? filterUser : 'GLOBAL'}`);
-            const rows = dataToExport.map(r => [formatLocalDate(r.fecha), USUARIOS_EMAIL[r.usuario] || r.usuario, r.galones, `$${r.costo}`, r.kilometraje]);
+            const rows = dataToExport.map(r => [formatLocalDate(r.fecha), getUserDisplayName(r.usuario), r.galones, `$${r.costo}`, r.kilometraje]);
             autoTable(doc, { startY: 65, head: [['Fecha', 'Usuario', 'Galones', 'Costo Total', 'Km']], body: rows, headStyles: { fillColor: slate900 }, theme: 'striped' }); doc.save("Recolekta_Combustible.pdf"); return;
         }
         if (currentSection === 'taller') {
-            let dataToExport = maintData.filter(d => checkDate(d.fecha)); if (filterUser !== 'all') dataToExport = dataToExport.filter(d => (USUARIOS_EMAIL[d.usuario]||'') === filterUser);
+            let dataToExport = maintData.filter(d => checkDate(d.fecha)); if (filterUser !== 'all') dataToExport = dataToExport.filter(d => getUserDisplayName(d.usuario) === filterUser);
             if (dataToExport.length === 0) return alert("No hay datos de taller.");
             drawHeader("CONTROL DE TALLER Y MANTENIMIENTO", `Generado: ${dateStr} | Filtro: ${filterUser !== 'all' ? filterUser : 'GLOBAL'}`);
-            const rows = dataToExport.map(r => [formatLocalDate(r.fecha), USUARIOS_EMAIL[r.usuario] || r.usuario, r.tipo, r.taller, r.descripcion || '--', `$${r.costo}`]);
+            const rows = dataToExport.map(r => [formatLocalDate(r.fecha), getUserDisplayName(r.usuario), r.tipo, r.taller, r.descripcion || '--', `$${r.costo}`]);
             autoTable(doc, { startY: 65, head: [['Fecha', 'Usuario', 'Tipo', 'Taller', 'Detalle', 'Costo']], body: rows, headStyles: { fillColor: slate900 }, theme: 'striped' }); doc.save("Recolekta_Mantenimiento.pdf"); return;
         }
         if (currentSection === 'hr') {

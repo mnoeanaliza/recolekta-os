@@ -91,14 +91,23 @@ const getMeta = async () => {
 };
 
 const resolveEmail = async (data = {}) => {
-    if (data.usuarioEmail) return data.usuarioEmail;
+    if (data.usuarioEmail) return String(data.usuarioEmail).toLowerCase().trim();
     if (!data.recolector) return null;
 
-    const profiles = await db
+    let profiles = await db
         .collection("usuarios_perfiles")
-        .where("recolector", "==", data.recolector)
+        .where("nombre", "==", String(data.recolector).toUpperCase().trim())
         .limit(1)
         .get();
+
+    // Compatibilidad con perfiles antiguos que usaban el campo recolector.
+    if (profiles.empty) {
+        profiles = await db
+            .collection("usuarios_perfiles")
+            .where("recolector", "==", data.recolector)
+            .limit(1)
+            .get();
+    }
 
     return profiles.empty ? null : profiles.docs[0].id;
 };
