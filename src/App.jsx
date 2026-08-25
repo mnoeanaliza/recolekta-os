@@ -98,8 +98,8 @@ const handleSyncToCloud = async () => {
       
       try {
           let count = 0;
-          const usersByEmail = new Map();
-          const profilesByEmail = new Map();
+          const usersByEmail = new globalThis.Map();
+          const profilesByEmail = new globalThis.Map();
           const normalizeEmail = (value) => String(value || '').toLowerCase().trim();
           const normalizeName = (value) => String(value || '').toUpperCase().trim();
 
@@ -167,7 +167,7 @@ const handleSyncToCloud = async () => {
   const [maintData, setMaintData] = useState([]); 
   const [yearlyFuelData, setYearlyFuelData] = useState([]);
   const [yearlyMaintData, setYearlyMaintData] = useState([]);
-  const yearlyFleetCacheRef = useRef(new Map());
+  const yearlyFleetCacheRef = useRef(new globalThis.Map());
   const [otData, setOtData] = useState([]); 
   const [csvData, setCsvData] = useState([]); 
   const [agendaData, setAgendaData] = useState([]); 
