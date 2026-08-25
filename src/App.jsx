@@ -211,9 +211,6 @@ const handleSyncToCloud = async () => {
   const [agendaData, setAgendaData] = useState([]); 
   const [alertasData, setAlertasData] = useState([]);
   const [userProfile, setUserProfile] = useState({ foto: null, categoria: 'Operador', zona: 'Sin Asignar' });
-  const [profileMonthStats, setProfileMonthStats] = useState(null);
-  const [isLoadingProfileMonthStats, setIsLoadingProfileMonthStats] = useState(false);
-  const profileMonthStatsCacheRef = useRef(new globalThis.Map());
   const [perfilesUsuarios, setPerfilesUsuarios] = useState({}); 
   const [selectedAdminProfile, setSelectedAdminProfile] = useState(null);
   const [catalogs, setCatalogs] = useState(DEFAULT_CATALOGS);
@@ -634,93 +631,10 @@ useEffect(() => {
   const handleMotoPhotoUpload = async (e) => { const file = e.target.files[0]; if (!file) return; try { const compressed = await compressImage(file); const storageRef = ref(storage, `motos/${currentUser.email}`); await uploadBytes(storageRef, compressed); const url = await getDownloadURL(storageRef); await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { fotoMoto: url }, { merge: true }); alert("¡Foto de la herramienta de trabajo actualizada!"); } catch (err) { alert("Error subiendo foto de la moto."); } };
   const handleAssignCategory = async (email, newCategory) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { categoria: newCategory }, { merge: true }); } catch (e) {} };
   const handleAssignZone = async (email, newZone) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { zona: newZone }, { merge: true }); } catch (e) {} };
-
-  useEffect(() => {
-      if (appMode !== 'user' || userView !== 'perfil' || !currentUser?.email) {
-          setIsLoadingProfileMonthStats(false);
-          return;
-      }
-
-      let cancelled = false;
-      const email = currentUser.email.toLowerCase().trim();
-      const now = new Date();
-      const monthId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const cacheKey = `${email}|${monthId}`;
-      const cached = profileMonthStatsCacheRef.current.get(cacheKey);
-
-      if (cached && cached.todayCount === liveData.length) {
-          setProfileMonthStats(cached.stats);
-          setIsLoadingProfileMonthStats(false);
-          return;
-      }
-
-      const loadProfileMonthStats = async () => {
-          setIsLoadingProfileMonthStats(true);
-          try {
-              const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-              const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
-              const snap = await getDocs(query(
-                  collection(db, "registros_produccion"),
-                  where("usuarioEmail", "==", email),
-                  where("createdAt", ">=", start),
-                  where("createdAt", "<", end),
-                  orderBy("createdAt", "desc"),
-                  limit(5000)
-              ));
-
-              if (cancelled) return;
-              const records = snap.docs.map(item => item.data());
-              const meta = getMetaEspera(userProfile.zona);
-              let vitales = 0;
-              let vitalesATiempo = 0;
-              let secundarias = 0;
-
-              records.forEach(record => {
-                  if (isPrincipalData(record)) {
-                      vitales++;
-                      if (Number(record.tiempo || 0) <= meta) vitalesATiempo++;
-                  } else {
-                      secundarias++;
-                  }
-              });
-
-              const stats = {
-                  eficiencia: vitales > 0 ? parseFloat(((vitalesATiempo / vitales) * 100).toFixed(1)) : 100,
-                  vitales,
-                  secundarias,
-                  totalOps: records.length
-              };
-
-              profileMonthStatsCacheRef.current.set(cacheKey, { stats, todayCount: liveData.length });
-              setProfileMonthStats(stats);
-
-              const profileIsStale = Number(userProfile.eficienciaNube ?? 100) !== stats.eficiencia
-                  || Number(userProfile.vitalesNube || 0) !== stats.vitales
-                  || Number(userProfile.secundariasNube || 0) !== stats.secundarias;
-
-              if (profileIsStale) {
-                  await setDoc(doc(db, "usuarios_perfiles", email), {
-                      eficienciaNube: stats.eficiencia,
-                      vitalesNube: stats.vitales,
-                      secundariasNube: stats.secundarias,
-                      ultimaAuditoria: new Date().toISOString()
-                  }, { merge: true });
-              }
-          } catch (error) {
-              if (!cancelled) console.error("No se pudieron calcular las estadísticas mensuales del perfil", error);
-          } finally {
-              if (!cancelled) setIsLoadingProfileMonthStats(false);
-          }
-      };
-
-      loadProfileMonthStats();
-      return () => { cancelled = true; };
-  }, [appMode, userView, currentUser?.email, liveData.length, userProfile.zona]);
-
 const gamificationStats = useMemo(() => {
-      const ef = profileMonthStats?.eficiencia ?? (userProfile.eficienciaNube !== undefined ? userProfile.eficienciaNube : 100);
-      const totalOps = profileMonthStats?.totalOps ?? ((userProfile.vitalesNube || 0) + (userProfile.secundariasNube || 0));
-      const totalSecundarias = profileMonthStats?.secundarias ?? (userProfile.secundariasNube || 0);
+      const ef = userProfile.eficienciaNube !== undefined ? userProfile.eficienciaNube : 100;
+      const totalOps = (userProfile.vitalesNube || 0) + (userProfile.secundariasNube || 0);
+      const totalSecundarias = userProfile.secundariasNube || 0;
       
       const currentMonth = new Date().getMonth() + 1; const currentYear = new Date().getFullYear().toString();
       const currentEmail = String(currentUser?.email || '').toLowerCase().trim();
@@ -738,10 +652,9 @@ const gamificationStats = useMemo(() => {
           eficiencia: parseFloat(ef), 
           totalOps: totalOps, 
           totalOT: totalOT.toFixed(1),
-          totalSecundarias: totalSecundarias,
-          isLoading: isLoadingProfileMonthStats
+          totalSecundarias: totalSecundarias
       };
-  }, [userProfile, profileMonthStats, isLoadingProfileMonthStats, otData, currentUser, sysConfig]);
+  }, [userProfile, otData, currentUser, sysConfig]);
 const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
 const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });

@@ -181,14 +181,14 @@ export default function TransportistaHome(props) {
                             {/* 🔥 2. TOTAL VIAJES 🔥 */}
                             <div className="bg-blue-900/20 border border-blue-800/40 p-4 rounded-2xl flex items-center justify-between">
                                 <div className="flex items-center gap-3"><div className="p-3 bg-blue-600 rounded-xl text-white shadow-lg"><Target size={20} /></div><div><h4 className="text-[10px] font-black text-blue-400 uppercase">Total Viajes (Mes)</h4><p className="text-xs text-slate-300 font-bold">Recolecciones y Entregas</p></div></div>
-                                <span className="text-2xl font-black text-white">{gamificationStats.isLoading ? <Loader2 className="animate-spin text-blue-400" size={22}/> : gamificationStats.totalOps}</span>
+                                <span className="text-2xl font-black text-white">{gamificationStats.totalOps}</span>
                             </div>
                             {/* 🔥 3. META DE SECUNDARIAS 🔥 */}
                             <div className="bg-indigo-900/20 border border-indigo-800/40 p-4 rounded-2xl">
                                 <div className="flex items-center justify-between mb-3">
                                     <div className="flex items-center gap-3"><div className="p-2 bg-indigo-600 rounded-xl text-white shadow-lg"><ListChecks size={16} /></div><div><h4 className="text-[10px] font-black text-indigo-400 uppercase">Meta Secundarias</h4><p className="text-[9px] text-slate-400 font-bold uppercase">Mínimo {sysConfig.metaSecundarias || 60} al mes</p></div></div>
                                     <span className="text-xl font-black text-white">
-                                        {gamificationStats.isLoading ? <Loader2 className="inline animate-spin text-indigo-400" size={18}/> : (gamificationStats.totalSecundarias || 0)}
+                                        {gamificationStats.totalSecundarias || 0}
                                         <span className="text-sm text-slate-500"> / {sysConfig.metaSecundarias || 60}</span>
                                     </span>
                                 </div>
