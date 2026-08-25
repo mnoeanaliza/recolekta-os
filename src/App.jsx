@@ -12,7 +12,7 @@ import SupervisorDashboard from './modules/SupervisorDashboard';
 import TransportistaHome from './modules/TransportistaHome';
 import OvertimeModule from './components/OvertimeModule';
 //import { USUARIOS_EMAIL } from '../App.jsx';
-import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion, setDoc } from 'firebase/firestore'; 
+import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion, setDoc, Timestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // --- ICONOS ---
@@ -35,6 +35,31 @@ export { USUARIOS_EMAIL } from './utils/constants';
 
 // Carga diferida del Mapa
 const RutaOptimizada = lazy(() => import('./components/RutaOptimizada.jsx'));
+
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const toMillis = (value) => {
+    if (!value) return null;
+    if (typeof value.toMillis === 'function') return value.toMillis();
+    if (typeof value.seconds === 'number') return value.seconds * 1000;
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? null : parsed;
+};
+
+const getAlertExpiryMillis = (alerta) => {
+    const explicitExpiry = toMillis(alerta.expiresAt);
+    if (explicitExpiry) return explicitExpiry;
+
+    const createdAt = toMillis(alerta.createdAt);
+    if (!createdAt) return null;
+    const fallbackDays = alerta.tipo === 'confirm' ? 14 : 7;
+    return createdAt + (fallbackDays * DAY_IN_MS);
+};
+
+const isAlertExpired = (alerta, now = Date.now()) => {
+    const expiry = getAlertExpiryMillis(alerta);
+    return expiry !== null && expiry <= now;
+};
 
 function SmallGauge({ value, size = 60 }) {
     const ef = parseFloat(value) || 0;
@@ -94,7 +119,20 @@ function Dashboard() {
 
   // 🔥 BOTÓN MÁGICO: FUERZA A LA NUBE A RECALCULAR TODO EL MES HISTÓRICO
 const handleSyncToCloud = async () => {
-      if(!window.confirm("🚀 ¿Forzar actualización de velocímetros? La PC subirá los cálculos exactos a la base de datos.")) return;
+      const now = new Date();
+      const currentYear = now.getFullYear().toString();
+      const currentMonth = now.getMonth() + 1;
+      const isCurrentPeriod = filterYear === currentYear && (filterMonth === 'all' || Number(filterMonth) === currentMonth);
+
+      if (dataSource !== 'live' || !isCurrentPeriod) {
+          alert("Para proteger los contadores, selecciona Datos en Vivo y el mes actual antes de sincronizar.");
+          return;
+      }
+      if (liveData.length === 0) {
+          alert("No hay registros del mes actual cargados. No se modificó ningún perfil.");
+          return;
+      }
+      if(!window.confirm(`Se recalcularán viajes y metas del mes actual usando ${liveData.length} registros cargados. ¿Continuar?`)) return;
       
       try {
           let count = 0;
@@ -191,7 +229,7 @@ const handleSyncToCloud = async () => {
   const [editingItem, setEditingItem] = useState(null); 
   const [editFormData, setEditFormData] = useState({}); 
   const [showAvisoModal, setShowAvisoModal] = useState(false);
-  const [avisoForm, setAvisoForm] = useState({ mensaje: '', para: 'Todos', tipo: 'info' }); 
+  const [avisoForm, setAvisoForm] = useState({ mensaje: '', para: 'Todos', tipo: 'info', duracionDias: 7 });
   const [hiddenAlerts, setHiddenAlerts] = useState([]); 
   const [imagePreview, setImagePreview] = useState(null); 
   const [imageFile, setImageFile] = useState(null); 
@@ -855,11 +893,18 @@ const adminDashboardMetrics = useMemo(() => {
           const localTodayStr = `${year}-${month}-${day}`; const todayShortSlash = `${day}/${month}`; const todayShortDash = `${day}-${month}`; const todayFullSlash = `${day}/${month}/${year}`; const todayFullDash = `${day}-${month}-${year}`; 
           const monthUnpadded = todayDate.getMonth() + 1; const dayUnpadded = todayDate.getDate(); const todayShortSlashUnp = `${dayUnpadded}/${monthUnpadded}`; const todayFullSlashUnp = `${dayUnpadded}/${monthUnpadded}/${year}`; 
           const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']; const todayName = days[todayDate.getDay()];
-          const isMaintToday = miAgenda.mantenimiento === localTodayStr; const isMaintPast = miAgenda.mantenimiento && miAgenda.mantenimiento < localTodayStr;
-          const hasRegisteredMaint = maintData.some(m => m.fecha >= miAgenda.mantenimiento);
+          const isMaintToday = miAgenda.mantenimiento === localTodayStr;
+          const maintenanceDate = miAgenda.mantenimiento ? new Date(`${miAgenda.mantenimiento}T00:00:00`) : null;
+          const todayAtMidnight = new Date(`${localTodayStr}T00:00:00`);
+          const overdueDays = maintenanceDate && !Number.isNaN(maintenanceDate.getTime())
+              ? Math.floor((todayAtMidnight.getTime() - maintenanceDate.getTime()) / DAY_IN_MS)
+              : 0;
+          const isMaintRecentlyPast = overdueDays > 0 && overdueDays <= 7;
+          const hasRegisteredMaint = Boolean(miAgenda.mantenimiento) && maintData.some(m => m.fecha >= miAgenda.mantenimiento);
           
           if (!hasRegisteredMaint) {
-              if (isMaintPast && !hiddenAlerts.includes('kpi_maint_past')) alerts.push({ id: 'kpi_maint_past', type: 'kpi_danger', title: '🔴 ALERTA DE KPI: Mantenimiento Vencido', msg: `Tu fecha de taller (${formatWithDay(formatLocalDate(miAgenda.mantenimiento))}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`, tipo: 'info' });
+              const overdueId = `kpi_maint_past_${miAgenda.mantenimiento || ''}`;
+              if (isMaintRecentlyPast && !hiddenAlerts.includes(overdueId)) alerts.push({ id: overdueId, type: 'kpi_danger', title: '🔴 ALERTA DE KPI: Mantenimiento Vencido', msg: `Tu fecha de taller (${formatWithDay(formatLocalDate(miAgenda.mantenimiento))}) ya pasó. ¡Repórtalo ya o afectará tu evaluación mensual!`, tipo: 'info' });
               const maintId = `auto_maint_${localTodayStr}_${miAgenda.mantenimiento || ''}`;
               if (isMaintToday && !hiddenAlerts.includes(maintId)) alerts.push({ id: maintId, type: 'maint', title: '¡Mantenimiento Hoy!', msg: 'Lleva la unidad al taller asignado y registra el comprobante.' });
           }
@@ -868,15 +913,34 @@ const adminDashboardMetrics = useMemo(() => {
           const turnoId = `auto_turno_${localTodayStr}_${miAgenda.turnos || ''}`;
           if (hasTurnoToday && !hiddenAlerts.includes(turnoId)) alerts.push({ id: turnoId, type: 'turno', title: '¡Turno Extra Hoy!', msg: 'Registra tus horas al finalizar.' });
       }
-      alertasData.forEach(alerta => { if (hiddenAlerts.includes(alerta.id)) return; if (alerta.para === 'Todos' || alerta.para === form.recolector) alerts.push({ ...alerta, type: 'admin_msg', title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso Global' : 'Mensaje Directo'), msg: alerta.mensaje }); });
+      alertasData.forEach(alerta => { if (hiddenAlerts.includes(alerta.id) || isAlertExpired(alerta)) return; if (alerta.para === 'Todos' || alerta.para === form.recolector) alerts.push({ ...alerta, type: 'admin_msg', title: alerta.tipo === 'confirm' ? 'Requiere Confirmación' : (alerta.para === 'Todos' ? 'Aviso Global' : 'Mensaje Directo'), msg: alerta.mensaje }); });
       return alerts;
   }, [agendaData, form.recolector, alertasData, appMode, hiddenAlerts, maintData]);
+
+  const activeAlertasData = useMemo(() => alertasData.filter(alerta => !isAlertExpired(alerta)), [alertasData]);
+  const expiredAlertasData = useMemo(() => alertasData.filter(alerta => isAlertExpired(alerta)), [alertasData]);
 
   const dismissAlert = async (alerta, replyText = '') => {
       if (alerta.tipo === 'confirm' && replyText) { try { await updateDoc(doc(db, "alertas_flota", alerta.id), { respuestas: arrayUnion({ usuario: form.recolector, respuesta: replyText, fecha: new Date().toISOString() }) }); } catch(e) {} } 
       else if (alerta.tipo === 'info' && alerta.para !== 'Todos') { try { await deleteDoc(doc(db, "alertas_flota", alerta.id)); } catch(e) {} }
       const newHidden = [...hiddenAlerts, alerta.id]; setHiddenAlerts(newHidden);
       if (currentUser && currentUser.email) localStorage.setItem(`recolekta_hidden_alerts_${currentUser.email}`, JSON.stringify(newHidden));
+  };
+
+  const handleCleanupExpiredAlerts = async () => {
+      if (expiredAlertasData.length === 0) {
+          alert("No hay avisos vencidos en la tanda cargada.");
+          return;
+      }
+      if (!window.confirm(`Se eliminarán ${expiredAlertasData.length} avisos vencidos. ¿Continuar?`)) return;
+
+      try {
+          await Promise.all(expiredAlertasData.map(alerta => deleteDoc(doc(db, "alertas_flota", alerta.id))));
+          alert(`Se eliminaron ${expiredAlertasData.length} avisos vencidos.`);
+      } catch (error) {
+          console.error("No se pudieron limpiar los avisos vencidos", error);
+          alert("No fue posible completar la limpieza. Revisa tu conexión e inténtalo nuevamente.");
+      }
   };
   
   const exportToCSV = () => { 
@@ -1327,14 +1391,15 @@ const exportPayrollCSV = () => {
                 <div className="space-y-4">
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Tipo de Aviso</label><select value={avisoForm.tipo} onChange={e=>setAvisoForm({...avisoForm, tipo: e.target.value})} className="w-full p-3 bg-[#0B1120] border border-slate-700 rounded-xl text-white font-bold"><option value="info">ℹ️ Informativo (Solo lectura)</option><option value="confirm">✅ Requiere Confirmación</option></select></div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Destinatario</label><select value={avisoForm.para} onChange={e=>setAvisoForm({...avisoForm, para: e.target.value})} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold"><option value="Todos">Toda la Flota (Global)</option>{(catalogs.transportistas[catalogCountry] || []).map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Vigencia</label><select value={avisoForm.duracionDias} onChange={e=>setAvisoForm({...avisoForm, duracionDias: Number(e.target.value)})} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold"><option value={1}>1 día</option><option value={3}>3 días</option><option value={7}>7 días</option><option value={14}>14 días</option><option value={30}>30 días</option></select></div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Mensaje Corto</label><textarea value={avisoForm.mensaje} onChange={e=>setAvisoForm({...avisoForm, mensaje: e.target.value})} className="w-full p-3 bg-[#151F32] border border-slate-700 rounded-xl text-white font-bold h-24 resize-none" placeholder="Escribe el recordatorio o alerta aquí..."/></div>
-                    <button onClick={async () => { if(!avisoForm.mensaje) return; await addDoc(collection(db, 'alertas_flota'), {...avisoForm, createdAt: new Date().toISOString()}); setAvisoForm({mensaje: '', para: 'Todos', tipo: 'info'}); alert("Aviso enviado a la plataforma."); }} className="w-full py-4 bg-blue-600 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-blue-500 flex items-center justify-center gap-2"><Send size={16}/> Enviar Mensaje</button>
+                    <button onClick={async () => { const mensaje = avisoForm.mensaje.trim(); if(!mensaje) return; const createdAt = new Date(); const expiresAt = new Date(createdAt.getTime() + (Number(avisoForm.duracionDias) * DAY_IN_MS)); await addDoc(collection(db, 'alertas_flota'), {...avisoForm, mensaje, createdAt: createdAt.toISOString(), expiresAt: Timestamp.fromDate(expiresAt)}); setAvisoForm({mensaje: '', para: 'Todos', tipo: 'info', duracionDias: 7}); alert("Aviso enviado a la plataforma."); }} className="w-full py-4 bg-blue-600 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-blue-500 flex items-center justify-center gap-2"><Send size={16}/> Enviar Mensaje</button>
                 </div>
                 <div className="mt-8 border-t border-slate-700 pt-6">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase mb-4 flex items-center gap-2"><MessageSquare size={14}/> Avisos Activos y Respuestas</h4>
+                    <div className="flex items-center justify-between gap-3 mb-4"><h4 className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-2"><MessageSquare size={14}/> Avisos Activos y Respuestas</h4>{expiredAlertasData.length > 0 && <button onClick={handleCleanupExpiredAlerts} className="text-[9px] font-black uppercase text-red-400 hover:text-red-300 flex items-center gap-1.5" title="Eliminar avisos cuya vigencia terminó"><Trash2 size={13}/> Limpiar vencidos ({expiredAlertasData.length})</button>}</div>
                     <div className="space-y-3">
-                        {alertasData.length === 0 ? <p className="text-xs text-slate-600 italic">No hay avisos activos en la calle.</p> : null}
-                        {alertasData.map(a => (
+                        {activeAlertasData.length === 0 ? <p className="text-xs text-slate-600 italic">No hay avisos activos en la calle.</p> : null}
+                        {activeAlertasData.map(a => (
                             <div key={a.id} className="p-3 bg-[#0B1120] rounded-xl border border-slate-700">
                                 <div className="flex justify-between items-start text-slate-400 mb-2"><span className={cn("text-[9px] font-black px-2 py-0.5 rounded-md", a.tipo==='confirm'?"bg-red-900/30 text-red-400":"bg-blue-900/30 text-blue-400")}>{a.para} ({a.tipo==='confirm'?'Con Respuesta':'Info'})</span><button onClick={()=>handleDelete('alertas_flota', a.id)} className="text-slate-600 hover:text-red-500 transition-colors" title="Borrar Aviso de la calle"><Trash2 size={14}/></button></div>
                                 <p className="text-xs text-white font-bold mb-3">{a.mensaje}</p>
