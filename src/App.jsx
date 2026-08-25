@@ -684,9 +684,25 @@ const hrMetrics = useMemo(() => {
     if (filterZona !== 'all') { filteredFuel = filteredFuel.filter(d => isUserInFilterZone(d.usuario, filterZona)); filteredMaint = filteredMaint.filter(d => isUserInFilterZone(d.usuario, filterZona)); }
     if (filterUser !== 'all') { filteredFuel = filteredFuel.filter(d => getUserDisplayName(d.usuario) === filterUser); filteredMaint = filteredMaint.filter(d => getUserDisplayName(d.usuario) === filterUser); }
     const totalFuelCost = filteredFuel.reduce((acc, curr) => acc + parseFloat(curr.costo || 0), 0); const totalGalones = filteredFuel.reduce((acc, curr) => acc + parseFloat(curr.galones || 0), 0); const totalMaintCost = filteredMaint.reduce((acc, curr) => acc + parseFloat(curr.costo || 0), 0);
-    const userStats = {}; const process = (i, k) => { const rawName = i.usuario || 'Desconocido'; const name = getUserDisplayName(rawName).split(' ')[0];userStats[name] = userStats[name] || { fuel: 0, maint: 0 }; userStats[name][k] += parseFloat(i.costo || 0); };
+    const userStats = {};
+    const resolveFleetIdentity = (usuario) => {
+        const rawValue = String(usuario || 'Desconocido').trim();
+        const normalizedValue = rawValue.toLowerCase();
+        const displayName = String(getUserDisplayName(rawValue) || rawValue).trim().toUpperCase();
+        const profileEmail = normalizedValue.includes('@')
+            ? normalizedValue
+            : Object.keys(perfilesUsuarios).find(email => String(perfilesUsuarios[email]?.nombre || '').trim().toUpperCase() === displayName)
+                || Object.keys(USUARIOS_EMAIL).find(email => String(USUARIOS_EMAIL[email] || '').trim().toUpperCase() === displayName);
+
+        return { key: profileEmail || `nombre:${displayName}`, name: displayName };
+    };
+    const process = (item, costType) => {
+        const identity = resolveFleetIdentity(item.usuario);
+        userStats[identity.key] = userStats[identity.key] || { name: identity.name, fuel: 0, maint: 0 };
+        userStats[identity.key][costType] += parseFloat(item.costo || 0);
+    };
     filteredFuel.forEach(i => process(i, 'fuel')); filteredMaint.forEach(i => process(i, 'maint'));
-    const chartData = Object.entries(userStats).map(([name, stats]) => ({ name, fuel: parseFloat(stats.fuel.toFixed(2)), maint: parseFloat(stats.maint.toFixed(2)), total: parseFloat((stats.fuel + stats.maint).toFixed(2)) })).sort((a,b) => b.total - a.total);
+    const chartData = Object.values(userStats).map(stats => ({ name: stats.name, fuel: parseFloat(stats.fuel.toFixed(2)), maint: parseFloat(stats.maint.toFixed(2)), total: parseFloat((stats.fuel + stats.maint).toFixed(2)) })).sort((a,b) => b.total - a.total);
     return { totalFuelCost: totalFuelCost.toFixed(2), totalGalones: totalGalones.toFixed(2), totalMaintCost: totalMaintCost.toFixed(2), chartData };
   }, [fuelData, maintData, filterMonth, filterUser, filterYear, filterZona, perfilesUsuarios]);
 

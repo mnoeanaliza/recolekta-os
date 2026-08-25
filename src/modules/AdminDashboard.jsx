@@ -251,11 +251,11 @@ export default function AdminDashboard(props) {
                    {/* 3. GRÁFICA A ANCHO COMPLETO */}
                    <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800 shadow-xl">
                         <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><BarChart3 size={16} className="text-orange-500" /> Costo Operativo por Transportista ($)</h4>
-                        <div className="h-72 w-full">
+                        <div className="h-80 w-full">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={fleetMetrics.chartData}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#64748b' }} interval={0} angle={-45} textAnchor="end" height={60} />
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#64748b' }} tickFormatter={(value) => { const parts = String(value).split(' ').filter(Boolean); return parts.length > 2 ? `${parts[0]} ${parts[parts.length - 1]}` : value; }} interval={0} angle={-45} textAnchor="end" height={90} />
                                     <Tooltip cursor={{ fill: '#1f2937' }} contentStyle={{ backgroundColor: '#0B1120', border: '1px solid #1f2937', color: '#fff' }} />
                                     <Legend verticalAlign="top" height={36} />
                                     <Bar dataKey="fuel" name="Combustible" stackId="a" fill="#ea580c" />
