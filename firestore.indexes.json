@@ -25,6 +25,14 @@
       ]
     },
     {
+      "collectionGroup": "registros_produccion",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "usuarioEmail", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "registros_combustible",
       "queryScope": "COLLECTION",
       "fields": [

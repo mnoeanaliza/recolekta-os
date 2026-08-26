@@ -80,16 +80,19 @@ export default function TransportistaHome(props) {
           const safeTransit = isNaN(Number(transitTimeMins)) || transitTimeMins === null ? 0 : Number(transitTimeMins);
           const safeWait = isNaN(Number(liveWaitMins)) || liveWaitMins === null ? 0 : Number(liveWaitMins);
           const localNow = new Date();
+          const cleanEmail = (currentUser.email || '').toLowerCase().trim();
+          const cleanRecolector = (form.recolector || '').toUpperCase().trim();
           await addDoc(collection(db, "registros_produccion"), {
             ...finalForm,
+            recolector: cleanRecolector,
             tiempo: safeWait,
             tiempoTransito: safeTransit,
             createdAt: new Date().toISOString(),
             periodoMes: `${localNow.getFullYear()}-${String(localNow.getMonth() + 1).padStart(2, '0')}`,
             categoria: isP ? "Principal" : "Secundaria",
             fotoData: photoURL || '',
-            month: new Date().getMonth() + 1,
-            usuarioEmail: currentUser.email || '',
+            month: localNow.getMonth() + 1,
+            usuarioEmail: cleanEmail,
             zona: userProfile.zona || 'Sin Asignar',
             pais: activeUserCountry,
             ubicacion: gpsLocation || 'Sin GPS',

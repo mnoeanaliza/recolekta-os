@@ -80,86 +80,92 @@ export default function AdminDashboard(props) {
 
              {adminSection === 'bi' && <Reports {...props} />}
              {adminSection === 'ops' &&
-  <div className="animate-in fade-in print-hide">
-                   <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden mb-6">
-                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                   <h3 className="text-xl font-black text-white flex items-center gap-3"><PieChartIcon className="text-green-500" /> Estado Visual de Eficiencia Individual</h3>
-                    <button
-          onClick={() => {
-            if (!window.confirm("⚠️ ¿Estás segura de apagar la flota? Esto cambiará el estatus de todos a 'INACTIVO'. Úsalo solo al cierre de operaciones.")) return;
-            adminDashboardMetrics.transportistasStats.forEach((stat) => {
-              if (stat.email && stat.estatus !== 'Inactivo') {
-                setDoc(doc(db, "usuarios_perfiles", stat.email), { estatus: 'Inactivo' }, { merge: true });
-              }
-            });
-            alert("Toda la flota ha sido marcada como INACTIVA.");
-          }}
-          className="bg-red-900/30 text-red-400 border border-red-500 hover:bg-red-600 hover:text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shadow-md flex items-center gap-2">
-                     🛑 Apagar Flota (Fin de Día)
-                     </button>
-                     </div>
-                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                           {adminDashboardMetrics.transportistasStats.map((stat) =>
-        <div key={stat.name} onClick={() => setSelectedAdminProfile(stat)} className={cn("bg-[#0B1120] p-4 rounded-2xl border flex flex-col items-center justify-between gap-2 text-center cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg", stat.isDanger ? "border-red-500/50 shadow-md shadow-red-900/20" : "border-slate-700 hover:border-slate-500")}>
-                                   
-                                   {/* 🔥 ESTATUS BADGE Y CHISMOSO 🔥 */}
-                                   <div className="w-full flex justify-between items-center mb-1">
-                                       <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded-md tracking-widest", stat.estatus === 'EN RUTA' ? "bg-green-900/50 text-green-400" : stat.estatus === 'INACTIVO' ? "bg-red-900/50 text-red-400" : stat.estatus === 'DESCONECTADO' ? "bg-slate-800 text-slate-400" : "bg-orange-900/50 text-orange-400")}>
-                                           {stat.estatus}
-                                       </span>
-                                       {stat.inactivoMin > 0 &&
-            <span className={cn("text-[10px] font-black flex items-center gap-1", stat.isDanger ? "text-red-400 animate-pulse" : "text-slate-500")}>
-                                               <Clock size={12} /> {stat.inactivoMin}m
-                                           </span>
-            }
-                                   </div>
-
-                                   <span className="text-[11px] font-black text-white uppercase truncate w-full">{stat.name.split(' ')[0]} {stat.name.split(' ')[1] || ''}</span>
-                                   
-                                   <SmallGauge value={stat.eficiencia} size={70} />
-                                   
-                                   {/* 🔥 BARRA DE DILIGENCIAS SECUNDARIAS 🔥 */}
-                                   <div className="w-full mt-2">
-                                       <div className="flex justify-between text-[8px] font-bold text-slate-500 mb-1">
-                                           <span>VITALES: {stat.totalMuestras}</span>
-                                           <span>SECUNDARIAS: {stat.secundarias}</span>
-                                       </div>
-                                       <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
-                                           <div style={{ width: `${stat.totalTrips > 0 ? stat.totalMuestras / stat.totalTrips * 100 : 0}%` }} className="bg-green-500 h-full"></div>
-                                           <div style={{ width: `${stat.totalTrips > 0 ? stat.secundarias / stat.totalTrips * 100 : 0}%` }} className="bg-orange-500 h-full"></div>
-                                       </div>
-                                   </div>
-                                   
-                                   {/* 🔥 ÚLTIMO PUNTO VISITADO 🔥 */}
-                                   <span className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1 mt-1 truncate w-full justify-center">
-                                       <MapPin size={10} /> {stat.ultimaUbicacion || 'SIN RECORRIDO HOY'}
-                                   </span>
-                               </div>
-        )}
+   <div className="animate-in fade-in print-hide space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">EFICIENCIA VITAL</p><h3 className="text-4xl font-black text-white">{metrics.efP}%</h3></div>
+                       <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">EFICIENCIA SECUNDARIA</p><h3 className="text-4xl font-black text-white">{metrics.efS}%</h3></div>
+                       <div className="bg-[#0B1120] p-6 rounded-[2rem] border border-slate-800">
+                          <p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">TOTAL VIAJES (MES)</p>
+                          <h3 className="text-4xl font-black text-white">{metrics.total}</h3>
+                          {metrics.totalBitacora && metrics.total !== metrics.totalBitacora && (
+                             <p className="text-[10px] text-slate-500 font-bold mt-1">({metrics.totalBitacora} en bitácora reciente)</p>
+                          )}
                        </div>
-                   </div>
-                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">EFICIENCIA VITAL</p><h3 className="text-4xl font-black text-white">{metrics.efP}%</h3></div>
-                      <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">EFICIENCIA SECUNDARIA</p><h3 className="text-4xl font-black text-white">{metrics.efS}%</h3></div>
-                      <div className="bg-[#0B1120] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">TOTAL VIAJES</p><h3 className="text-4xl font-black text-white">{metrics.total}</h3></div>
-                   </div>
-                   <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800 mt-6">
-                      <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><TrendingUp size={16} className="text-green-500" /> Evolución Anual de Eficiencia (%)</h4>
-                      <p className="text-[9px] text-slate-500 mb-2 italic">💡 Resumen global anual leído al instante desde la Nube.</p>
-                      <div className="h-60 w-full">
-                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={metrics.monthlyData}>
-                               <defs><linearGradient id="colorEf" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs>
-                               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
-                               <YAxis hide domain={[0, 100]} />
-                               <Tooltip contentStyle={{ backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff' }} itemStyle={{ color: '#10b981' }} formatter={(value) => [`${value}%`, 'Eficiencia']} />
-                               <Area type="monotone" dataKey="ef" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorEf)" connectNulls={true} />
-                            </AreaChart>
-                         </ResponsiveContainer>
+                    </div>
+                    <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800">
+                       <h4 className="font-bold text-slate-300 text-xs uppercase mb-6 flex items-center gap-2"><TrendingUp size={16} className="text-green-500" /> Evolución Anual de Eficiencia (%)</h4>
+                       <p className="text-[9px] text-slate-500 mb-2 italic">💡 Resumen global anual leído al instante desde la Nube.</p>
+                       <div className="h-60 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                             <AreaChart data={metrics.monthlyData}>
+                                <defs><linearGradient id="colorEf" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+                                <YAxis hide domain={[0, 100]} />
+                                <Tooltip contentStyle={{ backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff' }} itemStyle={{ color: '#10b981' }} formatter={(value) => [`${value}%`, 'Eficiencia']} />
+                                <Area type="monotone" dataKey="ef" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorEf)" connectNulls={true} />
+                             </AreaChart>
+                          </ResponsiveContainer>
+                       </div>
+                    </div>
+                    <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                    <h3 className="text-xl font-black text-white flex items-center gap-3"><PieChartIcon className="text-green-500" /> Estado Visual de Eficiencia Individual</h3>
+                     <button
+           onClick={() => {
+             if (!window.confirm("⚠️ ¿Estás segura de apagar la flota? Esto cambiará el estatus de todos a 'INACTIVO'. Úsalo solo al cierre de operaciones.")) return;
+             adminDashboardMetrics.transportistasStats.forEach((stat) => {
+               if (stat.email && stat.estatus !== 'Inactivo') {
+                 setDoc(doc(db, "usuarios_perfiles", stat.email), { estatus: 'Inactivo' }, { merge: true });
+               }
+             });
+             alert("Toda la flota ha sido marcada como INACTIVA.");
+           }}
+           className="bg-red-900/30 text-red-400 border border-red-500 hover:bg-red-600 hover:text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all shadow-md flex items-center gap-2">
+                      🛑 Apagar Flota (Fin de Día)
+                      </button>
                       </div>
-                   </div>
-                   <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6 mt-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                            {adminDashboardMetrics.transportistasStats.map((stat) =>
+         <div key={stat.name} onClick={() => setSelectedAdminProfile(stat)} className={cn("bg-[#0B1120] p-4 rounded-2xl border flex flex-col items-center justify-between gap-2 text-center cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg", stat.isDanger ? "border-red-500/50 shadow-md shadow-red-900/20" : "border-slate-700 hover:border-slate-500")}>
+                                    
+                                    {/* 🔥 ESTATUS BADGE Y CHISMOSO 🔥 */}
+                                    <div className="w-full flex justify-between items-center mb-1">
+                                        <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded-md tracking-widest", stat.estatus === 'EN RUTA' ? "bg-green-900/50 text-green-400" : stat.estatus === 'INACTIVO' ? "bg-red-900/50 text-red-400" : stat.estatus === 'DESCONECTADO' ? "bg-slate-800 text-slate-400" : "bg-orange-900/50 text-orange-400")}>
+                                            {stat.estatus}
+                                        </span>
+                                        {stat.inactivoMin > 0 &&
+             <span className={cn("text-[10px] font-black flex items-center gap-1", stat.isDanger ? "text-red-400 animate-pulse" : "text-slate-500")}>
+                                                <Clock size={12} /> {stat.inactivoMin}m
+                                            </span>
+             }
+                                    </div>
+
+                                    <span className="text-[11px] font-black text-white uppercase truncate w-full">{stat.name.split(' ')[0]} {stat.name.split(' ')[1] || ''}</span>
+                                    
+                                    <SmallGauge value={stat.eficiencia} size={70} />
+                                    
+                                    {/* 🔥 BARRA DE DILIGENCIAS SECUNDARIAS 🔥 */}
+                                    <div className="w-full mt-2">
+                                        <div className="flex justify-between text-[8px] font-bold text-slate-500 mb-1">
+                                            <span>VITALES: {stat.totalMuestras}</span>
+                                            <span>SECUNDARIAS: {stat.secundarias}</span>
+                                        </div>
+                                        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
+                                            <div style={{ width: `${stat.totalTrips > 0 ? stat.totalMuestras / stat.totalTrips * 100 : 0}%` }} className="bg-green-500 h-full"></div>
+                                            <div style={{ width: `${stat.totalTrips > 0 ? stat.secundarias / stat.totalTrips * 100 : 0}%` }} className="bg-orange-500 h-full"></div>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* 🔥 ÚLTIMO PUNTO VISITADO 🔥 */}
+                                    <span className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1 mt-1 truncate w-full justify-center">
+                                        <MapPin size={10} /> {stat.ultimaUbicacion || 'SIN RECORRIDO HOY'}
+                                    </span>
+                                </div>
+         )}
+                        </div>
+                    </div>
+                    <div className="bg-[#151F32] rounded-[2.5rem] shadow-xl border border-slate-800 p-6 mt-6">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
     <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest flex items-center gap-2"><ShieldCheck className="text-green-500" size={18} /> Bitácora de Operación Reciente (Detalle)</h4>
     <div className="flex gap-2">

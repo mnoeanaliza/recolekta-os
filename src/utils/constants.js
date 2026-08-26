@@ -48,18 +48,38 @@ export const isPrincipalData = (d) => { if (d.categoria === "Principal") return 
 
 export const getStrictDateString = (dateInput) => {
     if (!dateInput) return '';
-    if (typeof dateInput === 'string' && dateInput.includes('-') && !dateInput.includes('T')) {
-        const parts = dateInput.split('-');
-        if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    }
-    try {
-        const d = new Date(dateInput);
-        if(isNaN(d.getTime())) return typeof dateInput === 'string' ? dateInput : '';
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const year = d.getFullYear();
+    const source = typeof dateInput?.toDate === 'function'
+        ? dateInput.toDate()
+        : (dateInput?.seconds ? new Date(dateInput.seconds * 1000) : dateInput);
+
+    if (source instanceof Date) {
+        if (isNaN(source.getTime())) return '';
+        const day = String(source.getDate()).padStart(2, '0');
+        const month = String(source.getMonth() + 1).padStart(2, '0');
+        const year = source.getFullYear();
         return `${day}/${month}/${year}`;
-    } catch(e) { return ''; }
+    }
+
+    if (typeof source === 'string') {
+        const raw = source.trim();
+        const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (isoMatch) return `${isoMatch[3].padStart(2, '0')}/${isoMatch[2].padStart(2, '0')}/${isoMatch[1]}`;
+
+        const localMatch = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+        if (localMatch) return `${localMatch[1].padStart(2, '0')}/${localMatch[2].padStart(2, '0')}/${localMatch[3]}`;
+
+        try {
+            const d = new Date(raw);
+            if (!isNaN(d.getTime())) {
+                const day = String(d.getDate()).padStart(2, '0');
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const year = d.getFullYear();
+                return `${day}/${month}/${year}`;
+            }
+        } catch (e) {}
+        return raw;
+    }
+    return '';
 };
 
 export const formatLocalDate = (dateStr) => getStrictDateString(dateStr);

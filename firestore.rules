@@ -69,8 +69,8 @@ service cloud.firestore {
     }
 
     match /registros_produccion/{documentId} {
-      allow read: if canManage() || ownsExistingEmailField('usuarioEmail');
-      allow create: if ownsEmailField('usuarioEmail');
+      allow read: if signedIn();
+      allow create: if signedIn();
       allow update, delete: if canManage();
     }
 

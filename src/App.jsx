@@ -146,8 +146,8 @@ function Dashboard() {
       return 'user';
   });
   const [userView, setUserView] = useState('ruta'); 
-  const [adminSection, setAdminSection] = useState('inicio');
-  const [supervisorSection, setSupervisorSection] = useState('inicio');
+  const [adminSection, setAdminSection] = useState('ops');
+  const [supervisorSection, setSupervisorSection] = useState('bitacora');
   const [dataSource, setDataSource] = useState('live'); 
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
   const [isRebuildingSummaries, setIsRebuildingSummaries] = useState(false);
@@ -202,6 +202,20 @@ const handleSyncToCloud = async () => {
               const normalizedEmail = normalizeEmail(email);
               profilesByEmail.set(normalizedEmail, profile);
               if (profile?.nombre) usersByEmail.set(normalizedEmail, normalizeName(profile.nombre));
+          });
+          // Extrae usuarios de catálogos
+          Object.values(catalogs.transportistas || {}).flat().forEach((nombre) => {
+              const cleanNom = normalizeName(nombre);
+              const foundEmail = Object.keys(perfilesUsuarios).find(em => normalizeName(perfilesUsuarios[em]?.nombre) === cleanNom);
+              if (foundEmail) usersByEmail.set(normalizeEmail(foundEmail), cleanNom);
+          });
+          // Extrae usuarios directamente de los registros de operaciones del mes
+          monthlyDocs.forEach((d) => {
+              const email = normalizeEmail(d.usuarioEmail);
+              const recolector = normalizeName(d.recolector);
+              if (email && !usersByEmail.has(email)) {
+                  usersByEmail.set(email, recolector || email.split('@')[0].toUpperCase());
+              }
           });
 
           // Calcula los perfiles desde Firebase para incluir usuarios creados recientemente.
@@ -487,7 +501,9 @@ useEffect(() => {
   }, [currentUser?.email, appMode, adminSection, supervisorSection]);
 
   useEffect(() => {
-    if (!currentUser?.email || appMode === 'user' || filterYear !== '2025' || csvData.length > 0) return;
+    const isAnalyticsOpen = (appMode === 'admin' && adminSection === 'bi') || (appMode === 'supervisor' && supervisorSection === 'bi');
+    const needsCsv = filterYear === '2025' || isAnalyticsOpen;
+    if (!currentUser?.email || appMode === 'user' || !needsCsv || csvData.length > 0) return;
     Papa.parse(GITHUB_CSV_URL, { download: true, header: true, complete: (res) => {
         const mapped = (res.data || []).map(row => {
             const tipoRaw = String(row['Diligencia realizada:']||''); const isP = PRINCIPAL_KEYWORDS.some(k => tipoRaw.toLowerCase().includes(k)); let tiempoClean = 0; const matches = String(row['Minutos de espera'] || '0').match(/\d+/); if (matches) tiempoClean = parseInt(matches[0]);
@@ -495,7 +511,7 @@ useEffect(() => {
         }).filter(r => r.recolector !== '');
         setCsvData(mapped);
     }});
-  }, [currentUser?.email, appMode, filterYear, csvData.length]);
+  }, [currentUser?.email, appMode, filterYear, csvData.length, adminSection, supervisorSection]);
 
   useEffect(() => {
     if (!currentUser?.email) return;
@@ -516,26 +532,40 @@ useEffect(() => {
   }, [currentUser?.email, appMode, adminSection, supervisorSection, form.recolector]);
 
   useEffect(() => {
+    if (!currentUser?.email) return;
     const isAnalyticsOpen = (appMode === 'admin' && adminSection === 'bi') || (appMode === 'supervisor' && supervisorSection === 'bi');
-    if (!currentUser?.email || !isAnalyticsOpen) {
-        setResumenesMensualesNube({});
-        return;
+    const isAdminOps = appMode === 'admin' && (adminSection === 'ops' || adminSection === 'inicio');
+    const isUserProfile = appMode === 'user' && userView === 'perfil';
+
+    if (isAnalyticsOpen || isAdminOps) {
+        const previousYear = String(Number(filterYear) - 1);
+        const summariesQuery = query(
+            collection(db, "resumenes_operativos"),
+            where(documentId(), ">=", `${previousYear}-01`),
+            where(documentId(), "<=", `${filterYear}-12`),
+            orderBy(documentId())
+        );
+        const unsub = onSnapshot(summariesQuery, (snap) => {
+            const summaries = {};
+            snap.forEach(summaryDoc => { summaries[summaryDoc.id] = summaryDoc.data(); });
+            setResumenesMensualesNube(summaries);
+        });
+        return () => unsub();
     }
 
-    const previousYear = String(Number(filterYear) - 1);
-    const summariesQuery = query(
-        collection(db, "resumenes_operativos"),
-        where(documentId(), ">=", `${previousYear}-01`),
-        where(documentId(), "<=", `${filterYear}-12`),
-        orderBy(documentId())
-    );
-    const unsub = onSnapshot(summariesQuery, (snap) => {
-        const summaries = {};
-        snap.forEach(summaryDoc => { summaries[summaryDoc.id] = summaryDoc.data(); });
-        setResumenesMensualesNube(summaries);
-    });
-    return () => unsub();
-  }, [currentUser?.email, appMode, adminSection, supervisorSection, filterYear]);
+    if (isUserProfile) {
+        const now = new Date();
+        const currentMonthDocId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const unsub = onSnapshot(doc(db, "resumenes_operativos", currentMonthDocId), (snap) => {
+            if (snap.exists()) {
+                setResumenesMensualesNube(prev => ({ ...prev, [currentMonthDocId]: snap.data() }));
+            }
+        });
+        return () => unsub();
+    }
+
+    setResumenesMensualesNube({});
+  }, [currentUser?.email, appMode, adminSection, supervisorSection, filterYear, userView]);
 
   useEffect(() => {
     if (!currentUser?.email) return;
@@ -558,7 +588,7 @@ useEffect(() => {
     const currentYearStr = now.getFullYear().toString();
     const startOfMonthISO = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const startOfMonthStr = startOfMonthISO.substring(0, 10);
-    const startOfDayISO = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const startOfDayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const isHistoricalMonth = filterYear !== currentYearStr || (filterMonth !== 'all' && Number(filterMonth) !== currentMonthNum);
 
     const loadHistoricalProduction = async () => {
@@ -603,7 +633,7 @@ useEffect(() => {
     } else if (appMode === 'supervisor') {
         if (supervisorSection === 'bitacora') {
             setFuelData([]); setMaintData([]);
-            unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfDayISO), orderBy("createdAt", "desc"), limit(queryLimit)), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+            unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfDayStr), orderBy("createdAt", "desc"), limit(queryLimit)), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         } else if (supervisorSection === 'combustible') {
             setLiveData([]); setMaintData([]);
             unsubFuel = onSnapshot(query(collection(db, "registros_combustible"), where("fecha", ">=", startOfMonthStr)), (snap) => setFuelData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
@@ -615,8 +645,9 @@ useEffect(() => {
         }
     } else if (appMode === 'user') {
         setFuelData([]);
+        const cleanUserEmail = currentUser.email.toLowerCase().trim();
         unsubOps = onSnapshot(
-            query(collection(db, "registros_produccion"), where("usuarioEmail", "==", currentUser.email.toLowerCase().trim()), where("createdAt", ">=", startOfDayISO), orderBy("createdAt", "desc"), limit(100)),
+            query(collection(db, "registros_produccion"), where("usuarioEmail", "==", cleanUserEmail), where("createdAt", ">=", startOfDayStr), orderBy("createdAt", "desc"), limit(100)),
             (snap) => {
                 setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
             },
@@ -749,15 +780,45 @@ useEffect(() => {
   const handleAssignCategory = async (email, newCategory) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { categoria: newCategory }, { merge: true }); } catch (e) {} };
   const handleAssignZone = async (email, newZone) => { if (!email) return; try { await setDoc(doc(db, "usuarios_perfiles", email), { zona: newZone }, { merge: true }); } catch (e) {} };
 const gamificationStats = useMemo(() => {
-      const ef = userProfile.eficienciaNube !== undefined ? userProfile.eficienciaNube : 100;
-      const totalOps = (userProfile.vitalesNube || 0) + (userProfile.secundariasNube || 0);
-      const totalSecundarias = userProfile.secundariasNube || 0;
-      
-      const currentMonth = new Date().getMonth() + 1; const currentYear = new Date().getFullYear().toString();
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear().toString();
+      const currentMonthDocId = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
       const currentEmail = String(currentUser?.email || '').toLowerCase().trim();
+      const currentRecolector = String(form.recolector || userProfile.nombre || '').toUpperCase().trim();
+
+      const monthSummary = resumenesMensualesNube[currentMonthDocId]?.porUsuario?.[currentEmail]
+          || (currentRecolector ? resumenesMensualesNube[currentMonthDocId]?.porUsuario?.[`nombre:${currentRecolector}`] : null)
+          || (currentRecolector ? resumenesMensualesNube[currentMonthDocId]?.porUsuario?.[currentRecolector] : null);
+
+      let vitales = userProfile.vitalesNube !== undefined && Number(userProfile.vitalesNube) > 0
+          ? Number(userProfile.vitalesNube) 
+          : (monthSummary?.vitales !== undefined ? Number(monthSummary.vitales) : 0);
+      let secundarias = userProfile.secundariasNube !== undefined && Number(userProfile.secundariasNube) > 0
+          ? Number(userProfile.secundariasNube) 
+          : (monthSummary?.secundarias !== undefined ? Number(monthSummary.secundarias) : 0);
+      let efRaw = userProfile.eficienciaNube !== undefined 
+          ? userProfile.eficienciaNube 
+          : (monthSummary?.eficiencia !== undefined ? monthSummary.eficiencia : 100);
+
+      let totalOps = vitales + secundarias;
+      let totalSecundarias = secundarias;
+
+      // Respaldo de seguridad: Si no hay datos consolidados pero hoy ya existen registros en liveData
+      if (totalOps === 0 && liveData.length > 0) {
+          const liveVitales = liveData.filter(d => isPrincipalData(d)).length;
+          const liveSecundarias = liveData.filter(d => !isPrincipalData(d)).length;
+          totalOps = liveVitales + liveSecundarias;
+          totalSecundarias = liveSecundarias;
+      }
+      
       const userOt = otData.filter(d => { 
           const registroEmail = String(d.usuario || '').toLowerCase().trim();
-          if (registroEmail !== currentEmail) return false;
+          const registroRecolector = String(d.usuario || '').toUpperCase().trim();
+          const isMatch = (registroEmail && registroEmail === currentEmail) || 
+                          (currentRecolector && (registroRecolector === currentRecolector || registroRecolector === `nombre:${currentRecolector}`));
+          if (!isMatch) return false;
+
           if (sysConfig?.heInicio && sysConfig?.heFin) {
               return isDateInRange(d.fecha, sysConfig.heInicio, sysConfig.heFin);
           }
@@ -766,12 +827,12 @@ const gamificationStats = useMemo(() => {
       const totalOT = userOt.reduce((acc, curr) => acc + parseFloat(String(curr.horasCalculadas).replace(',','.') || 0), 0);
       
       return { 
-          eficiencia: parseFloat(ef), 
+          eficiencia: parseFloat(efRaw), 
           totalOps: totalOps, 
           totalOT: totalOT.toFixed(1),
           totalSecundarias: totalSecundarias
       };
-  }, [userProfile, otData, currentUser, sysConfig]);
+  }, [userProfile, otData, currentUser, sysConfig, resumenesMensualesNube, form.recolector, liveData]);
 const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
 const hrMetrics = useMemo(() => {
     let filteredOt = otData.filter((record) => isDateInRange(record.fecha, sysConfig.heInicio, sysConfig.heFin));
@@ -873,7 +934,13 @@ const metrics = useMemo(() => {
     const sucursalStats = filtered.reduce((acc, curr) => { if(!curr.sucursal || curr.sucursal === 'N/A' || curr.sucursal === 'Ruta Externa') return acc; acc[curr.sucursal] = acc[curr.sucursal] || { totalTime: 0, count: 0 }; acc[curr.sucursal].totalTime += (curr.tiempo || 0); acc[curr.sucursal].count += 1; return acc; }, {});
     const topSucursales = Object.entries(sucursalStats).map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) })).sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
     
-    return { total: filtered.length, efP: calcEf(pItems), avgP: calcAvg(pItems), countP: pItems.length, efS: calcEf(sItems), avgS: calcAvg(sItems), countS: sItems.length, monthlyData, topSucursales, rows: filtered };
+    const activeDocId = `${filterYear}-${String(filterMonth === 'all' ? currMonth : filterMonth).padStart(2, '0')}`;
+    const activeMonthSummary = resumenesMensualesNube[activeDocId];
+    const totalMesVal = (filterUser === 'all' && filterZona === 'all' && filterSucursal === 'all' && !filterSpecificDate && activeMonthSummary?.totalViajesMes) 
+        ? activeMonthSummary.totalViajesMes 
+        : filtered.length;
+
+    return { total: totalMesVal, totalBitacora: filtered.length, efP: calcEf(pItems), avgP: calcAvg(pItems), countP: pItems.length, efS: calcEf(sItems), avgS: calcAvg(sItems), countS: sItems.length, monthlyData, topSucursales, rows: filtered };
   // 🔥 EL CANDADO CORREGIDO: Faltaba incluir resumenesMensualesNube en la lista de aquí abajo 👇
   }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal, filterZona, perfilesUsuarios, resumenesMensualesNube]);
 
@@ -982,16 +1049,16 @@ const biMetrics = useMemo(() => {
 
           const statsY1 = getSummaryStatsForFilters(resumenesMensualesNube[docIdY1] || {});
           const statsY2 = getSummaryStatsForFilters(resumenesMensualesNube[docIdY2] || {});
-          const summaryEfficiency = (stats, fallback) => stats && stats.vitales !== undefined
-              ? (Number(stats.vitales) > 0 ? parseFloat(((Number(stats.aTiempo || 0) / Number(stats.vitales)) * 100).toFixed(1)) : 100)
+          const summaryEfficiency = (stats, fallback) => (stats && stats.vitales !== undefined && Number(stats.vitales) > 0)
+              ? parseFloat(((Number(stats.aTiempo || 0) / Number(stats.vitales)) * 100).toFixed(1))
               : fallback;
 
           efY1 = isFutureY1 ? null : summaryEfficiency(statsY1, calcEf(ops1));
           efY2 = isFutureY2 ? null : summaryEfficiency(statsY2, calcEf(ops2));
-          fuelY1 = isFutureY1 ? null : (statsY1?.gastoCombustible !== undefined ? Number(statsY1.gastoCombustible) : getFuel(y1));
-          fuelY2 = isFutureY2 ? null : (statsY2?.gastoCombustible !== undefined ? Number(statsY2.gastoCombustible) : getFuel(y2));
-          maintY1 = isFutureY1 ? null : (statsY1?.gastoMantenimiento !== undefined ? Number(statsY1.gastoMantenimiento) : getMaint(y1));
-          maintY2 = isFutureY2 ? null : (statsY2?.gastoMantenimiento !== undefined ? Number(statsY2.gastoMantenimiento) : getMaint(y2));
+          fuelY1 = isFutureY1 ? null : (statsY1?.gastoCombustible !== undefined && statsY1?.gastoCombustible !== null ? Number(statsY1.gastoCombustible) : getFuel(y1));
+          fuelY2 = isFutureY2 ? null : (statsY2?.gastoCombustible !== undefined && statsY2?.gastoCombustible !== null ? Number(statsY2.gastoCombustible) : getFuel(y2));
+          maintY1 = isFutureY1 ? null : (statsY1?.gastoMantenimiento !== undefined && statsY1?.gastoMantenimiento !== null ? Number(statsY1.gastoMantenimiento) : getMaint(y1));
+          maintY2 = isFutureY2 ? null : (statsY2?.gastoMantenimiento !== undefined && statsY2?.gastoMantenimiento !== null ? Number(statsY2.gastoMantenimiento) : getMaint(y2));
           
           return { 
               name: m, 
@@ -1008,13 +1075,24 @@ const biMetrics = useMemo(() => {
   const userMetrics = useMemo(() => {
     const data = filterYear === '2025' ? csvData : liveData;
     const targetUser = form.recolector;
-    let userDocs = targetUser && targetUser.length > 2 ? data.filter(d => d.recolector === targetUser) : data;
+    const userEmailClean = String(currentUser?.email || '').toLowerCase().trim();
     const todayStr = getStrictDateString(new Date()); 
+
+    let userDocs = data;
+    if (appMode !== 'user' && targetUser && targetUser.length > 2) {
+      const targetNormalized = targetUser.toUpperCase().trim();
+      userDocs = data.filter(d => 
+        (d.recolector && d.recolector.toUpperCase().trim() === targetNormalized) ||
+        (d.usuarioEmail && d.usuarioEmail.toLowerCase().trim() === userEmailClean)
+      );
+    }
     userDocs = userDocs.filter(d => getStrictDateString(d.createdAt) === todayStr);
     const recs = userDocs.filter(d => isPrincipalData(d));
-    const ef = recs.length > 0 ? ((recs.filter(x => (x.tiempo||0) <= getMetaEspera(userProfile.zona)).length / recs.length) * 100).toFixed(1) : 0;
+    const ef = recs.length > 0 
+      ? ((recs.filter(x => (x.tiempo||0) <= getMetaEspera(userProfile.zona)).length / recs.length) * 100).toFixed(1) 
+      : (userDocs.length > 0 ? '100.0' : 0);
     return { ef: ef, count: userDocs.length, label: targetUser && targetUser.length > 2 ? targetUser.split(' ')[0] : 'HOY' };
-  }, [liveData, csvData, form.recolector, filterYear, userProfile.zona]);
+  }, [liveData, csvData, form.recolector, filterYear, userProfile.zona, appMode, currentUser?.email]);
 const adminDashboardMetrics = useMemo(() => {
     if (appMode !== 'admin' && appMode !== 'supervisor') return { transportistasStats: [] };
     const data = filterYear === '2025' ? csvData : liveData; 
