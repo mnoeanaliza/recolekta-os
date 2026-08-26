@@ -135,7 +135,7 @@ export default function TransportistaHome(props) {
                       </button>
                     </form>
                  </div> :
-    userView === 'combustible' ? <FuelModule currentUser={currentUser} sysConfig={sysConfig} userProfile={userProfile} country={activeUserCountry} /> : userView === 'extras' ? <OvertimeModule currentUser={currentUser} history={transportistaOtData} sysConfig={sysConfig} /> : userView === 'mantenimiento' ? <MaintenanceModule currentUser={currentUser} onBack={() => setUserView('agenda')} sysConfig={sysConfig} userProfile={userProfile} country={activeUserCountry} /> : userView === 'perfil' ?
+    userView === 'combustible' ? <FuelModule currentUser={currentUser} sysConfig={sysConfig} userProfile={userProfile} country={activeUserCountry} /> : userView === 'extras' ? <OvertimeModule currentUser={currentUser} history={transportistaOtData} sysConfig={sysConfig} onSubmitted={(record) => setOtData((previous) => [record, ...previous])} /> : userView === 'mantenimiento' ? <MaintenanceModule currentUser={currentUser} onBack={() => setUserView('agenda')} sysConfig={sysConfig} userProfile={userProfile} country={activeUserCountry} /> : userView === 'perfil' ?
     <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] shadow-xl border border-slate-800 relative overflow-hidden animate-in zoom-in-95 duration-200">
                     <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 to-rose-400"></div>
                     <div className="flex flex-col md:flex-row items-center md:items-start gap-6 mb-8 border-b border-slate-800 pb-8">
@@ -205,7 +205,8 @@ export default function TransportistaHome(props) {
                 </div> :
     <div className="space-y-4"><button onClick={() => setUserView('mantenimiento')} className="w-full bg-yellow-600/90 border-b-4 border-yellow-800 text-white py-4 rounded-2xl font-black uppercase shadow-xl hover:bg-yellow-500 transition-all flex items-center justify-center gap-3"><div className="bg-black/20 p-2 rounded-full"><Wrench size={20} /></div><span>Registrar Mantenimiento</span></button><ScheduleModule
         schedule={agendaData.find((item) => item.id === form.recolector) || null}
-        isPublished={sysConfig.agendaPublicada !== false} />
+        isPublished={sysConfig.agendaPublicada !== false}
+        userName={form.recolector || userProfile.nombre || currentUser?.email || ''} />
     </div>}
               </div>
               <div className="space-y-6">

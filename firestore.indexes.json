@@ -39,6 +39,14 @@
         { "fieldPath": "usuario", "order": "ASCENDING" },
         { "fieldPath": "fecha", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "registros_horas_extras",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "usuario", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

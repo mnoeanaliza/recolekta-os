@@ -23,7 +23,7 @@ const formatAMPM = (time24) => {
     return `${hours.toString().padStart(2, '0')}:${m} ${ampm}`;
 };
 
-export default function OvertimeModule({ currentUser, history }) {
+export default function OvertimeModule({ currentUser, history, onSubmitted }) {
     const [isUploading, setIsUploading] = useState(false);
     const [form, setForm] = useState({
         fecha: new Date().toISOString().split('T')[0],
@@ -52,7 +52,7 @@ export default function OvertimeModule({ currentUser, history }) {
         const horarioTurnoGenerado = `${formatAMPM(form.turnoInicio)} - ${formatAMPM(form.turnoFin)}`;
 
         try {
-            await addDoc(collection(db, "registros_horas_extras"), {
+            const record = {
                 fecha: form.fecha,
                 turnoInicio: form.turnoInicio,
                 turnoFin: form.turnoFin,
@@ -63,7 +63,9 @@ export default function OvertimeModule({ currentUser, history }) {
                 motivo: form.motivo,
                 usuario: currentUser.email,
                 createdAt: new Date().toISOString()
-            });
+            };
+            const savedRecord = await addDoc(collection(db, "registros_horas_extras"), record);
+            onSubmitted?.({ id: savedRecord.id, ...record });
             alert("¡Horas extras enviadas a RRHH correctamente!");
             setForm({ ...form, motivo: '' }); 
         } catch (error) {

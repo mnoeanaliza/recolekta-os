@@ -1,7 +1,7 @@
 import React from 'react';
 import { Calendar, Clock, MapPin, Wrench, AlertCircle, HardHat } from 'lucide-react';
 
-export default function ScheduleModule({ schedule, isPublished = true }) {
+export default function ScheduleModule({ schedule, isPublished = true, userName = '' }) {
 
   // 🔥 PANTALLA DE MODO BORRADOR 🔥
   if (!isPublished) return (
@@ -60,7 +60,7 @@ export default function ScheduleModule({ schedule, isPublished = true }) {
             <h2 className="text-xl font-black mb-1 flex items-center gap-3 text-white">
                 <Calendar className="text-blue-500"/> Mi Agenda
             </h2>
-            <p className="text-slate-400 text-xs">Hola, {userName.split(' ')[0]}. Esta es tu programación oficial.</p>
+            <p className="text-slate-400 text-xs">Hola, {(userName || 'transportista').trim().split(/\s+/)[0]}. Esta es tu programación oficial.</p>
         </div>
 
         {/* TARJETA 1: RUTA BASE */}

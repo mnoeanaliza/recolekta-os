@@ -63,6 +63,38 @@ const isAlertExpired = (alerta, now = Date.now()) => {
     return expiry !== null && expiry <= now;
 };
 
+const normalizeDateForComparison = (value) => {
+    if (!value) return '';
+
+    const source = typeof value?.toDate === 'function' ? value.toDate() : value;
+    if (source instanceof Date) {
+        if (Number.isNaN(source.getTime())) return '';
+        return `${source.getFullYear()}-${String(source.getMonth() + 1).padStart(2, '0')}-${String(source.getDate()).padStart(2, '0')}`;
+    }
+
+    const raw = String(source).trim();
+    const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+
+    const localMatch = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (localMatch) return `${localMatch[3]}-${localMatch[2].padStart(2, '0')}-${localMatch[1].padStart(2, '0')}`;
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+};
+
+const isDateInRange = (value, startDate, endDate) => {
+    const date = normalizeDateForComparison(value);
+    if (!date) return false;
+    const start = normalizeDateForComparison(startDate);
+    const end = normalizeDateForComparison(endDate);
+    return (!start || date >= start) && (!end || date <= end);
+};
+
+const sortByRecordDateDesc = (first, second) =>
+    normalizeDateForComparison(second.fecha).localeCompare(normalizeDateForComparison(first.fecha));
+
 function SmallGauge({ value, size = 60 }) {
     const ef = parseFloat(value) || 0;
     const color = ef >= 95 ? '#10b981' : ef >= 80 ? '#f59e0b' : '#ef4444'; 
@@ -387,7 +419,9 @@ const handleSyncToCloud = async () => {
 
   const transportistaOtData = useMemo(() => {
       if (!otData) return [];
-      return otData.filter(d => { if (!sysConfig?.heInicio || !sysConfig?.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
+      return otData
+          .filter((record) => isDateInRange(record.fecha, sysConfig?.heInicio, sysConfig?.heFin))
+          .sort(sortByRecordDateDesc);
   }, [otData, sysConfig]);
 
 useEffect(() => {
@@ -611,10 +645,21 @@ useEffect(() => {
       }
 
       const overtimeQuery = appMode === 'user'
-          ? query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email), where("fecha", ">=", startDate), orderBy("fecha", "desc"))
+          ? query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email.toLowerCase().trim()), limit(100))
           : query(collection(db, "registros_horas_extras"), where("fecha", ">=", startDate), orderBy("fecha", "desc"));
-      const unsub = onSnapshot(overtimeQuery, (snap) => setOtData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-      return () => unsub();
+      let cancelled = false;
+
+      getDocs(overtimeQuery)
+          .then((snap) => {
+              if (cancelled) return;
+              setOtData(snap.docs.map((item) => ({ id: item.id, ...item.data() })).sort(sortByRecordDateDesc));
+          })
+          .catch((error) => {
+              if (!cancelled) setOtData([]);
+              console.error('Error cargando horas extras', error);
+          });
+
+      return () => { cancelled = true; };
   }, [currentUser?.email, appMode, adminSection, userView, sysConfig?.heInicio]);
 
   const getUserZone = (emailOrName) => { 
@@ -714,7 +759,7 @@ const gamificationStats = useMemo(() => {
           const registroEmail = String(d.usuario || '').toLowerCase().trim();
           if (registroEmail !== currentEmail) return false;
           if (sysConfig?.heInicio && sysConfig?.heFin) {
-              return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin;
+              return isDateInRange(d.fecha, sysConfig.heInicio, sysConfig.heFin);
           }
           const dateInfo = extractDateInfo(d.fecha); return dateInfo.month === currentMonth && dateInfo.year === currentYear;
       });
@@ -729,7 +774,7 @@ const gamificationStats = useMemo(() => {
   }, [userProfile, otData, currentUser, sysConfig]);
 const cycleCategory = async () => { const categories = ['Operador', 'Técnico', 'Coordinador']; const currentIndex = categories.indexOf(userProfile.categoria || 'Operador'); const nextCategory = categories[(currentIndex + 1) % categories.length]; try { await setDoc(doc(db, "usuarios_perfiles", currentUser.email), { categoria: nextCategory }, { merge: true }); } catch(e) {} };
 const hrMetrics = useMemo(() => {
-    let filteredOt = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
+    let filteredOt = otData.filter((record) => isDateInRange(record.fecha, sysConfig.heInicio, sysConfig.heFin));
     if (filterZona !== 'all') filteredOt = filteredOt.filter(d => isUserInFilterZone(d.usuario, filterZona)); 
     
     // 🟢 CORRECCIÓN 1: Filtro global con limpieza de formato
@@ -1080,7 +1125,7 @@ const adminDashboardMetrics = useMemo(() => {
   
 const exportPayrollCSV = () => { 
     // 💡 El filtro de la quincena se aplica EXCLUSIVAMENTE al exportar el Excel
-    let exportData = otData.filter(d => { if (!sysConfig.heInicio || !sysConfig.heFin) return true; return d.fecha >= sysConfig.heInicio && d.fecha <= sysConfig.heFin; });
+    let exportData = otData.filter((record) => isDateInRange(record.fecha, sysConfig.heInicio, sysConfig.heFin));
     
     if (exportData.length === 0) return alert("No hay datos de horas extras en este rango de quincena."); 
     const formatTime12 = (time24) => { if(!time24) return ''; const [h, m] = time24.split(':'); let hours = parseInt(h, 10); const ampm = hours >= 12 ? 'p.m.' : 'a.m.'; hours = hours % 12; hours = hours ? hours : 12; return `${hours}:${m} ${ampm}`; }; 
