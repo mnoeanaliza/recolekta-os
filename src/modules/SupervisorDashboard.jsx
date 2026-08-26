@@ -20,6 +20,7 @@ export default function SupervisorDashboard(props) {
                 <div className="w-full xl:w-auto overflow-hidden">
                     <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-white mb-4 xl:mb-0 flex items-center gap-2"><Eye className="text-blue-500" /> Visor Operativo supervision</h2>
                     <div className="flex gap-2 mt-0 xl:mt-4 bg-[#0B1120] p-1 rounded-xl w-full border border-slate-800 overflow-x-auto md:flex-wrap md:overflow-visible custom-scrollbar">
+                        <button onClick={() => setSupervisorSection('inicio')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection === 'inicio' ? "bg-slate-200 text-black shadow-md" : "text-slate-500 hover:bg-slate-800")}>Inicio</button>
                         <button onClick={() => setSupervisorSection('bitacora')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection === 'bitacora' ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-800")}>Bitácora</button>
                         <button onClick={() => setSupervisorSection('combustible')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection === 'combustible' ? "bg-orange-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-800")}>Combustible</button>
                         <button onClick={() => setSupervisorSection('taller')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all", supervisorSection === 'taller' ? "bg-yellow-600 text-black shadow-md" : "text-slate-500 hover:bg-slate-800")}>Taller</button>
@@ -40,6 +41,15 @@ export default function SupervisorDashboard(props) {
                   </div>
                 </div>
              </div>
+            {supervisorSection === 'inicio' &&
+            <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl print-hide">
+                <div className="flex items-center gap-3 mb-6"><Eye className="text-blue-500" /><h3 className="text-xl font-black text-white uppercase">Visor listo</h3></div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <button onClick={() => setSupervisorSection('bitacora')} className="bg-[#0B1120] border border-slate-700 p-5 rounded-xl text-left hover:border-blue-500 transition-colors"><ClipboardList className="text-blue-500 mb-3" /><span className="text-xs font-black text-white uppercase">Bitácora</span></button>
+                    <button onClick={() => setSupervisorSection('combustible')} className="bg-[#0B1120] border border-slate-700 p-5 rounded-xl text-left hover:border-orange-500 transition-colors"><Fuel className="text-orange-500 mb-3" /><span className="text-xs font-black text-white uppercase">Combustible</span></button>
+                    <button onClick={() => setSupervisorSection('agenda')} className="bg-[#0B1120] border border-slate-700 p-5 rounded-xl text-left hover:border-purple-500 transition-colors"><Calendar className="text-purple-400 mb-3" /><span className="text-xs font-black text-white uppercase">Horarios</span></button>
+                </div>
+            </div>}
              
             {supervisorSection === 'bitacora' &&
   <div className="space-y-6">
@@ -134,6 +144,7 @@ export default function SupervisorDashboard(props) {
       sucursalesObj={catalogs.sucursales}
       transportistasObj={catalogs.transportistas}
       countryContext={catalogCountry}
+      agendaData={agendaData}
       readOnly={appMode === 'supervisor'}
       perfilesUsuarios={perfilesUsuarios}
       catalogs={catalogs}

@@ -19,7 +19,7 @@ const getStrictDateString = (dateInput) => {
     } catch(e) { return ''; }
 };
 
-export default function FuelModule({ currentUser, sysConfig }) {
+export default function FuelModule({ currentUser, sysConfig, userProfile, country }) {
     const [history, setHistory] = useState([]);
     const [form, setForm] = useState({ fecha: new Date().toISOString().split('T')[0], galones: '', costo: '', kilometraje: '' });
     const [imageFile, setImageFile] = useState(null);
@@ -94,6 +94,8 @@ export default function FuelModule({ currentUser, sysConfig }) {
                 ...form,
                 usuario: currentUser.email,
                 fecha: (form.fecha || '').substring(0, 10),
+                zona: userProfile?.zona || 'Sin Asignar',
+                pais: country || 'El Salvador',
                 foto: photoURL,
                 createdAt: new Date().toISOString()
             });

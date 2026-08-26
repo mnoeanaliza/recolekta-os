@@ -22,6 +22,7 @@ export default function AdminDashboard(props) {
                 <div className="w-full xl:w-auto overflow-hidden">
                     <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-white mb-4 xl:mb-0">Centro de Control</h2>
                     <div className="flex gap-2 mt-0 xl:mt-4 bg-[#0B1120] p-1 rounded-xl w-full border border-slate-800 overflow-x-auto md:flex-wrap md:overflow-visible custom-scrollbar">
+                        <button onClick={() => setAdminSection('inicio')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection === 'inicio' ? "bg-slate-200 text-black shadow-md" : "text-slate-500 hover:text-slate-300")}><Database size={14} /> Inicio</button>
                         <button onClick={() => setAdminSection('ops')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection === 'ops' ? "bg-green-600 text-white shadow-md" : "text-slate-500 hover:text-slate-300")}><ShieldCheck size={14} /> Operaciones</button>
                         <button onClick={() => setAdminSection('fleet')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection === 'fleet' ? "bg-orange-600 text-white shadow-md" : "text-slate-500 hover:text-slate-300")}><Bike size={14} /> Flota</button>
                         <button onClick={() => setAdminSection('hr')} className={cn("shrink-0 px-4 py-3 md:py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", adminSection === 'hr' ? "bg-purple-600 text-white shadow-md" : "text-slate-500 hover:text-slate-300")}><Clock size={14} /> Control HE</button>
@@ -66,6 +67,15 @@ export default function AdminDashboard(props) {
                   </div>
                 </div>
              </div>
+             {adminSection === 'inicio' &&
+             <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl print-hide">
+                 <div className="flex items-center gap-3 mb-6"><Database className="text-green-500" /><h3 className="text-xl font-black text-white uppercase">Panel listo</h3></div>
+                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                     <button onClick={() => setAdminSection('ops')} className="bg-[#0B1120] border border-slate-700 p-5 rounded-xl text-left hover:border-green-500 transition-colors"><ShieldCheck className="text-green-500 mb-3" /><span className="text-xs font-black text-white uppercase">Operaciones</span></button>
+                     <button onClick={() => setAdminSection('fleet')} className="bg-[#0B1120] border border-slate-700 p-5 rounded-xl text-left hover:border-orange-500 transition-colors"><Bike className="text-orange-500 mb-3" /><span className="text-xs font-black text-white uppercase">Flota</span></button>
+                     <button onClick={() => setAdminSection('bi')} className="bg-[#0B1120] border border-slate-700 p-5 rounded-xl text-left hover:border-indigo-500 transition-colors"><PieChartIcon className="text-indigo-400 mb-3" /><span className="text-xs font-black text-white uppercase">Analítica</span></button>
+                 </div>
+             </div>}
              {adminSection === 'catalogos' && <CatalogManager {...props} />}
 
              {adminSection === 'bi' && <Reports {...props} />}
@@ -197,6 +207,7 @@ export default function AdminDashboard(props) {
                                 <button onClick={() => setCurrentPage((prev) => prev + 1)} disabled={currentPage >= Math.ceil(metrics.rows.length / itemsPerPage)} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
                                     Siguiente <ChevronRight size={14} />
                                 </button>
+                                <button onClick={() => setQueryLimit((value) => value + 50)} className="bg-blue-900/40 border border-blue-700 text-blue-300 px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all hover:bg-blue-900">Cargar 50 más</button>
                             </div>
                        </div>
                     </div>
@@ -374,6 +385,7 @@ export default function AdminDashboard(props) {
       sucursalesObj={catalogs.sucursales}
       transportistasObj={catalogs.transportistas}
       countryContext={catalogCountry}
+      agendaData={agendaData}
       readOnly={appMode === 'supervisor'}
       perfilesUsuarios={perfilesUsuarios}
       catalogs={catalogs}

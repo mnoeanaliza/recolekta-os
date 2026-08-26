@@ -3,8 +3,9 @@ import { Calendar, ChevronLeft, ChevronRight, Clock, Edit3, Eraser, MapPin, Plus
 import { deleteFleetAgendaEntry, saveFleetAgendaAssignments, subscribeFleetAgenda } from '../services/agendaService';
 import { cn, formatLocalDate, formatTurnosVisually, formatWithDay, USUARIOS_EMAIL } from '../utils/constants';
 
-function FleetAgenda({ sucursalesObj = {}, transportistasObj = {}, countryContext = "El Salvador", readOnly = false, perfilesUsuarios = {}, filtroZona = 'all' }) {
-    const [agendaData, setAgendaData] = useState([]);
+function FleetAgenda({ sucursalesObj = {}, transportistasObj = {}, countryContext = "El Salvador", readOnly = false, perfilesUsuarios = {}, filtroZona = 'all', agendaData: externalAgendaData }) {
+    const [internalAgendaData, setInternalAgendaData] = useState([]);
+    const agendaData = externalAgendaData ?? internalAgendaData;
     const [selectedUsers, setSelectedUsers] = useState([]);
     const [form, setForm] = useState({ horario: '', zona: '', puntos: '', turnos: '', mantenimiento: '' });
     const [tempDate, setTempDate] = useState('');
@@ -33,9 +34,10 @@ function FleetAgenda({ sucursalesObj = {}, transportistasObj = {}, countryContex
     const transportistas = transportistasFiltrados;
 
     useEffect(() => {
-        const unsub = subscribeFleetAgenda(setAgendaData);
+        if (externalAgendaData !== undefined) return undefined;
+        const unsub = subscribeFleetAgenda(setInternalAgendaData);
         return () => unsub();
-    }, []);
+    }, [externalAgendaData]);
 
     const handleAddUser = (e) => {
         const val = e.target.value;

@@ -1,35 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { db } from '../config/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import React from 'react';
 import { Calendar, Clock, MapPin, Wrench, AlertCircle, HardHat } from 'lucide-react';
 
-export default function ScheduleModule({ currentUser, userName }) {
-  const [schedule, setSchedule] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [isPublished, setIsPublished] = useState(true);
-
-  useEffect(() => {
-    // Escucha la agenda personal
-    const docRef = doc(db, "agenda_flota", userName);
-    const unsubscribeAgenda = onSnapshot(docRef, (docSnap) => {
-        if (docSnap.exists()) setSchedule(docSnap.data());
-        else setSchedule(null);
-        setLoading(false);
-    });
-
-    // Escucha el interruptor maestro de RRHH/Admin
-    const configRef = doc(db, "configuraciones", "general");
-    const unsubscribeConfig = onSnapshot(configRef, (docSnap) => {
-        if (docSnap.exists()) {
-            // Si agendaPublicada es false, la ocultamos. Si no existe o es true, la mostramos.
-            setIsPublished(docSnap.data().agendaPublicada !== false);
-        }
-    });
-
-    return () => { unsubscribeAgenda(); unsubscribeConfig(); };
-  }, [userName]);
-
-  if (loading) return <div className="p-10 text-center text-slate-500">Cargando agenda...</div>;
+export default function ScheduleModule({ schedule, isPublished = true }) {
 
   // 🔥 PANTALLA DE MODO BORRADOR 🔥
   if (!isPublished) return (

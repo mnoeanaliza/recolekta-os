@@ -19,7 +19,7 @@ const getStrictDateString = (dateInput) => {
     } catch(e) { return ''; }
 };
 
-export default function MaintenanceModule({ currentUser, sysConfig }) {
+export default function MaintenanceModule({ currentUser, sysConfig, userProfile, country }) {
     const [history, setHistory] = useState([]);
     const [form, setForm] = useState({ fecha: new Date().toISOString().split('T')[0], tipo: 'Preventivo', taller: '', costo: '', descripcion: '' });
     const [imageFile, setImageFile] = useState(null);
@@ -91,6 +91,8 @@ export default function MaintenanceModule({ currentUser, sysConfig }) {
             await addDoc(collection(db, "registros_mantenimiento"), {
                 ...form,
                 usuario: currentUser.email,
+                zona: userProfile?.zona || 'Sin Asignar',
+                pais: country || 'El Salvador',
                 foto: photoURL,
                 createdAt: new Date().toISOString()
             });
