@@ -282,9 +282,9 @@ const handleSyncToCloud = async () => {
 
           // 1. Obtener registros de producción, combustible y mantenimiento del año seleccionado
           const [prodSnap, fuelSnap, maintSnap] = await Promise.all([
-              getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", startTimestamp), where("createdAt", "<", endTimestamp), limit(10000))),
-              getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp), limit(5000))),
-              getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp), limit(5000)))
+              getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", startTimestamp), where("createdAt", "<", endTimestamp), limit(50000))),
+              getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp), limit(20000))),
+              getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp), limit(20000)))
           ]);
 
           const config = sysConfig || {};
@@ -732,12 +732,13 @@ useEffect(() => {
     let cancelled = false;
     const fetchExactCount = async () => {
         try {
-            const currY = filterYear;
+            const currY = Number(filterYear);
             const currM = filterMonth === 'all' ? (new Date().getMonth() + 1) : parseInt(filterMonth);
             const mStr = String(currM).padStart(2, '0');
             const startISO = `${currY}-${mStr}-01`;
-            const nextMonthDate = new Date(Number(currY), currM, 1);
-            const endISO = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
+            const nextMonthYear = currM === 12 ? currY + 1 : currY;
+            const nextMonthNum = currM === 12 ? 1 : currM + 1;
+            const endISO = `${nextMonthYear}-${String(nextMonthNum).padStart(2, '0')}-01`;
 
             let q = query(
                 collection(db, "registros_produccion"),
