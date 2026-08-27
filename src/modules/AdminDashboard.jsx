@@ -111,16 +111,16 @@ export default function AdminDashboard(props) {
                           )}
                        </div>
                        <div className="h-60 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
-                             <AreaChart data={metrics.monthlyData}>
-                                <defs><linearGradient id="colorEf" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
-                                <YAxis hide domain={[0, 100]} />
-                                <Tooltip contentStyle={{ backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff' }} itemStyle={{ color: '#10b981' }} formatter={(value) => [`${value}%`, 'Eficiencia']} />
-                                <Area type="monotone" dataKey="ef" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorEf)" connectNulls={true} />
-                             </AreaChart>
-                          </ResponsiveContainer>
+                           <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={metrics.monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                                 <defs><linearGradient id="colorEf" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs>
+                                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+                                 <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#64748b' }} tickFormatter={(value) => `${value}%`} axisLine={false} tickLine={false} width={38} />
+                                 <Tooltip contentStyle={{ backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff' }} itemStyle={{ color: '#10b981' }} formatter={(value) => [value !== null && value !== undefined ? `${value}%` : 'Sin datos', 'Eficiencia']} labelFormatter={(label) => `Mes de ${label}`} />
+                                 <Area type="monotone" dataKey="ef" stroke="#10b981" strokeWidth={3} dot={{ r: 3, fill: '#10b981' }} activeDot={{ r: 6, fill: '#34d399' }} fillOpacity={1} fill="url(#colorEf)" connectNulls={true} />
+                              </AreaChart>
+                           </ResponsiveContainer>
                        </div>
                     </div>
                     <div className="bg-[#151F32] p-6 md:p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden">

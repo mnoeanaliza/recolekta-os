@@ -12,7 +12,7 @@ import SupervisorDashboard from './modules/SupervisorDashboard';
 import TransportistaHome from './modules/TransportistaHome';
 import OvertimeModule from './components/OvertimeModule';
 //import { USUARIOS_EMAIL } from '../App.jsx';
-import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, doc, deleteDoc, updateDoc, where, arrayUnion, setDoc, Timestamp, documentId, writeBatch } from 'firebase/firestore';
+import { collection, addDoc, query, onSnapshot, orderBy, limit, getDocs, getCountFromServer, doc, deleteDoc, updateDoc, where, arrayUnion, setDoc, Timestamp, documentId, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 
@@ -153,6 +153,7 @@ function Dashboard() {
   const [isRebuildingSummaries, setIsRebuildingSummaries] = useState(false);
   const [liveData, setLiveData] = useState([]);
   const [resumenesMensualesNube, setResumenesMensualesNube] = useState({});
+  const [serverMonthlyCount, setServerMonthlyCount] = useState(null);
   // 🔥 CONTROL DE PAGINACIÓN REAL
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
@@ -727,6 +728,38 @@ useEffect(() => {
   }, [currentUser?.email, appMode]);
 
   useEffect(() => {
+    if (!currentUser?.email || appMode !== 'admin' || adminSection !== 'ops') return;
+    let cancelled = false;
+    const fetchExactCount = async () => {
+        try {
+            const currY = filterYear;
+            const currM = filterMonth === 'all' ? (new Date().getMonth() + 1) : parseInt(filterMonth);
+            const mStr = String(currM).padStart(2, '0');
+            const startISO = `${currY}-${mStr}-01`;
+            const nextMonthDate = new Date(Number(currY), currM, 1);
+            const endISO = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
+
+            let q = query(
+                collection(db, "registros_produccion"),
+                where("createdAt", ">=", startISO),
+                where("createdAt", "<", endISO)
+            );
+            if (filterUser !== 'all') {
+                q = query(q, where("recolector", "==", filterUser));
+            }
+            const countSnap = await getCountFromServer(q);
+            if (!cancelled) {
+                setServerMonthlyCount(countSnap.data().count);
+            }
+        } catch (e) {
+            console.error("Error fetching exact monthly count", e);
+        }
+    };
+    fetchExactCount();
+    return () => { cancelled = true; };
+  }, [appMode, adminSection, filterYear, filterMonth, filterUser, currentUser?.email, liveData.length]);
+
+  useEffect(() => {
     if (!currentUser?.email) return;
     let unsubOps;
     let unsubFuel;
@@ -1087,13 +1120,14 @@ const metrics = useMemo(() => {
     
     const activeDocId = `${filterYear}-${String(filterMonth === 'all' ? currMonth : filterMonth).padStart(2, '0')}`;
     const activeMonthSummary = resumenesMensualesNube[activeDocId];
-    const totalMesVal = (filterUser === 'all' && filterZona === 'all' && filterSucursal === 'all' && !filterSpecificDate && activeMonthSummary?.totalViajesMes) 
-        ? activeMonthSummary.totalViajesMes 
-        : filtered.length;
+    const isFiltered = filterUser !== 'all' || filterZona !== 'all' || filterSucursal !== 'all' || Boolean(filterSpecificDate);
+    const totalMesVal = (serverMonthlyCount !== null && !isFiltered) 
+        ? serverMonthlyCount 
+        : (activeMonthSummary?.totalViajesMes || activeMonthSummary?._conteoProduccion?.total || filtered.length);
 
     return { total: totalMesVal, totalBitacora: filtered.length, efP: calcEf(pItems), avgP: calcAvg(pItems), countP: pItems.length, efS: calcEf(sItems), avgS: calcAvg(sItems), countS: sItems.length, monthlyData, topSucursales, rows: filtered };
-  // 🔥 EL CANDADO CORREGIDO: Faltaba incluir resumenesMensualesNube en la lista de aquí abajo 👇
-  }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal, filterZona, perfilesUsuarios, resumenesMensualesNube]);
+  // 🔥 EL CANDADO CORREGIDO: Faltaba incluir resumenesMensualesNube y serverMonthlyCount en la lista de aquí abajo 👇
+  }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal, filterZona, perfilesUsuarios, resumenesMensualesNube, serverMonthlyCount]);
 
   const getSummaryStatsForFilters = (summary = {}) => {
       if (filterUser !== 'all') {
