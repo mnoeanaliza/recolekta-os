@@ -280,11 +280,11 @@ const handleSyncToCloud = async () => {
           const startTimestamp = `${year}-01-01`;
           const endTimestamp = `${year + 1}-01-01`;
 
-          // 1. Obtener registros de producción, combustible y mantenimiento del año seleccionado
+          // 1. Obtener registros de producción, combustible y mantenimiento del año seleccionado sin límites inválidos
           const [prodSnap, fuelSnap, maintSnap] = await Promise.all([
-              getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", startTimestamp), where("createdAt", "<", endTimestamp), limit(50000))),
-              getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp), limit(20000))),
-              getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp), limit(20000)))
+              getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", startTimestamp), where("createdAt", "<", endTimestamp))),
+              getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp))),
+              getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp)))
           ]);
 
           const config = sysConfig || {};
