@@ -1126,6 +1126,9 @@ const metrics = useMemo(() => {
     const activeDocId = `${filterYear}-${String(filterMonth === 'all' ? currMonth : filterMonth).padStart(2, '0')}`;
     const activeMonthSummary = resumenesMensualesNube[activeDocId];
     const isFiltered = filterUser !== 'all' || filterZona !== 'all' || filterSucursal !== 'all' || Boolean(filterSpecificDate);
+    const totalMesVal = (serverMonthlyCount !== null && !isFiltered) 
+        ? serverMonthlyCount 
+        : (activeMonthSummary?.totalViajesMes || activeMonthSummary?._conteoProduccion?.total || filtered.length);
     
     let vitalesMes = activeMonthSummary?.vitales ?? activeMonthSummary?._conteoProduccion?.vitales;
     let secundariasMes = activeMonthSummary?.secundarias ?? activeMonthSummary?._conteoProduccion?.secundarias;
