@@ -917,15 +917,16 @@ const metrics = useMemo(() => {
             // 🔥 EL MOTOR HÍBRIDO PERFECTO 🔥
             if (finalDocs.length > 0) {
                 // A) Si la PC sí descargó los registros de este mes (Ej. al seleccionar "Mes 2")
-                efVal = isFuture ? null : parseFloat(calcEf(mRecs));
+                efVal = isFuture ? null : (mRecs.length > 0 ? parseFloat(calcEf(mRecs)) : null);
                 countVal = finalDocs.length;
             } else if (filterUser === 'all') {
                 // B) Si la PC NO tiene los datos (Ej. al seleccionar "Año" en Vivo), lee de la Nube
                 const resumen = resumenesMensualesNube[documentId];
-                efVal = isFuture ? null : (resumen ? parseFloat(resumen.eficienciaGlobal) : 0);
-                countVal = resumen ? resumen.totalViajesMes : 0;
+                const hasTrips = resumen && Number(resumen.totalViajesMes || resumen._conteoProduccion?.total || 0) > 0;
+                efVal = isFuture || !hasTrips ? null : parseFloat(resumen.eficienciaGlobal);
+                countVal = resumen ? Number(resumen.totalViajesMes || resumen._conteoProduccion?.total || 0) : 0;
             } else {
-                efVal = isFuture ? null : 0;
+                efVal = null;
             }
 
             return { name: m, ef: efVal, count: countVal }; 
@@ -1037,7 +1038,7 @@ const biMetrics = useMemo(() => {
           
           const getOps = (y) => { let docs = allOps.filter(d => { const info = extractDateInfo(d.createdAt); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.recolector, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => x.recolector === filterUser); return docs; };
           const ops1 = getOps(y1); const ops2 = getOps(y2); 
-          const calcEf = (docs) => { const recs = docs.filter(d => isPrincipalData(d)); if(recs.length === 0) return 0; return parseFloat(((recs.filter(x => (x.tiempo||0) <= getMetaEspera(getUserZone(x.recolector))).length / recs.length) * 100).toFixed(1)); };
+          const calcEf = (docs) => { const recs = docs.filter(d => isPrincipalData(d)); if(recs.length === 0) return null; return parseFloat(((recs.filter(x => (x.tiempo||0) <= getMetaEspera(getUserZone(x.recolector))).length / recs.length) * 100).toFixed(1)); };
           
           const getFuel = (y) => { let docs = fuelData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => getUserDisplayName(x.usuario) === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
           const getMaint = (y) => { let docs = maintData.filter(d => { const info = extractDateInfo(d.fecha); return info.year === y && info.month === mNum; }); if (filterZona !== 'all') docs = docs.filter(x => isUserInFilterZone(x.usuario, filterZona)); if (filterUser !== 'all') docs = docs.filter(x => getUserDisplayName(x.usuario) === filterUser); return docs.reduce((sum, d) => sum + parseFloat(d.costo||0), 0); };
