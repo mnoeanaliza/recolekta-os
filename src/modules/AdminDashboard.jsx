@@ -85,12 +85,16 @@ export default function AdminDashboard(props) {
                        <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">EFICIENCIA VITAL</p><h3 className="text-4xl font-black text-white">{metrics.efP}%</h3></div>
                        <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">EFICIENCIA SECUNDARIA</p><h3 className="text-4xl font-black text-white">{metrics.efS}%</h3></div>
                        <div className="bg-[#0B1120] p-6 rounded-[2rem] border border-slate-800">
-                          <p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">TOTAL VIAJES (MES)</p>
-                          <h3 className="text-4xl font-black text-white">{metrics.total}</h3>
-                          {metrics.totalBitacora && metrics.total !== metrics.totalBitacora && (
-                             <p className="text-[10px] text-slate-500 font-bold mt-1">({metrics.totalBitacora} en bitácora reciente)</p>
-                          )}
-                       </div>
+                           <p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">TOTAL VIAJES (MES)</p>
+                           <h3 className="text-4xl font-black text-white">{metrics.total}</h3>
+                           {metrics.vitalesMes !== undefined && metrics.secundariasMes !== undefined ? (
+                              <p className="text-[9px] text-slate-400 font-bold mt-1">
+                                 <span className="text-indigo-400 font-black">{metrics.vitalesMes} Vitales</span> + <span className="text-orange-400 font-black">{metrics.secundariasMes} Secundarias</span>
+                              </p>
+                           ) : metrics.totalBitacora && metrics.total !== metrics.totalBitacora ? (
+                              <p className="text-[10px] text-slate-500 font-bold mt-1">({metrics.totalBitacora} en bitácora reciente)</p>
+                           ) : null}
+                        </div>
                     </div>
                     <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800">
                        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">

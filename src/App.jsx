@@ -1122,11 +1122,24 @@ const metrics = useMemo(() => {
     const activeDocId = `${filterYear}-${String(filterMonth === 'all' ? currMonth : filterMonth).padStart(2, '0')}`;
     const activeMonthSummary = resumenesMensualesNube[activeDocId];
     const isFiltered = filterUser !== 'all' || filterZona !== 'all' || filterSucursal !== 'all' || Boolean(filterSpecificDate);
-    const totalMesVal = (serverMonthlyCount !== null && !isFiltered) 
-        ? serverMonthlyCount 
-        : (activeMonthSummary?.totalViajesMes || activeMonthSummary?._conteoProduccion?.total || filtered.length);
+    const vitalesMes = activeMonthSummary?._conteoProduccion?.vitales;
+    const secundariasMes = activeMonthSummary?._conteoProduccion?.secundarias;
 
-    return { total: totalMesVal, totalBitacora: filtered.length, efP: calcEf(pItems), avgP: calcAvg(pItems), countP: pItems.length, efS: calcEf(sItems), avgS: calcAvg(sItems), countS: sItems.length, monthlyData, topSucursales, rows: filtered };
+    return { 
+        total: totalMesVal, 
+        totalBitacora: filtered.length, 
+        vitalesMes, 
+        secundariasMes, 
+        efP: calcEf(pItems), 
+        avgP: calcAvg(pItems), 
+        countP: pItems.length, 
+        efS: calcEf(sItems), 
+        avgS: calcAvg(sItems), 
+        countS: sItems.length, 
+        monthlyData, 
+        topSucursales, 
+        rows: filtered 
+    };
   // 🔥 EL CANDADO CORREGIDO: Faltaba incluir resumenesMensualesNube y serverMonthlyCount en la lista de aquí abajo 👇
   }, [liveData, csvData, filterMonth, filterUser, filterYear, filterSpecificDate, filterSucursal, filterZona, perfilesUsuarios, resumenesMensualesNube, serverMonthlyCount]);
 
