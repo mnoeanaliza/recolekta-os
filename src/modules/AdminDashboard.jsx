@@ -85,16 +85,21 @@ export default function AdminDashboard(props) {
                        <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">EFICIENCIA VITAL</p><h3 className="text-4xl font-black text-white">{metrics.efP}%</h3></div>
                        <div className="bg-[#151F32] p-6 rounded-[2rem] border border-slate-800"><p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">EFICIENCIA SECUNDARIA</p><h3 className="text-4xl font-black text-white">{metrics.efS}%</h3></div>
                        <div className="bg-[#0B1120] p-6 rounded-[2rem] border border-slate-800">
-                           <p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">TOTAL VIAJES (MES)</p>
-                           <h3 className="text-4xl font-black text-white">{metrics.total}</h3>
-                           {metrics.vitalesMes !== undefined && metrics.secundariasMes !== undefined ? (
-                              <p className="text-[9px] text-slate-400 font-bold mt-1">
-                                 <span className="text-indigo-400 font-black">{metrics.vitalesMes} Vitales</span> + <span className="text-orange-400 font-black">{metrics.secundariasMes} Secundarias</span>
-                              </p>
-                           ) : metrics.totalBitacora && metrics.total !== metrics.totalBitacora ? (
-                              <p className="text-[10px] text-slate-500 font-bold mt-1">({metrics.totalBitacora} en bitácora reciente)</p>
-                           ) : null}
-                        </div>
+                            <p className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2">TOTAL VIAJES (MES)</p>
+                            <h3 className="text-4xl font-black text-white">{metrics.total}</h3>
+                            {metrics.vitalesMes !== undefined && metrics.secundariasMes !== undefined && (metrics.vitalesMes > 0 || metrics.secundariasMes > 0) ? (
+                               <div className="flex flex-wrap gap-1.5 mt-2">
+                                  <span className="bg-indigo-950/60 text-indigo-300 border border-indigo-700/60 px-2 py-0.5 rounded-md text-[10px] font-black">
+                                     {metrics.vitalesMes} Vitales
+                                  </span>
+                                  <span className="bg-orange-950/60 text-orange-300 border border-orange-700/60 px-2 py-0.5 rounded-md text-[10px] font-black">
+                                     {metrics.secundariasMes} Secundarias
+                                  </span>
+                               </div>
+                            ) : metrics.totalBitacora && metrics.total !== metrics.totalBitacora ? (
+                               <p className="text-[10px] text-slate-500 font-bold mt-1">({metrics.totalBitacora} en bitácora reciente)</p>
+                            ) : null}
+                         </div>
                     </div>
                     <div className="bg-[#151F32] p-6 rounded-[2rem] shadow-sm border border-slate-800">
                        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
@@ -121,7 +126,33 @@ export default function AdminDashboard(props) {
                                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
                                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
                                  <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#64748b' }} tickFormatter={(value) => `${value}%`} axisLine={false} tickLine={false} width={38} />
-                                 <Tooltip contentStyle={{ backgroundColor: '#0B1120', border: '1px solid #1f2937', borderRadius: '8px', color: '#fff' }} itemStyle={{ color: '#10b981' }} formatter={(value) => [value !== null && value !== undefined ? `${value}%` : 'Sin datos', 'Eficiencia']} labelFormatter={(label) => `Mes de ${label}`} />
+                                 <Tooltip 
+                                    content={({ active, payload, label }) => {
+                                       if (active && payload && payload.length) {
+                                          const data = payload[0].payload;
+                                          if (data.ef === null || data.ef === undefined) return null;
+                                          return (
+                                             <div className="bg-[#0B1120] border border-slate-700 p-3 rounded-2xl shadow-2xl space-y-1.5 min-w-[170px]">
+                                                <p className="text-xs font-black text-white uppercase flex items-center justify-between border-b border-slate-800 pb-1">
+                                                   <span>Mes de {label}</span>
+                                                   <span className="text-emerald-400 font-black">{data.ef}%</span>
+                                                </p>
+                                                {data.count > 0 ? (
+                                                   <div className="text-[10px] space-y-0.5 pt-0.5">
+                                                      <p className="text-slate-300 font-bold">Total: <span className="text-white font-black">{data.count}</span> viajes</p>
+                                                      <p className="text-slate-400 text-[9px] font-medium">
+                                                         <span className="text-indigo-400 font-bold">{data.vitales || 0} Vitales</span> + <span className="text-orange-400 font-bold">{data.secundarias || 0} Secundarias</span>
+                                                      </p>
+                                                   </div>
+                                                ) : (
+                                                   <p className="text-[10px] text-slate-500 italic">Sin viajes en este mes</p>
+                                                )}
+                                             </div>
+                                          );
+                                       }
+                                       return null;
+                                    }}
+                                 />
                                  <Area type="monotone" dataKey="ef" stroke="#10b981" strokeWidth={3} dot={{ r: 3, fill: '#10b981' }} activeDot={{ r: 6, fill: '#34d399' }} fillOpacity={1} fill="url(#colorEf)" connectNulls={true} />
                               </AreaChart>
                            </ResponsiveContainer>

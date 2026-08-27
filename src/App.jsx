@@ -1100,20 +1100,24 @@ const metrics = useMemo(() => {
 
             // 🔥 EL MOTOR HÍBRIDO PERFECTO 🔥
             if (finalDocs.length > 0) {
-                // A) Si la PC sí descargó los registros de este mes (Ej. al seleccionar "Mes 2")
-                efVal = isFuture ? null : (mRecs.length > 0 ? parseFloat(calcEf(mRecs)) : null);
+                const pCount = mRecs.length;
+                const sCount = finalDocs.length - mRecs.length;
+                efVal = isFuture ? null : (pCount > 0 ? parseFloat(calcEf(mRecs)) : null);
                 countVal = finalDocs.length;
+                return { name: m, ef: efVal, count: countVal, vitales: pCount, secundarias: sCount };
             } else if (filterUser === 'all') {
                 // B) Si la PC NO tiene los datos (Ej. al seleccionar "Año" en Vivo), lee de la Nube
                 const resumen = resumenesMensualesNube[documentId];
                 const hasTrips = resumen && Number(resumen.totalViajesMes || resumen._conteoProduccion?.total || 0) > 0;
                 efVal = isFuture || !hasTrips ? null : parseFloat(resumen.eficienciaGlobal);
                 countVal = resumen ? Number(resumen.totalViajesMes || resumen._conteoProduccion?.total || 0) : 0;
+                const vCount = Number(resumen?.vitales ?? resumen?._conteoProduccion?.vitales ?? (resumen?.porUsuario ? Object.values(resumen.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0) : 0));
+                const sCount = Number(resumen?.secundarias ?? resumen?._conteoProduccion?.secundarias ?? (resumen?.porUsuario ? Object.values(resumen.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0) : 0));
+                return { name: m, ef: efVal, count: countVal, vitales: vCount, secundarias: sCount };
             } else {
                 efVal = null;
+                return { name: m, ef: null, count: 0, vitales: 0, secundarias: 0 };
             }
-
-            return { name: m, ef: efVal, count: countVal }; 
         });
     
     const sucursalStats = filtered.reduce((acc, curr) => { if(!curr.sucursal || curr.sucursal === 'N/A' || curr.sucursal === 'Ruta Externa') return acc; acc[curr.sucursal] = acc[curr.sucursal] || { totalTime: 0, count: 0 }; acc[curr.sucursal].totalTime += (curr.tiempo || 0); acc[curr.sucursal].count += 1; return acc; }, {});
@@ -1122,8 +1126,13 @@ const metrics = useMemo(() => {
     const activeDocId = `${filterYear}-${String(filterMonth === 'all' ? currMonth : filterMonth).padStart(2, '0')}`;
     const activeMonthSummary = resumenesMensualesNube[activeDocId];
     const isFiltered = filterUser !== 'all' || filterZona !== 'all' || filterSucursal !== 'all' || Boolean(filterSpecificDate);
-    const vitalesMes = activeMonthSummary?._conteoProduccion?.vitales;
-    const secundariasMes = activeMonthSummary?._conteoProduccion?.secundarias;
+    
+    let vitalesMes = activeMonthSummary?.vitales ?? activeMonthSummary?._conteoProduccion?.vitales;
+    let secundariasMes = activeMonthSummary?.secundarias ?? activeMonthSummary?._conteoProduccion?.secundarias;
+    if ((vitalesMes === undefined || secundariasMes === undefined) && activeMonthSummary?.porUsuario) {
+        vitalesMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0);
+        secundariasMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0);
+    }
 
     return { 
         total: totalMesVal, 
