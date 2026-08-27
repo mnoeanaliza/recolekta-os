@@ -94,7 +94,7 @@ service cloud.firestore {
 
     match /resumenes_operativos/{documentId} {
       allow read: if signedIn();
-      allow write: if false;
+      allow write: if isAdmin();
     }
 
     match /{document=**} {

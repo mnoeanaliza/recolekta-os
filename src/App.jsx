@@ -272,16 +272,166 @@ const handleSyncToCloud = async () => {
 
   const handleRebuildHistoricalSummaries = async () => {
       if (appMode !== 'admin') return;
-      if (!window.confirm(`Se leerán una sola vez los registros de ${filterYear} para crear 12 resúmenes económicos. ¿Continuar?`)) return;
+      if (!window.confirm(`Se leerán una sola vez los registros de ${filterYear} para reconstruir los 12 resúmenes mensuales con datos 100% reales. ¿Continuar?`)) return;
       setIsRebuildingSummaries(true);
       try {
-          const rebuild = httpsCallable(cloudFunctions, 'reconstruirResumenesHistoricos');
-          const result = await rebuild({ year: Number(filterYear) });
-          const totals = result.data || {};
-          alert(`Resúmenes ${filterYear} listos. Lecturas únicas: ${Number(totals.productionReads || 0) + Number(totals.fuelReads || 0) + Number(totals.maintenanceReads || 0)}. Meses guardados: ${totals.summaryWrites || 0}.`);
+          const year = Number(filterYear);
+          const startTimestamp = `${year}-01-01`;
+          const endTimestamp = `${year + 1}-01-01`;
+
+          // 1. Obtener registros de producción, combustible y mantenimiento del año seleccionado
+          const [prodSnap, fuelSnap, maintSnap] = await Promise.all([
+              getDocs(query(collection(db, "registros_produccion"), where("createdAt", ">=", startTimestamp), where("createdAt", "<", endTimestamp), limit(10000))),
+              getDocs(query(collection(db, "registros_combustible"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp), limit(5000))),
+              getDocs(query(collection(db, "registros_mantenimiento"), where("fecha", ">=", startTimestamp), where("fecha", "<", endTimestamp), limit(5000)))
+          ]);
+
+          const config = sysConfig || {};
+          const metaMetro = Number(config.metaMetro || 5);
+          const metaInterior = Number(config.metaInterior || 10);
+          const metaFrontera = Number(config.metaFrontera || 20);
+
+          const getMeta = (zone) => {
+              const z = String(zone || "").toLowerCase();
+              if (z.includes("oriente") || z.includes("occidente")) return metaInterior;
+              if (z.includes("guatemala") || z.includes("honduras") || z.includes("costa rica")) return metaFrontera;
+              return metaMetro;
+          };
+
+          // Inicializar los 12 meses
+          const monthlyBuckets = {};
+          for (let m = 1; m <= 12; m++) {
+              const monthKey = `${year}-${String(m).padStart(2, '0')}`;
+              monthlyBuckets[monthKey] = {
+                  vitales: 0,
+                  aTiempo: 0,
+                  secundarias: 0,
+                  total: 0,
+                  gastoCombustible: 0,
+                  galonesCombustible: 0,
+                  gastoMantenimiento: 0,
+                  porUsuario: {},
+                  porZona: {},
+                  porPais: {}
+              };
+          }
+
+          // Procesar producción
+          prodSnap.forEach(docSnap => {
+              const d = docSnap.data();
+              const dateInfo = extractDateInfo(d.createdAt);
+              if (dateInfo.year !== String(year) || !dateInfo.month) return;
+              const monthKey = `${year}-${String(dateInfo.month).padStart(2, '0')}`;
+              const bucket = monthlyBuckets[monthKey];
+              if (!bucket) return;
+
+              const isPrinc = isPrincipalData(d);
+              const userEmail = String(d.usuarioEmail || '').toLowerCase().trim();
+              const userName = String(d.recolector || '').toUpperCase().trim();
+              const userKey = userEmail || (userName ? `nombre:${userName}` : 'desconocido');
+              const zone = String(d.zona || perfilesUsuarios[userEmail]?.zona || 'Sin Asignar').trim();
+              const country = getUserCountry(userName) || (zone.includes('-') ? zone.split('-')[0].trim() : 'El Salvador');
+              const meta = getMeta(zone);
+              const tiempo = Number(d.tiempo || 0);
+              const onTime = tiempo <= meta;
+
+              bucket.total += 1;
+              if (isPrinc) {
+                  bucket.vitales += 1;
+                  if (onTime) bucket.aTiempo += 1;
+              } else {
+                  bucket.secundarias += 1;
+              }
+
+              // Por usuario
+              if (!bucket.porUsuario[userKey]) {
+                  bucket.porUsuario[userKey] = { vitales: 0, aTiempo: 0, secundarias: 0, total: 0 };
+              }
+              const uStats = bucket.porUsuario[userKey];
+              uStats.total += 1;
+              if (isPrinc) {
+                  uStats.vitales += 1;
+                  if (onTime) uStats.aTiempo += 1;
+              } else {
+                  uStats.secundarias += 1;
+              }
+              uStats.eficiencia = uStats.vitales > 0 ? parseFloat(((uStats.aTiempo / uStats.vitales) * 100).toFixed(1)) : 100;
+
+              // Por zona
+              if (!bucket.porZona[zone]) bucket.porZona[zone] = { vitales: 0, aTiempo: 0, secundarias: 0, total: 0 };
+              bucket.porZona[zone].total += 1;
+              if (isPrinc) {
+                  bucket.porZona[zone].vitales += 1;
+                  if (onTime) bucket.porZona[zone].aTiempo += 1;
+              } else {
+                  bucket.porZona[zone].secundarias += 1;
+              }
+
+              // Por país
+              if (!bucket.porPais[country]) bucket.porPais[country] = { vitales: 0, aTiempo: 0, secundarias: 0, total: 0 };
+              bucket.porPais[country].total += 1;
+              if (isPrinc) {
+                  bucket.porPais[country].vitales += 1;
+                  if (onTime) bucket.porPais[country].aTiempo += 1;
+              } else {
+                  bucket.porPais[country].secundarias += 1;
+              }
+          });
+
+          // Procesar combustible
+          fuelSnap.forEach(docSnap => {
+              const d = docSnap.data();
+              const dateInfo = extractDateInfo(d.fecha);
+              if (dateInfo.year !== String(year) || !dateInfo.month) return;
+              const monthKey = `${year}-${String(dateInfo.month).padStart(2, '0')}`;
+              const bucket = monthlyBuckets[monthKey];
+              if (!bucket) return;
+              bucket.gastoCombustible += Number(d.costo || 0);
+              bucket.galonesCombustible += Number(d.galones || 0);
+          });
+
+          // Procesar mantenimiento
+          maintSnap.forEach(docSnap => {
+              const d = docSnap.data();
+              const dateInfo = extractDateInfo(d.fecha);
+              if (dateInfo.year !== String(year) || !dateInfo.month) return;
+              const monthKey = `${year}-${String(dateInfo.month).padStart(2, '0')}`;
+              const bucket = monthlyBuckets[monthKey];
+              if (!bucket) return;
+              bucket.gastoMantenimiento += Number(d.costo || 0);
+          });
+
+          // Guardar los 12 resúmenes en Firestore
+          const batch = writeBatch(db);
+          Object.entries(monthlyBuckets).forEach(([monthKey, b]) => {
+              const eficiencia = b.vitales > 0 ? parseFloat(((b.aTiempo / b.vitales) * 100).toFixed(1)) : 100;
+              batch.set(doc(db, "resumenes_operativos", monthKey), {
+                  _conteoProduccion: {
+                      vitales: b.vitales,
+                      aTiempo: b.aTiempo,
+                      secundarias: b.secundarias,
+                      total: b.total,
+                      gastoCombustible: parseFloat(b.gastoCombustible.toFixed(2)),
+                      galonesCombustible: parseFloat(b.galonesCombustible.toFixed(2)),
+                      gastoMantenimiento: parseFloat(b.gastoMantenimiento.toFixed(2))
+                  },
+                  eficienciaGlobal: eficiencia,
+                  totalViajesMes: b.total,
+                  gastoCombustible: parseFloat(b.gastoCombustible.toFixed(2)),
+                  galonesCombustible: parseFloat(b.galonesCombustible.toFixed(2)),
+                  gastoMantenimiento: parseFloat(b.gastoMantenimiento.toFixed(2)),
+                  porUsuario: b.porUsuario,
+                  porZona: b.porZona,
+                  porPais: b.porPais,
+                  ultimaActualizacion: new Date().toISOString()
+              }, { merge: true });
+          });
+
+          await batch.commit();
+          alert(`¡Resúmenes de ${year} recalculados con éxito! Se procesaron ${prodSnap.size} viajes de producción y se actualizaron los 12 meses.`);
       } catch (error) {
-          console.error("Error reconstruyendo resúmenes", error);
-          alert("No fue posible reconstruir los resúmenes. Confirma que las nuevas Cloud Functions estén desplegadas.");
+          console.error("Error recalculando resúmenes", error);
+          alert("Error recalculando resúmenes: " + (error.message || error));
       } finally {
           setIsRebuildingSummaries(false);
       }
