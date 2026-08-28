@@ -911,9 +911,66 @@ useEffect(() => {
   const extractDateInfo = (dateStr) => { const strictStr = getStrictDateString(dateStr); if (!strictStr) return { year: null, month: null }; const [d, m, y] = strictStr.split('/'); return { year: y, month: parseInt(m, 10) }; };
   const checkDate = (dateStr) => { const { year, month } = extractDateInfo(dateStr); return year === filterYear && (filterMonth === 'all' || month === parseInt(filterMonth)); };
 
-  const handleDelete = async (collectionName, id) => { if(window.confirm("⚠️ ¿Eliminar registro permanentemente?")) { try { await deleteDoc(doc(db, collectionName, id)); } catch(e) { alert("Error al eliminar"); } } };
-  const openEditModal = (item, collectionName) => { setEditingItem({...item, collectionName}); setEditFormData(item); };
-  const handleUpdate = async () => { if(!editingItem) return; try { const { id, collectionName, ...rest } = editingItem; await updateDoc(doc(db, collectionName, id), editFormData); setEditingItem(null); } catch(e) { alert("Error al actualizar"); } };
+  const handleDelete = async (collectionName, id) => { 
+    if(!id || !collectionName) return;
+    if(window.confirm("⚠️ ¿Eliminar registro permanentemente?")) { 
+      try { 
+        await deleteDoc(doc(db, collectionName, id)); 
+        if (collectionName === 'registros_horas_extras') {
+          setOtData(prev => prev.filter(item => item.id !== id));
+        } else if (collectionName === 'registros_combustible') {
+          setFuelData(prev => prev.filter(item => item.id !== id));
+        } else if (collectionName === 'registros_mantenimiento') {
+          setMaintData(prev => prev.filter(item => item.id !== id));
+        } else if (collectionName === 'registros_produccion') {
+          setLiveData(prev => prev.filter(item => item.id !== id));
+        }
+        alert("¡Registro eliminado correctamente!");
+      } catch(e) { 
+        console.error("Error al eliminar:", e);
+        alert(`Error al eliminar: ${e.message || e}`); 
+      } 
+    } 
+  };
+
+  const openEditModal = (item, collectionName) => { 
+    setEditingItem({ ...item, collectionName }); 
+    setEditFormData({ ...item }); 
+  };
+
+  const handleUpdate = async () => { 
+    if(!editingItem || !editingItem.id || !editingItem.collectionName) return; 
+    try { 
+      const { id, collectionName } = editingItem; 
+      const payload = { ...editFormData };
+      delete payload.id;
+      delete payload.collectionName;
+      
+      Object.keys(payload).forEach(key => {
+        if (payload[key] === undefined) {
+          delete payload[key];
+        }
+      });
+      
+      await updateDoc(doc(db, collectionName, id), payload); 
+      
+      if (collectionName === 'registros_horas_extras') {
+        setOtData(prev => prev.map(item => item.id === id ? { ...item, ...payload } : item));
+      } else if (collectionName === 'registros_combustible') {
+        setFuelData(prev => prev.map(item => item.id === id ? { ...item, ...payload } : item));
+      } else if (collectionName === 'registros_mantenimiento') {
+        setMaintData(prev => prev.map(item => item.id === id ? { ...item, ...payload } : item));
+      } else if (collectionName === 'registros_produccion') {
+        setLiveData(prev => prev.map(item => item.id === id ? { ...item, ...payload } : item));
+      }
+
+      setEditingItem(null); 
+      alert("¡Registro actualizado correctamente!");
+    } catch(e) { 
+      console.error("Error al actualizar:", e);
+      alert(`Error al actualizar: ${e.message || e}`); 
+    } 
+  };
   
   const handleEditFormChange = (e) => { 
       const { name, value } = e.target; 
