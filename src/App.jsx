@@ -584,10 +584,23 @@ const handleSyncToCloud = async () => {
 
   const transportistaOtData = useMemo(() => {
       if (!otData) return [];
+      const currentEmail = String(currentUser?.email || '').toLowerCase().trim();
+      const currentRecolector = String(form.recolector || userProfile.nombre || '').toUpperCase().trim();
+      
       return otData
-          .filter((record) => isDateInRange(record.fecha, sysConfig?.heInicio, sysConfig?.heFin))
+          .filter((record) => {
+              const regRaw = String(record.usuario || '').trim();
+              const regLower = regRaw.toLowerCase();
+              const regUpper = regRaw.toUpperCase();
+              const isMatch = regLower === currentEmail 
+                  || (currentEmail.includes('@') && regLower === currentEmail.split('@')[0])
+                  || (currentRecolector && (regUpper === currentRecolector || regUpper === `NOMBRE:${currentRecolector}` || regLower === currentRecolector.toLowerCase()))
+                  || (userProfile.nombre && (regUpper === userProfile.nombre.toUpperCase() || regLower === userProfile.nombre.toLowerCase()));
+              if (!isMatch) return false;
+              return isDateInRange(record.fecha, sysConfig?.heInicio, sysConfig?.heFin);
+          })
           .sort(sortByRecordDateDesc);
-  }, [otData, sysConfig]);
+  }, [otData, sysConfig, currentUser?.email, form.recolector, userProfile.nombre]);
 
 useEffect(() => {
     if (!currentUser) return;
@@ -859,8 +872,29 @@ useEffect(() => {
           return;
       }
 
+      const cleanEmail = currentUser.email.toLowerCase().trim();
+      const possibleNames = [
+          cleanEmail,
+          cleanEmail.split('@')[0],
+          USUARIOS_EMAIL[cleanEmail],
+          userProfile?.nombre,
+          form?.recolector
+      ].filter(Boolean);
+
+      const userIdentitiesSet = new Set();
+      possibleNames.forEach(name => {
+          const raw = String(name).trim();
+          if (!raw) return;
+          userIdentitiesSet.add(raw);
+          userIdentitiesSet.add(raw.toLowerCase());
+          userIdentitiesSet.add(raw.toUpperCase());
+          userIdentitiesSet.add(`nombre:${raw}`);
+          userIdentitiesSet.add(`nombre:${raw.toUpperCase()}`);
+      });
+      const userIdentities = Array.from(userIdentitiesSet).slice(0, 30);
+
       const overtimeQuery = appMode === 'user'
-          ? query(collection(db, "registros_horas_extras"), where("usuario", "==", currentUser.email.toLowerCase().trim()), limit(100))
+          ? query(collection(db, "registros_horas_extras"), where("usuario", "in", userIdentities), limit(100))
           : query(collection(db, "registros_horas_extras"), where("fecha", ">=", startDate), orderBy("fecha", "desc"));
       let cancelled = false;
 
@@ -875,7 +909,7 @@ useEffect(() => {
           });
 
       return () => { cancelled = true; };
-  }, [currentUser?.email, appMode, adminSection, userView, sysConfig?.heInicio]);
+  }, [currentUser?.email, appMode, adminSection, userView, sysConfig?.heInicio, userProfile?.nombre, form?.recolector]);
 
   const getUserZone = (emailOrName) => { 
       let email = emailOrName; 
@@ -1054,10 +1088,13 @@ const gamificationStats = useMemo(() => {
       }
       
       const userOt = otData.filter(d => { 
-          const registroEmail = String(d.usuario || '').toLowerCase().trim();
-          const registroRecolector = String(d.usuario || '').toUpperCase().trim();
-          const isMatch = (registroEmail && registroEmail === currentEmail) || 
-                          (currentRecolector && (registroRecolector === currentRecolector || registroRecolector === `nombre:${currentRecolector}`));
+          const registroUsuario = String(d.usuario || '').trim();
+          const regLower = registroUsuario.toLowerCase();
+          const regUpper = registroUsuario.toUpperCase();
+          const isMatch = regLower === currentEmail 
+              || (currentEmail.includes('@') && regLower === currentEmail.split('@')[0])
+              || (currentRecolector && (regUpper === currentRecolector || regUpper === `NOMBRE:${currentRecolector}` || regLower === currentRecolector.toLowerCase()))
+              || (userProfile?.nombre && (regUpper === userProfile.nombre.toUpperCase() || regLower === userProfile.nombre.toLowerCase()));
           if (!isMatch) return false;
 
           if (sysConfig?.heInicio && sysConfig?.heFin) {
