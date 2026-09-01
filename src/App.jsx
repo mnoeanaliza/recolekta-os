@@ -92,13 +92,15 @@ const isDateInRange = (value, startDate, endDate) => {
     return (!start || date >= start) && (!end || date <= end);
 };
 
+const cleanToken = (str) => String(str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
 const isRecordForUser = (record, userEmail, profile, userForm) => {
     if (!record) return false;
-    const cleanEmail = String(userEmail || '').toLowerCase().trim();
+    const cleanEmail = cleanToken(userEmail);
     const emailPrefix = cleanEmail.includes('@') ? cleanEmail.split('@')[0] : cleanEmail;
-    const catalogName = String(USUARIOS_EMAIL[cleanEmail] || '').toLowerCase().trim();
-    const profileName = String(profile?.nombre || '').toLowerCase().trim();
-    const formName = String(userForm?.recolector || '').toLowerCase().trim();
+    const catalogName = cleanToken(USUARIOS_EMAIL[cleanEmail] || USUARIOS_EMAIL[String(userEmail || '').toLowerCase().trim()]);
+    const profileName = cleanToken(profile?.nombre);
+    const formName = cleanToken(userForm?.recolector);
 
     const allowedTokens = [cleanEmail, emailPrefix, catalogName, profileName, formName].filter(Boolean);
 
@@ -109,13 +111,14 @@ const isRecordForUser = (record, userEmail, profile, userForm) => {
         record.colaborador,
         record.email,
         record.nombre
-    ].map(val => String(val || '').toLowerCase().trim()).filter(Boolean);
+    ].map(cleanToken).filter(Boolean);
 
     return candidates.some(candidate => {
         if (allowedTokens.includes(candidate)) return true;
         if (candidate.startsWith('nombre:') && allowedTokens.includes(candidate.replace('nombre:', '').trim())) return true;
         if (catalogName && (candidate.includes(catalogName) || catalogName.includes(candidate))) return true;
         if (profileName && (candidate.includes(profileName) || profileName.includes(candidate))) return true;
+        if (formName && (candidate.includes(formName) || formName.includes(candidate))) return true;
         if (emailPrefix && candidate === emailPrefix) return true;
         return false;
     });
@@ -881,29 +884,17 @@ useEffect(() => {
 
   useEffect(() => {
       if (!currentUser?.email) return;
-      const isAdminHr = appMode === 'admin' && adminSection === 'hr';
-      const isUserOvertimeView = appMode === 'user' && (userView === 'extras' || userView === 'perfil');
-
-      if (!isAdminHr && !isUserOvertimeView) {
-          setOtData([]);
-          return;
-      }
-
-      const overtimeQuery = query(collection(db, "registros_horas_extras"), limit(200));
-      let cancelled = false;
-
-      getDocs(overtimeQuery)
-          .then((snap) => {
-              if (cancelled) return;
+      const unsubOt = onSnapshot(
+          query(collection(db, "registros_horas_extras"), limit(200)),
+          (snap) => {
               setOtData(snap.docs.map((item) => ({ id: item.id, ...item.data() })).sort(sortByRecordDateDesc));
-          })
-          .catch((error) => {
-              if (!cancelled) setOtData([]);
+          },
+          (error) => {
               console.error('Error cargando horas extras', error);
-          });
-
-      return () => { cancelled = true; };
-  }, [currentUser?.email, appMode, adminSection, userView]);
+          }
+      );
+      return () => unsubOt();
+  }, [currentUser?.email]);
 
   const getUserZone = (emailOrName) => { 
       let email = emailOrName; 
