@@ -884,8 +884,42 @@ useEffect(() => {
 
   useEffect(() => {
       if (!currentUser?.email) return;
+      
+      let q;
+      if (appMode === 'user') {
+          const cleanEmail = currentUser.email.toLowerCase().trim();
+          const possibleNames = [
+              cleanEmail,
+              cleanEmail.split('@')[0],
+              USUARIOS_EMAIL[cleanEmail],
+              userProfile?.nombre,
+              form?.recolector
+          ].filter(Boolean);
+
+          const userIdentitiesSet = new Set();
+          possibleNames.forEach(name => {
+              const raw = String(name).trim();
+              if (!raw) return;
+              userIdentitiesSet.add(raw);
+              userIdentitiesSet.add(raw.toLowerCase());
+              userIdentitiesSet.add(raw.toUpperCase());
+              userIdentitiesSet.add(`NOMBRE:${raw.toUpperCase()}`);
+              userIdentitiesSet.add(`nombre:${raw.toLowerCase()}`);
+          });
+          const userIdentities = Array.from(userIdentitiesSet).slice(0, 30);
+          
+          if (userIdentities.length > 0) {
+              q = query(collection(db, "registros_horas_extras"), where("usuario", "in", userIdentities), limit(500));
+          } else {
+              q = query(collection(db, "registros_horas_extras"), limit(500));
+          }
+      } else {
+          // Admin needs all records for the period. Since dates are mixed format, we pull a larger chunk.
+          q = query(collection(db, "registros_horas_extras"), limit(2000));
+      }
+
       const unsubOt = onSnapshot(
-          query(collection(db, "registros_horas_extras"), limit(200)),
+          q,
           (snap) => {
               setOtData(snap.docs.map((item) => ({ id: item.id, ...item.data() })).sort(sortByRecordDateDesc));
           },
@@ -894,7 +928,7 @@ useEffect(() => {
           }
       );
       return () => unsubOt();
-  }, [currentUser?.email]);
+  }, [currentUser?.email, appMode, userProfile?.nombre, form?.recolector]);
 
   const getUserZone = (emailOrName) => { 
       let email = emailOrName; 
