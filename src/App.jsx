@@ -92,6 +92,35 @@ const isDateInRange = (value, startDate, endDate) => {
     return (!start || date >= start) && (!end || date <= end);
 };
 
+const isRecordForUser = (record, userEmail, profile, userForm) => {
+    if (!record) return false;
+    const cleanEmail = String(userEmail || '').toLowerCase().trim();
+    const emailPrefix = cleanEmail.includes('@') ? cleanEmail.split('@')[0] : cleanEmail;
+    const catalogName = String(USUARIOS_EMAIL[cleanEmail] || '').toLowerCase().trim();
+    const profileName = String(profile?.nombre || '').toLowerCase().trim();
+    const formName = String(userForm?.recolector || '').toLowerCase().trim();
+
+    const allowedTokens = [cleanEmail, emailPrefix, catalogName, profileName, formName].filter(Boolean);
+
+    const candidates = [
+        record.usuario,
+        record.recolector,
+        record.usuarioEmail,
+        record.colaborador,
+        record.email,
+        record.nombre
+    ].map(val => String(val || '').toLowerCase().trim()).filter(Boolean);
+
+    return candidates.some(candidate => {
+        if (allowedTokens.includes(candidate)) return true;
+        if (candidate.startsWith('nombre:') && allowedTokens.includes(candidate.replace('nombre:', '').trim())) return true;
+        if (catalogName && (candidate.includes(catalogName) || catalogName.includes(candidate))) return true;
+        if (profileName && (candidate.includes(profileName) || profileName.includes(candidate))) return true;
+        if (emailPrefix && candidate === emailPrefix) return true;
+        return false;
+    });
+};
+
 const sortByRecordDateDesc = (first, second) =>
     normalizeDateForComparison(second.fecha).localeCompare(normalizeDateForComparison(first.fecha));
 
@@ -583,20 +612,10 @@ const handleSyncToCloud = async () => {
   };
 
   const transportistaOtData = useMemo(() => {
-      if (!otData) return [];
-      const currentEmail = String(currentUser?.email || '').toLowerCase().trim();
-      const currentRecolector = String(form.recolector || userProfile.nombre || '').toUpperCase().trim();
-      
+      if (!otData || otData.length === 0) return [];
       return otData
           .filter((record) => {
-              const regRaw = String(record.usuario || '').trim();
-              const regLower = regRaw.toLowerCase();
-              const regUpper = regRaw.toUpperCase();
-              const isMatch = regLower === currentEmail 
-                  || (currentEmail.includes('@') && regLower === currentEmail.split('@')[0])
-                  || (currentRecolector && (regUpper === currentRecolector || regUpper === `NOMBRE:${currentRecolector}` || regLower === currentRecolector.toLowerCase()))
-                  || (userProfile.nombre && (regUpper === userProfile.nombre.toUpperCase() || regLower === userProfile.nombre.toLowerCase()));
-              if (!isMatch) return false;
+              if (!isRecordForUser(record, currentUser?.email, userProfile, form)) return false;
               return isDateInRange(record.fecha, sysConfig?.heInicio, sysConfig?.heFin);
           })
           .sort(sortByRecordDateDesc);
@@ -862,8 +881,6 @@ useEffect(() => {
 
   useEffect(() => {
       if (!currentUser?.email) return;
-      const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().substring(0, 10);
-      const startDate = sysConfig?.heInicio || startOfMonth;
       const isAdminHr = appMode === 'admin' && adminSection === 'hr';
       const isUserOvertimeView = appMode === 'user' && (userView === 'extras' || userView === 'perfil');
 
@@ -872,30 +889,7 @@ useEffect(() => {
           return;
       }
 
-      const cleanEmail = currentUser.email.toLowerCase().trim();
-      const possibleNames = [
-          cleanEmail,
-          cleanEmail.split('@')[0],
-          USUARIOS_EMAIL[cleanEmail],
-          userProfile?.nombre,
-          form?.recolector
-      ].filter(Boolean);
-
-      const userIdentitiesSet = new Set();
-      possibleNames.forEach(name => {
-          const raw = String(name).trim();
-          if (!raw) return;
-          userIdentitiesSet.add(raw);
-          userIdentitiesSet.add(raw.toLowerCase());
-          userIdentitiesSet.add(raw.toUpperCase());
-          userIdentitiesSet.add(`nombre:${raw}`);
-          userIdentitiesSet.add(`nombre:${raw.toUpperCase()}`);
-      });
-      const userIdentities = Array.from(userIdentitiesSet).slice(0, 30);
-
-      const overtimeQuery = appMode === 'user'
-          ? query(collection(db, "registros_horas_extras"), where("usuario", "in", userIdentities), limit(100))
-          : query(collection(db, "registros_horas_extras"), where("fecha", ">=", startDate), orderBy("fecha", "desc"));
+      const overtimeQuery = query(collection(db, "registros_horas_extras"), limit(200));
       let cancelled = false;
 
       getDocs(overtimeQuery)
@@ -909,7 +903,7 @@ useEffect(() => {
           });
 
       return () => { cancelled = true; };
-  }, [currentUser?.email, appMode, adminSection, userView, sysConfig?.heInicio, userProfile?.nombre, form?.recolector]);
+  }, [currentUser?.email, appMode, adminSection, userView]);
 
   const getUserZone = (emailOrName) => { 
       let email = emailOrName; 
@@ -1088,15 +1082,7 @@ const gamificationStats = useMemo(() => {
       }
       
       const userOt = otData.filter(d => { 
-          const registroUsuario = String(d.usuario || '').trim();
-          const regLower = registroUsuario.toLowerCase();
-          const regUpper = registroUsuario.toUpperCase();
-          const isMatch = regLower === currentEmail 
-              || (currentEmail.includes('@') && regLower === currentEmail.split('@')[0])
-              || (currentRecolector && (regUpper === currentRecolector || regUpper === `NOMBRE:${currentRecolector}` || regLower === currentRecolector.toLowerCase()))
-              || (userProfile?.nombre && (regUpper === userProfile.nombre.toUpperCase() || regLower === userProfile.nombre.toLowerCase()));
-          if (!isMatch) return false;
-
+          if (!isRecordForUser(d, currentEmail, userProfile, form)) return false;
           if (sysConfig?.heInicio && sysConfig?.heFin) {
               return isDateInRange(d.fecha, sysConfig.heInicio, sysConfig.heFin);
           }

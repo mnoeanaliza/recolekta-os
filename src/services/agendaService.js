@@ -17,28 +17,53 @@ export const saveFleetAgendaAssignments = async ({ agendaData, selectedUsers, fo
       const currentUserData = agendaData.find((user) => user.id === id) || {};
       const updateData = {};
 
-      if (form.horario) updateData.horario = form.horario;
-      if (form.zona) updateData.zona = form.zona;
-      if (form.mantenimiento) updateData.mantenimiento = form.mantenimiento;
-
-      if (form.puntos) {
-        if (form.puntos.toUpperCase() === 'NINGUNO') {
-          updateData.puntos = '';
-        } else if (appendMode && currentUserData.puntos && currentUserData.puntos !== 'Ninguno') {
-          const existing = currentUserData.puntos.split('/').map((item) => item.trim()).filter(Boolean);
-          const incoming = form.puntos.split('/').map((item) => item.trim()).filter(Boolean);
-          updateData.puntos = [...new Set([...existing, ...incoming])].join(' / ');
+      const horarioTrim = (form.horario || '').trim();
+      if (horarioTrim) {
+        if (horarioTrim.toUpperCase() === 'NINGUNO' || horarioTrim.toUpperCase() === 'BORRAR') {
+          updateData.horario = '';
         } else {
-          updateData.puntos = form.puntos;
+          updateData.horario = horarioTrim;
         }
       }
 
-      if (form.turnos) {
-        if (form.turnos.toUpperCase() === 'NINGUNO') {
+      const zonaTrim = (form.zona || '').trim();
+      if (zonaTrim) {
+        if (zonaTrim.toUpperCase() === 'NINGUNO' || zonaTrim.toUpperCase() === 'BORRAR') {
+          updateData.zona = '';
+        } else {
+          updateData.zona = zonaTrim;
+        }
+      }
+
+      const maintTrim = (form.mantenimiento || '').trim();
+      if (maintTrim) {
+        if (maintTrim.toUpperCase() === 'NINGUNO' || maintTrim.toUpperCase() === 'BORRAR') {
+          updateData.mantenimiento = '';
+        } else {
+          updateData.mantenimiento = maintTrim;
+        }
+      }
+
+      const puntosTrim = (form.puntos || '').trim();
+      if (puntosTrim) {
+        if (puntosTrim.toUpperCase() === 'NINGUNO' || puntosTrim.toUpperCase() === 'BORRAR') {
+          updateData.puntos = '';
+        } else if (appendMode && currentUserData.puntos && currentUserData.puntos !== 'Ninguno') {
+          const existing = currentUserData.puntos.split('/').map((item) => item.trim()).filter(Boolean);
+          const incoming = puntosTrim.split('/').map((item) => item.trim()).filter(Boolean);
+          updateData.puntos = [...new Set([...existing, ...incoming])].join(' / ');
+        } else {
+          updateData.puntos = puntosTrim;
+        }
+      }
+
+      const turnosTrim = (form.turnos || '').trim();
+      if (turnosTrim) {
+        if (turnosTrim.toUpperCase() === 'NINGUNO' || turnosTrim.toUpperCase() === 'BORRAR') {
           updateData.turnos = 'Ninguno';
         } else if (appendMode && currentUserData.turnos && currentUserData.turnos !== 'Ninguno') {
           const existing = currentUserData.turnos.split('-').map((item) => item.trim()).filter(Boolean);
-          const incoming = form.turnos.split('-').map((item) => item.trim()).filter(Boolean);
+          const incoming = turnosTrim.split('-').map((item) => item.trim()).filter(Boolean);
           const merged = [...new Set([...existing, ...incoming])].sort((a, b) => {
             const [da, ma, ya] = a.split('/');
             const [db, mb, yb] = b.split('/');
@@ -46,7 +71,7 @@ export const saveFleetAgendaAssignments = async ({ agendaData, selectedUsers, fo
           });
           updateData.turnos = merged.join(' - ');
         } else {
-          updateData.turnos = form.turnos;
+          updateData.turnos = turnosTrim;
         }
       }
 
@@ -60,3 +85,4 @@ export const saveFleetAgendaAssignments = async ({ agendaData, selectedUsers, fo
 export const deleteFleetAgendaEntry = (id) => {
   return deleteDoc(doc(db, 'agenda_flota', id));
 };
+

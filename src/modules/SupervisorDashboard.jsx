@@ -131,7 +131,7 @@ export default function SupervisorDashboard(props) {
                 </div>
   }
 
-             {supervisorSection === 'agenda' &&
+             {supervisorSection === 'agenda' && (
   <div className="animate-in fade-in print-hide">
                     <div className="bg-[#151F32] p-4 rounded-xl border border-slate-800 mb-6 flex items-center justify-between shadow-sm">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Globe size={14} /> Contexto Operativo:</span>
@@ -139,19 +139,32 @@ export default function SupervisorDashboard(props) {
                             {catalogs.paises.map((p) => <option key={p} value={p}>{p}</option>)}
                         </select>
                     </div>
-                    {/* 🔥 AQUÍ LE DECIMOS A LA AGENDA QUE EL SUPERVISOR SOLO PUEDE VER 🔥 */}
-    <FleetAgenda
-      sucursalesObj={catalogs.sucursales}
-      transportistasObj={catalogs.transportistas}
-      countryContext={catalogCountry}
-      agendaData={agendaData}
-      readOnly={appMode === 'supervisor'}
-      perfilesUsuarios={perfilesUsuarios}
-      catalogs={catalogs}
-      filtroZona={filterZona} />
 
+                    {sysConfig?.agendaPublicada === false ? (
+                      <div className="bg-[#151F32] p-10 rounded-[2.5rem] border border-slate-800 text-center animate-in zoom-in-95 duration-300 shadow-2xl relative overflow-hidden mt-4">
+                        <div className="absolute top-0 right-0 p-4 opacity-5"><HardHat size={150} className="text-yellow-500"/></div>
+                        <div className="w-20 h-20 bg-yellow-900/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-yellow-500/30 relative z-10">
+                          <HardHat className="text-yellow-500" size={36} strokeWidth={1.5}/>
+                        </div>
+                        <h3 className="text-2xl font-black text-white mb-2 relative z-10">Agenda Oculta (En Edición)</h3>
+                        <p className="text-slate-400 text-sm font-bold max-w-md mx-auto relative z-10">
+                          La administración se encuentra realizando ajustes de último momento a los horarios y turnos de la flota. La visualización e impresión estará habilitada cuando la administración la haga pública.
+                        </p>
+                      </div>
+                    ) : (
+                      <FleetAgenda
+                        sucursalesObj={catalogs.sucursales}
+                        transportistasObj={catalogs.transportistas}
+                        countryContext={catalogCountry}
+                        agendaData={agendaData}
+                        readOnly={true}
+                        perfilesUsuarios={perfilesUsuarios}
+                        catalogs={catalogs}
+                        filtroZona={filterZona}
+                      />
+                    )}
                 </div>
-  }
+             )}
           </div>
   );
 }
