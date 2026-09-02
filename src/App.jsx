@@ -195,18 +195,25 @@ const handleSyncToCloud = async () => {
       const now = new Date();
       const currentYear = now.getFullYear().toString();
       const currentMonth = now.getMonth() + 1;
-      const isCurrentPeriod = filterYear === currentYear && (filterMonth === 'all' || Number(filterMonth) === currentMonth);
+      
+      const targetYear = Number(filterYear) || now.getFullYear();
+      const targetMonth = filterMonth === 'all' 
+          ? (targetYear === Number(currentYear) ? currentMonth : 12) 
+          : Number(filterMonth);
+      
+      const monthNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+      const targetMonthName = monthNames[targetMonth - 1] || 'Mes';
 
-      if (dataSource !== 'live' || !isCurrentPeriod) {
-          alert("Para proteger los contadores, selecciona Datos en Vivo y el mes actual antes de sincronizar.");
+      if (dataSource !== 'live') {
+          alert("Para sincronizar los contadores con la Nube, selecciona Datos en Vivo.");
           return;
       }
-      if(!window.confirm("Esta acción hará una única lectura del mes actual y actualizará los perfiles. ¿Continuar?")) return;
+      if(!window.confirm(`Esta acción leerá los registros de ${targetMonthName} ${targetYear} y sincronizará los perfiles de transportistas y el resumen en la Nube. ¿Continuar?`)) return;
       
       setIsFetchingHistory(true);
       try {
-          const start = `${now.getFullYear()}-${String(currentMonth).padStart(2, '0')}-01`;
-          const nextMonthDate = new Date(now.getFullYear(), currentMonth, 1);
+          const start = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
+          const nextMonthDate = new Date(targetYear, targetMonth, 1);
           const end = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
           const monthlySnapshot = await getDocs(query(
               collection(db, "registros_produccion"),
@@ -217,7 +224,7 @@ const handleSyncToCloud = async () => {
           ));
           const monthlyDocs = monthlySnapshot.docs.map((recordDoc) => ({ id: recordDoc.id, ...recordDoc.data() }));
           if (monthlyDocs.length === 0) {
-              alert("No hay registros del mes actual. No se modificó ningún perfil.");
+              alert(`No se encontraron registros de producción para ${targetMonthName} ${targetYear}.`);
               return;
           }
 
@@ -251,6 +258,11 @@ const handleSyncToCloud = async () => {
               }
           });
 
+          let globalVitales = 0;
+          let globalVitalesATiempo = 0;
+          let globalSecundarias = 0;
+          const porUsuarioResumen = {};
+
           // Calcula los perfiles desde Firebase para incluir usuarios creados recientemente.
           for (const [email, nombre] of usersByEmail.entries()) {
               if (!email || !nombre || ADMIN_EMAILS.includes(email) || SUPERVISOR_EMAILS.includes(email)) continue;
@@ -270,31 +282,62 @@ const handleSyncToCloud = async () => {
               userDocs.forEach(viaje => {
                   if (isPrincipalData(viaje)) {
                       vitalesTotal++;
-                      if ((viaje.tiempo || 0) <= miMeta) vitalesA_Tiempo++;
+                      globalVitales++;
+                      if ((viaje.tiempo || 0) <= miMeta) {
+                          vitalesA_Tiempo++;
+                          globalVitalesATiempo++;
+                      }
                   } else {
                       secundariasTotal++;
+                      globalSecundarias++;
                   }
               });
 
               let eficiencia = 100;
               if (vitalesTotal > 0) eficiencia = parseFloat(((vitalesA_Tiempo / vitalesTotal) * 100).toFixed(1));
 
+              porUsuarioResumen[email] = {
+                  vitales: vitalesTotal,
+                  aTiempo: vitalesA_Tiempo,
+                  secundarias: secundariasTotal,
+                  total: vitalesTotal + secundariasTotal,
+                  eficiencia: eficiencia
+              };
+
               const hasChanges = Number(profile.eficienciaNube ?? 100) !== eficiencia
                   || Number(profile.vitalesNube || 0) !== vitalesTotal
                   || Number(profile.secundariasNube || 0) !== secundariasTotal;
-              if (!hasChanges) continue;
-
-              batch.set(doc(db, "usuarios_perfiles", email), {
-                  eficienciaNube: eficiencia,
-                  vitalesNube: vitalesTotal,
-                  secundariasNube: secundariasTotal,
-                  ultimaAuditoria: new Date().toISOString()
-              }, { merge: true });
-
-              count++;
+              if (hasChanges) {
+                  batch.set(doc(db, "usuarios_perfiles", email), {
+                      eficienciaNube: eficiencia,
+                      vitalesNube: vitalesTotal,
+                      secundariasNube: secundariasTotal,
+                      ultimaAuditoria: new Date().toISOString()
+                  }, { merge: true });
+                  count++;
+              }
           }
-          if (count > 0) await batch.commit();
-          alert(`Sincronización completa. Se leyeron ${monthlyDocs.length} registros una sola vez y se actualizaron ${count} perfiles.`);
+
+          // También actualizamos el resumen operativo del mes en la nube
+          const monthDocId = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
+          const globalEf = globalVitales > 0 ? parseFloat(((globalVitalesATiempo / globalVitales) * 100).toFixed(1)) : 100;
+          batch.set(doc(db, "resumenes_operativos", monthDocId), {
+              _conteoProduccion: {
+                  vitales: globalVitales,
+                  aTiempo: globalVitalesATiempo,
+                  secundarias: globalSecundarias,
+                  total: globalVitales + globalSecundarias
+              },
+              totalViajesMes: globalVitales + globalSecundarias,
+              vitales: globalVitales,
+              secundarias: globalSecundarias,
+              eficienciaGlobal: globalEf,
+              porUsuario: porUsuarioResumen,
+              actualizadoEn: new Date().toISOString()
+          }, { merge: true });
+
+          await batch.commit();
+          alert(`Sincronización completa para ${targetMonthName} ${targetYear}.\nSe leyeron ${monthlyDocs.length} registros y se actualizaron los perfiles y el resumen mensual en la Nube.`);
       } catch(e) { 
           console.error(e);
           alert("Error al sincronizar. Revisa la consola."); 
@@ -987,8 +1030,12 @@ useEffect(() => {
   };
 
   const openEditModal = (item, collectionName) => { 
+    const formattedItem = { ...item };
+    if (formattedItem.fecha) {
+        formattedItem.fecha = normalizeDateForComparison(formattedItem.fecha);
+    }
     setEditingItem({ ...item, collectionName }); 
-    setEditFormData({ ...item }); 
+    setEditFormData(formattedItem); 
   };
 
   const handleUpdate = async () => { 
@@ -998,6 +1045,12 @@ useEffect(() => {
       const payload = { ...editFormData };
       delete payload.id;
       delete payload.collectionName;
+      
+      if (collectionName === 'registros_horas_extras') {
+        if (payload.horasCalculadas !== undefined) {
+          payload.horasCalculadas = parseFloat(payload.horasCalculadas) || 0;
+        }
+      }
       
       Object.keys(payload).forEach(key => {
         if (payload[key] === undefined) {
@@ -1035,7 +1088,7 @@ useEffect(() => {
                   const [h2, m2] = newData.horaFin.split(':').map(Number);
                   let diffMins = (h2 * 60 + m2) - (h1 * 60 + m1);
                   if (diffMins < 0) diffMins += 24 * 60; 
-                  newData.horasCalculadas = parseFloat((diffMins / 60).toFixed(2));
+                  newData.horasCalculadas = parseFloat((diffMins / 60).toFixed(1));
               }
           }
           return newData;
@@ -1228,25 +1281,53 @@ const metrics = useMemo(() => {
     const sucursalStats = filtered.reduce((acc, curr) => { if(!curr.sucursal || curr.sucursal === 'N/A' || curr.sucursal === 'Ruta Externa') return acc; acc[curr.sucursal] = acc[curr.sucursal] || { totalTime: 0, count: 0 }; acc[curr.sucursal].totalTime += (curr.tiempo || 0); acc[curr.sucursal].count += 1; return acc; }, {});
     const topSucursales = Object.entries(sucursalStats).map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) })).sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
     
-    const activeDocId = `${filterYear}-${String(filterMonth === 'all' ? currMonth : filterMonth).padStart(2, '0')}`;
+    const isYearView = filterMonth === 'all';
+    const activeDocId = `${filterYear}-${String(isYearView ? currMonth : filterMonth).padStart(2, '0')}`;
     const activeMonthSummary = resumenesMensualesNube[activeDocId];
     const isFiltered = filterUser !== 'all' || filterZona !== 'all' || filterSucursal !== 'all' || Boolean(filterSpecificDate);
-    const totalMesVal = (serverMonthlyCount !== null && !isFiltered) 
-        ? serverMonthlyCount 
-        : (activeMonthSummary?.totalViajesMes || activeMonthSummary?._conteoProduccion?.total || filtered.length);
     
-    let vitalesMes = activeMonthSummary?.vitales ?? activeMonthSummary?._conteoProduccion?.vitales;
-    let secundariasMes = activeMonthSummary?.secundarias ?? activeMonthSummary?._conteoProduccion?.secundarias;
-    if ((vitalesMes === undefined || secundariasMes === undefined) && activeMonthSummary?.porUsuario) {
-        vitalesMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0);
-        secundariasMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0);
+    let totalMesVal;
+    let vitalesMes;
+    let secundariasMes;
+
+    if (isYearView && !isFiltered) {
+        totalMesVal = monthlyData.reduce((acc, m) => acc + (m.count || 0), 0);
+        vitalesMes = monthlyData.reduce((acc, m) => acc + (m.vitales || 0), 0);
+        secundariasMes = monthlyData.reduce((acc, m) => acc + (m.secundarias || 0), 0);
+        if (totalMesVal === 0 && filtered.length > 0) {
+            totalMesVal = filtered.length;
+            vitalesMes = pItems.length;
+            secundariasMes = sItems.length;
+        }
+    } else {
+        totalMesVal = (serverMonthlyCount !== null && !isFiltered) 
+            ? serverMonthlyCount 
+            : (activeMonthSummary?.totalViajesMes || activeMonthSummary?._conteoProduccion?.total || filtered.length);
+        
+        vitalesMes = activeMonthSummary?.vitales ?? activeMonthSummary?._conteoProduccion?.vitales;
+        secundariasMes = activeMonthSummary?.secundarias ?? activeMonthSummary?._conteoProduccion?.secundarias;
+        if ((vitalesMes === undefined || secundariasMes === undefined) && activeMonthSummary?.porUsuario) {
+            vitalesMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0);
+            secundariasMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0);
+        }
+        if (vitalesMes === undefined && secundariasMes === undefined) {
+            vitalesMes = pItems.length;
+            secundariasMes = sItems.length;
+        }
     }
+
+    const MONTH_NAMES_ES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+    const periodLabel = isYearView 
+        ? `AÑO ${filterYear}` 
+        : (MONTH_NAMES_ES[Number(filterMonth) - 1] || 'MES');
 
     return { 
         total: totalMesVal, 
         totalBitacora: filtered.length, 
         vitalesMes, 
         secundariasMes, 
+        periodLabel,
+        isYearView,
         efP: calcEf(pItems), 
         avgP: calcAvg(pItems), 
         countP: pItems.length, 
