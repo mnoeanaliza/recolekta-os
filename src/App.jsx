@@ -1282,44 +1282,30 @@ const metrics = useMemo(() => {
     const topSucursales = Object.entries(sucursalStats).map(([name, stats]) => ({ name, avgWait: parseFloat((stats.totalTime / stats.count).toFixed(1)) })).sort((a,b) => b.avgWait - a.avgWait).slice(0, 5);
     
     const isYearView = filterMonth === 'all';
-    const activeDocId = `${filterYear}-${String(isYearView ? currMonth : filterMonth).padStart(2, '0')}`;
+    const targetMonthNum = isYearView ? currMonth : Number(filterMonth);
+    const activeDocId = `${filterYear}-${String(targetMonthNum).padStart(2, '0')}`;
     const activeMonthSummary = resumenesMensualesNube[activeDocId];
     const isFiltered = filterUser !== 'all' || filterZona !== 'all' || filterSucursal !== 'all' || Boolean(filterSpecificDate);
     
-    let totalMesVal;
-    let vitalesMes;
-    let secundariasMes;
-
-    if (isYearView && !isFiltered) {
-        totalMesVal = monthlyData.reduce((acc, m) => acc + (m.count || 0), 0);
-        vitalesMes = monthlyData.reduce((acc, m) => acc + (m.vitales || 0), 0);
-        secundariasMes = monthlyData.reduce((acc, m) => acc + (m.secundarias || 0), 0);
-        if (totalMesVal === 0 && filtered.length > 0) {
-            totalMesVal = filtered.length;
-            vitalesMes = pItems.length;
-            secundariasMes = sItems.length;
-        }
-    } else {
-        totalMesVal = (serverMonthlyCount !== null && !isFiltered) 
-            ? serverMonthlyCount 
-            : (activeMonthSummary?.totalViajesMes || activeMonthSummary?._conteoProduccion?.total || filtered.length);
-        
-        vitalesMes = activeMonthSummary?.vitales ?? activeMonthSummary?._conteoProduccion?.vitales;
-        secundariasMes = activeMonthSummary?.secundarias ?? activeMonthSummary?._conteoProduccion?.secundarias;
-        if ((vitalesMes === undefined || secundariasMes === undefined) && activeMonthSummary?.porUsuario) {
-            vitalesMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0);
-            secundariasMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0);
-        }
-        if (vitalesMes === undefined && secundariasMes === undefined) {
-            vitalesMes = pItems.length;
-            secundariasMes = sItems.length;
-        }
+    let totalMesVal = (serverMonthlyCount !== null && !isFiltered && isYearView) 
+        ? serverMonthlyCount 
+        : (activeMonthSummary?.totalViajesMes || activeMonthSummary?._conteoProduccion?.total || filtered.length);
+    
+    let vitalesMes = activeMonthSummary?.vitales ?? activeMonthSummary?._conteoProduccion?.vitales;
+    let secundariasMes = activeMonthSummary?.secundarias ?? activeMonthSummary?._conteoProduccion?.secundarias;
+    if ((vitalesMes === undefined || secundariasMes === undefined) && activeMonthSummary?.porUsuario) {
+        vitalesMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0);
+        secundariasMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0);
+    }
+    if (vitalesMes === undefined && secundariasMes === undefined) {
+        vitalesMes = pItems.length;
+        secundariasMes = sItems.length;
     }
 
     const MONTH_NAMES_ES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
     const periodLabel = isYearView 
-        ? `AÑO ${filterYear}` 
-        : (MONTH_NAMES_ES[Number(filterMonth) - 1] || 'MES');
+        ? `MES ACTUAL (${MONTH_NAMES_ES[currMonth - 1] || 'SEPTIEMBRE'})` 
+        : (MONTH_NAMES_ES[targetMonthNum - 1] || 'MES');
 
     return { 
         total: totalMesVal, 
