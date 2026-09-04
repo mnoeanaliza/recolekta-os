@@ -904,7 +904,10 @@ useEffect(() => {
     } else if (appMode === 'supervisor') {
         if (supervisorSection === 'bitacora') {
             setFuelData([]); setMaintData([]);
-            unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfDayStr), orderBy("createdAt", "desc"), limit(queryLimit)), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+            if (isHistoricalMonth) loadHistoricalProduction();
+            else {
+                unsubOps = onSnapshot(query(collection(db, "registros_produccion"), where("createdAt", ">=", startOfMonthISO), orderBy("createdAt", "desc"), limit(queryLimit)), (snap) => setLiveData(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+            }
         } else if (supervisorSection === 'combustible') {
             setLiveData([]); setMaintData([]);
             unsubFuel = onSnapshot(query(collection(db, "registros_combustible"), where("fecha", ">=", startOfMonthStr)), (snap) => setFuelData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.fecha.localeCompare(a.fecha))));
@@ -932,7 +935,7 @@ useEffect(() => {
         if(unsubFuel) unsubFuel();
         if(unsubMaint) unsubMaint();
     };
-  }, [appMode, adminSection, supervisorSection, currentUser?.email, queryLimit, appMode === 'admin' && adminSection === 'ops' ? `${filterYear}:${filterMonth}` : 'inactive']);
+  }, [appMode, adminSection, supervisorSection, currentUser?.email, queryLimit, ((appMode === 'admin' && adminSection === 'ops') || (appMode === 'supervisor' && supervisorSection === 'bitacora')) ? `${filterYear}:${filterMonth}` : 'inactive']);
 
   useEffect(() => {
       if (!currentUser?.email) return;

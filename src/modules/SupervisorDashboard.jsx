@@ -30,10 +30,15 @@ export default function SupervisorDashboard(props) {
                 <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center w-full xl:w-auto">
                   <div className="flex flex-wrap bg-[#0B1120] p-2 rounded-xl border border-slate-800 items-center gap-2 w-full sm:w-auto">
                     <Filter size={14} className="text-slate-500 hidden sm:block" />
-                    <input type="date" value={filterSpecificDate} onChange={(e) => setFilterSpecificDate(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer flex-1 sm:flex-none" title="Filtrar por Día Exacto" />
-                    <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">{availableYears.map((y) => <option key={y} value={y} className="bg-slate-900">{y}{y === '2025' ? ' (CSV)' : ''}</option>)}</select>
-                    <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all">Toda la Flota</option>{Object.values(catalogs.transportistas || {}).flat().map((u) => <option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
-                    <select value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Año</option>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => <option key={m} value={m} className="bg-slate-900">Mes {m}</option>)}</select>
+                    <input type="date" value={filterSpecificDate} onChange={(e) => { setFilterSpecificDate(e.target.value); setCurrentPage(1); }} className="bg-transparent font-bold text-[10px] uppercase outline-none px-2 text-slate-300 border-l border-slate-700 pl-2 cursor-pointer flex-1 sm:flex-none" title="Filtrar por Día Exacto" />
+                    <select value={filterYear} onChange={(e) => { setFilterYear(e.target.value); setCurrentPage(1); }} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none">{availableYears.map((y) => <option key={y} value={y} className="bg-slate-900">{y}{y === '2025' ? ' (CSV)' : ''}</option>)}</select>
+                    <select value={filterUser} onChange={(e) => { setFilterUser(e.target.value); setCurrentPage(1); }} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all">Toda la Flota</option>{Object.values(catalogs.transportistas || {}).flat().map((u) => <option key={u} value={u} className="bg-slate-900">{u}</option>)}</select>
+                    <select value={filterMonth} onChange={(e) => { setFilterMonth(e.target.value); setCurrentPage(1); }} className="bg-transparent font-bold text-[10px] uppercase outline-none text-slate-300 border-l border-slate-700 pl-2 flex-1 sm:flex-none"><option value="all" className="bg-slate-900">Año</option>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => <option key={m} value={m} className="bg-slate-900">Mes {m}</option>)}</select>
+                    {filterUser !== 'all' && (
+                        <button onClick={() => { setFilterUser('all'); setCurrentPage(1); }} className="text-[9px] bg-red-900/30 text-red-400 border border-red-800 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-red-900/50">
+                            <X size={10} /> Quitar filtro ({filterUser.split(' ')[0]})
+                        </button>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                       <button onClick={() => setShowAvisoModal(true)} className="bg-blue-600 text-white px-4 py-3 md:py-2 rounded-lg text-[9px] font-black uppercase hover:bg-blue-500 transition-all flex items-center gap-1 shadow-md"><Send size={12} /> AVISO</button>
@@ -56,8 +61,24 @@ export default function SupervisorDashboard(props) {
                     <div className="bg-[#151F32] rounded-[2rem] shadow-xl border border-slate-800 p-6 print-hide">
                         <h4 className="font-black text-slate-300 uppercase text-xs tracking-widest mb-4 flex items-center gap-2"><Users className="text-blue-500" size={18} /> Monitor de Estatus en Vivo</h4>
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                            {adminDashboardMetrics.transportistasStats.map((stat) =>
-        <div key={stat.name} className={cn("px-3 py-2 rounded-xl flex items-center gap-3 border shadow-sm transition-all", stat.estatus === 'Standby' ? "bg-green-900/20 border-green-500/50" : stat.estatus === 'En Ruta' ? "bg-blue-900/20 border-blue-500/30" : stat.estatus === 'Almuerzo' ? "bg-yellow-900/20 border-yellow-500/50" : "bg-slate-800/40 border-slate-700")}>
+                             {adminDashboardMetrics.transportistasStats.map((stat) =>
+                                <div
+                                    key={stat.name}
+                                    onClick={() => {
+                                        setFilterUser(filterUser === stat.name ? 'all' : stat.name);
+                                        setCurrentPage(1);
+                                    }}
+                                    className={cn(
+                                        "px-3 py-2 rounded-xl flex items-center gap-3 border shadow-sm transition-all cursor-pointer select-none hover:border-blue-400",
+                                        filterUser === stat.name ? "ring-2 ring-blue-500 bg-blue-950/50 border-blue-500 shadow-blue-500/20" : (
+                                            stat.estatus === 'Standby' ? "bg-green-900/20 border-green-500/50" :
+                                            stat.estatus === 'En Ruta' ? "bg-blue-900/20 border-blue-500/30" :
+                                            stat.estatus === 'Almuerzo' ? "bg-yellow-900/20 border-yellow-500/50" :
+                                            "bg-slate-800/40 border-slate-700"
+                                        )
+                                    )}
+                                    title={filterUser === stat.name ? "Clic para ver toda la flota" : `Clic para filtrar bitácora por ${stat.name}`}
+                                >
                                     <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", stat.estatus === 'Standby' ? "bg-green-500 animate-pulse" : stat.estatus === 'En Ruta' ? "bg-blue-500" : stat.estatus === 'Almuerzo' ? "bg-yellow-500" : "bg-slate-600")}></div>
                                     <div className="flex flex-col flex-1">
                                         <span className={cn("text-[10px] font-black uppercase leading-tight", stat.estatus === 'Inactivo' ? "text-slate-500" : "text-white")}>{stat.name.split(' ')[0]}</span>
@@ -68,15 +89,15 @@ export default function SupervisorDashboard(props) {
                                     
                                     {/* ⏱️ EL CHISMOSO: Solo aparece en ruta, ignorando la hora de almuerzo */}
                                     {stat.estatus === 'En Ruta' && stat.minutosInactivo !== null &&
-          <div className="text-right">
+                                        <div className="text-right">
                                             <p className="text-[7px] text-slate-500 uppercase font-bold leading-none mb-0.5">Últ. Parada</p>
                                             <span className={cn("text-[9px] font-mono font-black", stat.minutosInactivo >= 60 ? "text-red-400 animate-pulse" : "text-blue-300")}>
                                                 {stat.minutosInactivo > 120 ? '+2 hrs' : `${stat.minutosInactivo}m`}
                                             </span>
                                         </div>
-          }
+                                    }
                                 </div>
-        )}
+                            )}
                         </div>
                     </div>
 
@@ -103,6 +124,7 @@ export default function SupervisorDashboard(props) {
                                 <button onClick={() => setCurrentPage((prev) => prev + 1)} disabled={currentPage >= Math.ceil(metrics.rows.length / itemsPerPage)} className="bg-slate-800 disabled:opacity-50 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 shadow-md">
                                     Siguiente <ChevronRight size={14} />
                                 </button>
+                                <button onClick={() => setQueryLimit((value) => value + 50)} className="bg-blue-900/40 border border-blue-700 text-blue-300 px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all hover:bg-blue-900 shadow-md">Cargar 50 más</button>
                             </div>
                        </div>
                     </div>
