@@ -263,7 +263,19 @@ const handleSyncToCloud = async () => {
           let globalSecundarias = 0;
           const porUsuarioResumen = {};
 
-          // Calcula los perfiles desde Firebase para incluir usuarios creados recientemente.
+          // 1. Calculamos los totales globales DIRECTAMENTE sobre monthlyDocs (una sola vez por documento)
+          monthlyDocs.forEach(viaje => {
+              const zone = viaje.zona || getUserZone(viaje.usuarioEmail || viaje.recolector);
+              const miMeta = getMetaEspera(zone);
+              if (isPrincipalData(viaje)) {
+                  globalVitales++;
+                  if ((viaje.tiempo || 0) <= miMeta) globalVitalesATiempo++;
+              } else {
+                  globalSecundarias++;
+              }
+          });
+
+          // 2. Calcula los perfiles desde Firebase para incluir usuarios creados recientemente.
           for (const [email, nombre] of usersByEmail.entries()) {
               if (!email || !nombre || ADMIN_EMAILS.includes(email) || SUPERVISOR_EMAILS.includes(email)) continue;
 
@@ -282,14 +294,11 @@ const handleSyncToCloud = async () => {
               userDocs.forEach(viaje => {
                   if (isPrincipalData(viaje)) {
                       vitalesTotal++;
-                      globalVitales++;
                       if ((viaje.tiempo || 0) <= miMeta) {
                           vitalesA_Tiempo++;
-                          globalVitalesATiempo++;
                       }
                   } else {
                       secundariasTotal++;
-                      globalSecundarias++;
                   }
               });
 
@@ -1248,32 +1257,35 @@ const metrics = useMemo(() => {
             if (filterMonth !== 'all' && mNum !== parseInt(filterMonth)) {
                 return { name: m, ef: 0, count: 0 };
             }
-            // 2. Extraemos los datos locales de la memoria de la PC
+            // 1. Si seleccionó un mes específico, aplanamos visualmente los demás
+            if (filterMonth !== 'all' && mNum !== parseInt(filterMonth)) {
+                return { name: m, ef: 0, count: 0 };
+            }
+
+            const resumen = resumenesMensualesNube[documentId];
+            const hasCloudTrips = resumen && Number(resumen.totalViajesMes || resumen._conteoProduccion?.total || 0) > 0;
+
+            // Priorizamos los resúmenes consolidados de la nube cuando no hay filtro de usuario individual,
+            // evitando que los 50 registros temporales de la bitácora en memoria limiten los datos del mes en la gráfica.
+            if (filterUser === 'all' && hasCloudTrips) {
+                const vCount = Number(resumen?.vitales ?? resumen?._conteoProduccion?.vitales ?? (resumen?.porUsuario ? Object.values(resumen.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0) : 0));
+                const sCount = Number(resumen?.secundarias ?? resumen?._conteoProduccion?.secundarias ?? (resumen?.porUsuario ? Object.values(resumen.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0) : 0));
+                const totalCount = (vCount + sCount > 0) ? (vCount + sCount) : Number(resumen.totalViajesMes || resumen._conteoProduccion?.total || 0);
+                const efVal = isFuture || totalCount === 0 ? null : (resumen.eficienciaGlobal !== undefined ? parseFloat(resumen.eficienciaGlobal) : 100);
+                return { name: m, ef: efVal, count: totalCount, vitales: vCount, secundarias: sCount };
+            }
+
+            // Si hay filtro de usuario o no hay resumen en la nube, usamos los datos locales
             const mDocs = data.filter(d => { const { year, month } = extractDateInfo(d.createdAt); return year === filterYear && month === mNum; }); 
             const finalDocs = filterUser === 'all' ? mDocs : mDocs.filter(d => d.recolector === filterUser); 
             const mRecs = finalDocs.filter(d => isPrincipalData(d)); 
 
-            let efVal = 0;
-            let countVal = 0;
-
-            // 🔥 EL MOTOR HÍBRIDO PERFECTO 🔥
             if (finalDocs.length > 0) {
                 const pCount = mRecs.length;
                 const sCount = finalDocs.length - mRecs.length;
-                efVal = isFuture ? null : (pCount > 0 ? parseFloat(calcEf(mRecs)) : null);
-                countVal = finalDocs.length;
-                return { name: m, ef: efVal, count: countVal, vitales: pCount, secundarias: sCount };
-            } else if (filterUser === 'all') {
-                // B) Si la PC NO tiene los datos (Ej. al seleccionar "Año" en Vivo), lee de la Nube
-                const resumen = resumenesMensualesNube[documentId];
-                const hasTrips = resumen && Number(resumen.totalViajesMes || resumen._conteoProduccion?.total || 0) > 0;
-                efVal = isFuture || !hasTrips ? null : parseFloat(resumen.eficienciaGlobal);
-                countVal = resumen ? Number(resumen.totalViajesMes || resumen._conteoProduccion?.total || 0) : 0;
-                const vCount = Number(resumen?.vitales ?? resumen?._conteoProduccion?.vitales ?? (resumen?.porUsuario ? Object.values(resumen.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0) : 0));
-                const sCount = Number(resumen?.secundarias ?? resumen?._conteoProduccion?.secundarias ?? (resumen?.porUsuario ? Object.values(resumen.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0) : 0));
-                return { name: m, ef: efVal, count: countVal, vitales: vCount, secundarias: sCount };
+                const efVal = isFuture ? null : (pCount > 0 ? parseFloat(calcEf(mRecs)) : null);
+                return { name: m, ef: efVal, count: finalDocs.length, vitales: pCount, secundarias: sCount };
             } else {
-                efVal = null;
                 return { name: m, ef: null, count: 0, vitales: 0, secundarias: 0 };
             }
         });
@@ -1287,19 +1299,37 @@ const metrics = useMemo(() => {
     const activeMonthSummary = resumenesMensualesNube[activeDocId];
     const isFiltered = filterUser !== 'all' || filterZona !== 'all' || filterSucursal !== 'all' || Boolean(filterSpecificDate);
     
-    let totalMesVal = (serverMonthlyCount !== null && !isFiltered && isYearView) 
-        ? serverMonthlyCount 
-        : (activeMonthSummary?.totalViajesMes || activeMonthSummary?._conteoProduccion?.total || filtered.length);
-    
-    let vitalesMes = activeMonthSummary?.vitales ?? activeMonthSummary?._conteoProduccion?.vitales;
-    let secundariasMes = activeMonthSummary?.secundarias ?? activeMonthSummary?._conteoProduccion?.secundarias;
-    if ((vitalesMes === undefined || secundariasMes === undefined) && activeMonthSummary?.porUsuario) {
-        vitalesMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0);
-        secundariasMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0);
-    }
-    if (vitalesMes === undefined && secundariasMes === undefined) {
+    let totalMesVal;
+    let vitalesMes;
+    let secundariasMes;
+    let efPVital;
+
+    if (!isFiltered) {
+        if (activeMonthSummary && Number(activeMonthSummary.totalViajesMes || activeMonthSummary._conteoProduccion?.total || 0) > 0) {
+            vitalesMes = Number(activeMonthSummary.vitales ?? activeMonthSummary._conteoProduccion?.vitales ?? 0);
+            secundariasMes = Number(activeMonthSummary.secundarias ?? activeMonthSummary._conteoProduccion?.secundarias ?? 0);
+            if (vitalesMes === 0 && secundariasMes === 0 && activeMonthSummary.porUsuario) {
+                vitalesMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.vitales || 0), 0);
+                secundariasMes = Object.values(activeMonthSummary.porUsuario).reduce((acc, u) => acc + Number(u.secundarias || 0), 0);
+            }
+            totalMesVal = (vitalesMes + secundariasMes > 0) ? (vitalesMes + secundariasMes) : Number(activeMonthSummary.totalViajesMes || 0);
+            efPVital = activeMonthSummary.eficienciaGlobal !== undefined ? parseFloat(activeMonthSummary.eficienciaGlobal) : calcEf(pItems);
+        } else if (serverMonthlyCount !== null && serverMonthlyCount > 0) {
+            totalMesVal = serverMonthlyCount;
+            vitalesMes = undefined;
+            secundariasMes = undefined;
+            efPVital = calcEf(pItems);
+        } else {
+            totalMesVal = filtered.length;
+            vitalesMes = pItems.length;
+            secundariasMes = sItems.length;
+            efPVital = calcEf(pItems);
+        }
+    } else {
+        totalMesVal = filtered.length;
         vitalesMes = pItems.length;
         secundariasMes = sItems.length;
+        efPVital = calcEf(pItems);
     }
 
     const MONTH_NAMES_ES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
@@ -1314,7 +1344,7 @@ const metrics = useMemo(() => {
         secundariasMes, 
         periodLabel,
         isYearView,
-        efP: calcEf(pItems), 
+        efP: efPVital, 
         avgP: calcAvg(pItems), 
         countP: pItems.length, 
         efS: calcEf(sItems), 
